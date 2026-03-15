@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SCUE — EDM Structure Analyzer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>SCUE</h1>
+    <span class="subtitle">EDM Structure Analyzer</span>
+    <span class="pioneer-status" id="pioneer-status">Pioneer: Disconnected</span>
+  </header>
+
+  <main>
+    <!-- ====== LIVE DECKS (Pioneer Link) ====== -->
+    <section id="live-section">
+      <h2 class="section-heading">Live Decks <span class="heading-badge" id="link-badge">OSC</span></h2>
+
+      <div class="decks-row">
+        <!-- Deck 1 -->
+        <div class="deck-panel" id="deck-1" data-channel="1">
+          <div class="deck-header">
+            <span class="deck-number">CH 1</span>
+            <span class="deck-play-state" id="deck-1-state">STOPPED</span>
+          </div>
+          <div class="deck-track">
+            <div class="deck-artist" id="deck-1-artist">—</div>
+            <div class="deck-title" id="deck-1-title">No track loaded</div>
+          </div>
+          <div class="deck-meters">
+            <div class="deck-bpm-group">
+              <div class="deck-field">
+                <span class="field-label">Original BPM</span>
+                <span class="field-value" id="deck-1-original-bpm">—</span>
+              </div>
+              <div class="deck-field">
+                <span class="field-label">Current BPM</span>
+                <span class="field-value accent" id="deck-1-effective-bpm">—</span>
+              </div>
+              <div class="deck-field">
+                <span class="field-label">Pitch</span>
+                <span class="field-value" id="deck-1-pitch">—</span>
+              </div>
+            </div>
+            <div class="deck-position-group">
+              <div class="deck-field">
+                <span class="field-label">Position</span>
+                <span class="field-value mono" id="deck-1-position">0:00.0</span>
+              </div>
+              <div class="deck-field">
+                <span class="field-label">Track Length</span>
+                <span class="field-value mono" id="deck-1-length">0:00</span>
+              </div>
+            </div>
+            <div class="deck-beat-group">
+              <div class="deck-field">
+                <span class="field-label">Beat</span>
+                <span class="field-value" id="deck-1-beat">—</span>
+              </div>
+              <div class="deck-field">
+                <span class="field-label">Bar Pos</span>
+                <div class="beat-dots" id="deck-1-bar-dots">
+                  <span class="beat-dot"></span>
+                  <span class="beat-dot"></span>
+                  <span class="beat-dot"></span>
+                  <span class="beat-dot"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="deck-flags">
+            <span class="flag" id="deck-1-flag-onair">ON AIR</span>
+            <span class="flag" id="deck-1-flag-master">MASTER</span>
+            <span class="flag" id="deck-1-flag-sync">SYNC</span>
+            <span class="flag" id="deck-1-flag-loop">LOOP</span>
+          </div>
+          <div class="deck-meta-row">
+            <span class="deck-key" id="deck-1-key">—</span>
+            <span class="deck-genre" id="deck-1-genre">—</span>
+          </div>
+        </div>
+
+        <!-- Deck 2 -->
+        <div class="deck-panel" id="deck-2" data-channel="2">
+          <div class="deck-header">
+            <span class="deck-number">CH 2</span>
+            <span class="deck-play-state" id="deck-2-state">STOPPED</span>
+          </div>
+          <div class="deck-track">
+            <div class="deck-artist" id="deck-2-artist">—</div>
+            <div class="deck-title" id="deck-2-title">No track loaded</div>
+          </div>
+          <div class="deck-meters">
+            <div class="deck-bpm-group">
+              <div class="deck-field">
+                <span class="field-label">Original BPM</span>
+                <span class="field-value" id="deck-2-original-bpm">—</span>
+              </div>
+              <div class="deck-field">
+                <span class="field-label">Current BPM</span>
+                <span class="field-value accent" id="deck-2-effective-bpm">—</span>
+              </div>
+              <div class="deck-field">
+                <span class="field-label">Pitch</span>
+                <span class="field-value" id="deck-2-pitch">—</span>
+              </div>
+            </div>
+            <div class="deck-position-group">
+              <div class="deck-field">
+                <span class="field-label">Position</span>
+                <span class="field-value mono" id="deck-2-position">0:00.0</span>
+              </div>
+              <div class="deck-field">
+                <span class="field-label">Track Length</span>
+                <span class="field-value mono" id="deck-2-length">0:00</span>
+              </div>
+            </div>
+            <div class="deck-beat-group">
+              <div class="deck-field">
+                <span class="field-label">Beat</span>
+                <span class="field-value" id="deck-2-beat">—</span>
+              </div>
+              <div class="deck-field">
+                <span class="field-label">Bar Pos</span>
+                <div class="beat-dots" id="deck-2-bar-dots">
+                  <span class="beat-dot"></span>
+                  <span class="beat-dot"></span>
+                  <span class="beat-dot"></span>
+                  <span class="beat-dot"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="deck-flags">
+            <span class="flag" id="deck-2-flag-onair">ON AIR</span>
+            <span class="flag" id="deck-2-flag-master">MASTER</span>
+            <span class="flag" id="deck-2-flag-sync">SYNC</span>
+            <span class="flag" id="deck-2-flag-loop">LOOP</span>
+          </div>
+          <div class="deck-meta-row">
+            <span class="deck-key" id="deck-2-key">—</span>
+            <span class="deck-genre" id="deck-2-genre">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Raw Pioneer Data -->
+      <div class="pioneer-data-panel" id="pioneer-data-panel">
+        <h3 class="section-heading-sm">Pioneer Link Data <span class="heading-badge-sm">RAW</span></h3>
+        <div class="pioneer-data-grid" id="pioneer-data-grid">
+          <div class="pioneer-data-empty">Waiting for beat-link-trigger OSC data on port 9000...</div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="divider">
+
+    <!-- ====== TRACK ANALYSIS ====== -->
+    <section>
+      <h2 class="section-heading">Track Analysis</h2>
+
+      <!-- Upload -->
+      <div id="drop-zone">
+        <div class="drop-icon">&#9835;</div>
+        <div class="drop-text">Drop an EDM track here or click to browse</div>
+        <div class="drop-formats">WAV / MP3 &middot; Max 200 MB</div>
+      </div>
+      <input type="file" id="file-input" accept=".wav,.mp3">
+
+      <div id="status" class="status"></div>
+
+      <!-- Analyzing spinner -->
+      <div id="analyze-section">
+        <div class="spinner"></div>
+        <div style="color: var(--text-muted); font-size: 13px;">
+          Analyzing track structure...<br>
+          <span style="font-size: 11px; opacity: 0.6;">Running ML inference + feature extraction</span>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div id="results-section">
+        <!-- Stats -->
+        <div class="stats-bar">
+          <div class="stat">
+            <span class="stat-label">BPM</span>
+            <span class="stat-value" id="bpm">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Duration</span>
+            <span class="stat-value" id="duration-display">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Sections</span>
+            <span class="stat-value" id="section-count">—</span>
+          </div>
+        </div>
+
+        <!-- Waveform legend -->
+        <div class="legend">
+          <div class="legend-item">
+            <div class="legend-swatch" style="background: #ff4444;"></div>
+            Bass (0-250Hz)
+          </div>
+          <div class="legend-item">
+            <div class="legend-swatch" style="background: #44ff44;"></div>
+            Mids (250Hz-4kHz)
+          </div>
+          <div class="legend-item">
+            <div class="legend-swatch" style="background: #4444ff;"></div>
+            Highs (4kHz+)
+          </div>
+        </div>
+
+        <!-- Waveform -->
+        <div class="waveform-container">
+          <canvas id="waveform-canvas"></canvas>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+          <button id="play-btn">Play</button>
+          <button id="stop-btn">Stop</button>
+          <span id="time-display">0:00 / 0:00</span>
+          <div class="zoom-controls">
+            <button id="zoom-out" title="Zoom out">&minus;</button>
+            <button id="zoom-in" title="Zoom in">+</button>
+          </div>
+        </div>
+
+        <!-- Sections -->
+        <div class="sections-panel">
+          <h3>Sections</h3>
+          <div id="sections-list"></div>
+        </div>
+
+        <!-- JSON -->
+        <div class="json-panel collapsed" id="json-panel">
+          <button id="json-toggle">Show JSON</button>
+          <pre id="json-content"></pre>
+        </div>
+      </div>
+    </section>
+
+    <audio id="audio-player"></audio>
+  </main>
+
+  <script src="/static/waveform.js"></script>
+  <script src="/static/pioneer.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:deepwiki.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:centre-borelli.github.io)",
+      "WebFetch(domain:blt-guide.deepsymmetry.org)",
+      "WebFetch(domain:obc-guide.deepsymmetry.org)",
+      "WebFetch(domain:deepsymmetry.org)",
+      "Bash(.venv/bin/python -c \":*)",
+      "Bash(.venv/bin/pip list:*)",
+      "Bash(.venv/bin/pip install:*)"
+    ]
+  }
+}
