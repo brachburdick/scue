@@ -35,3 +35,15 @@ Date: 2025-03
 Context: During DJ transitions, two tracks play simultaneously. Layer 2 needs to blend cue streams from both decks proportionally.
 Decision: Layer 1B tracks all active decks simultaneously and produces a `DeckMix` with per-deck `WeightedCursor` objects. Layer 2 generates cues per-deck and blends via a cue mixer using deck weights. Phase 1: master-only (weight 1.0 for master, 0.0 for others). Phase 2: crossfade blend based on on-air/crossfader state. Phase 3: manual weight assignment.
 Consequences: TrackCursor infrastructure must support multiple simultaneous cursors from day one. Weight calculation strategy is configurable in project settings (`mix_mode`).
+
+## ADR-007: Path-based analyze flow instead of file upload
+Date: 2026-03
+Context: SCUE runs locally and audio files are already on the local filesystem. A drag-and-drop upload would redundantly copy large audio files.
+Decision: The analyze flow uses path-based input — user provides a directory path (typed or via server-side filesystem browser), backend scans it, then analyzes new files in place. No file copying or upload.
+Consequences: Requires a server-side filesystem browse endpoint (`GET /api/filesystem/browse`) since browsers cannot expose absolute paths from native file pickers. Analysis reads files directly from their original location.
+
+## ADR-008: Sequential batch analysis with in-memory job tracking
+Date: 2026-03
+Context: `run_analysis()` is CPU-bound (~3-4s/track with librosa/MLX). Parallel analysis would thrash memory. SCUE is a local tool — no persistence needed for job state.
+Decision: Batch analysis processes files sequentially via `asyncio.to_thread()` to keep the event loop responsive. Job state is tracked in-memory (`scue/api/jobs.py`). Frontend polls every 1s and auto-stops on completion.
+Consequences: Job state is lost on server restart (acceptable for local tool). If persistence is needed later, jobs can be backed by SQLite.

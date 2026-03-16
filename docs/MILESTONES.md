@@ -58,9 +58,13 @@ Completed: 2026-03-16
 
 ## Backlog
 
-### Milestone FE-3 — Track Table (Read-Only)
-- TanStack Table with sorting, filtering, status indicators
-- Loads from GET /api/tracks
+### ~~Milestone FE-3 — Track Table (Read-Only)~~ → COMPLETE (2026-03-16)
+- [x] TanStack Table with 10 sortable columns (Title, Artist, BPM, Key, Duration, Sections, Mood, Source, Analyzed, ID)
+- [x] Client-side search filtering by title/artist
+- [x] Mood badges (color-coded) and Source badges (analysis vs enriched)
+- [x] TanStack Query integration with Vite API proxy
+- [x] QueryClientProvider wired into app root
+- [x] TypeScript types mirroring Python models (src/types/track.ts)
 
 ### Milestone 0 — Beat-Link Bridge (Layer 0)
 - Java bridge JAR + Python manager + adapter + fallback
@@ -75,7 +79,16 @@ Completed: 2026-03-16
 ### Milestone 5 — DMX Output (Layer 4A + 4B)
 ### Milestone 6 — End-to-End Demo
 ### Milestone FE-2 — WebSocket + Console + Bridge Status
-### Milestone FE-4 — Upload & Analyze Flow
+### ~~Milestone FE-4 — Upload & Analyze Flow~~ → COMPLETE (2026-03-16)
+- [x] Path-based scan → batch analyze → progress tracking flow
+- [x] `POST /api/tracks/scan` — directory scanning with fingerprint-based dedup
+- [x] `POST /api/tracks/analyze-batch` — sequential background analysis with in-memory job tracking
+- [x] `GET /api/tracks/jobs/{job_id}` — job status polling (1s interval, auto-stops on completion)
+- [x] `GET /api/filesystem/browse` — server-side filesystem browser (separate router)
+- [x] AnalyzePanel: 3-phase UI (path input → scan results → progress bar)
+- [x] FolderBrowser modal: breadcrumb navigation, directory/audio-file listing
+- [x] Auto-dismiss on completion: resets to path input after 2s delay
+- [x] Zustand store for analyze flow state (analyzeStore.ts)
 ### Milestone FE-5 — Track Management + Projects
 ### Milestone FE-6 — Enrichment + Logs + Network Pages
 ### Milestone 7 — Event Detection (Layer 1A, Tier 2)

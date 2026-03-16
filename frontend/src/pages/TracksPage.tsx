@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTracks } from "../api/tracks";
+import { AnalyzePanel } from "../components/tracks/AnalyzePanel";
 import { TrackTable } from "../components/tracks/TrackTable";
 import { TrackToolbar } from "../components/tracks/TrackToolbar";
 
@@ -10,6 +11,7 @@ export function TracksPage() {
   return (
     <div>
       <h1 className="text-xl font-semibold mb-4">Tracks</h1>
+      <AnalyzePanel />
 
       {error ? (
         <p className="text-red-400 text-sm">

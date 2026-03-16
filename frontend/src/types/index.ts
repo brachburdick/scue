@@ -10,3 +10,13 @@ export type {
   TrackAnalysis,
   TrackListResponse,
 } from "./track";
+
+export type {
+  ScannedFile,
+  ScanResponse,
+  BatchAnalyzeResponse,
+  JobFileResult,
+  JobStatus,
+  BrowseEntry,
+  BrowseResponse,
+} from "./analyze";

@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api.filesystem import router as filesystem_router
 from .api.tracks import init_tracks_api, router as tracks_router
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ app.add_middleware(
 
 # Register routers
 app.include_router(tracks_router)
+app.include_router(filesystem_router)
 
 # Default project paths (can be overridden via env or config)
 DEFAULT_TRACKS_DIR = Path("tracks")

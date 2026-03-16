@@ -4,21 +4,29 @@ Provides CRUD operations for track analyses:
 - GET /api/tracks — list all analyzed tracks (from SQLite cache)
 - GET /api/tracks/{fingerprint} — get full analysis (from JSON)
 - POST /api/tracks/analyze — trigger analysis of an audio file
+- POST /api/tracks/scan — scan a directory for audio files
+- POST /api/tracks/analyze-batch — batch analyze multiple files
+- GET /api/tracks/jobs/{job_id} — poll batch analysis progress
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from pydantic import BaseModel
 
 from ..layer1.models import analysis_to_dict
 from ..layer1.storage import TrackCache, TrackStore
+from .jobs import AnalysisJob, create_job, get_job, job_to_dict
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tracks", tags=["tracks"])
+
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aiff", ".m4a", ".ogg"}
 
 # These will be initialized by the app startup
 _store: TrackStore | None = None
@@ -69,6 +77,17 @@ async def list_tracks(
     return {"tracks": tracks, "total": total}
 
 
+@router.get("/jobs/{job_id}")
+async def get_job_status(job_id: str) -> dict:
+    """Poll the status of a batch analysis job."""
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(404, f"Job not found: {job_id}")
+    return job_to_dict(job)
+
+
+# NOTE: /{fingerprint} must come AFTER all fixed-path routes (/jobs, /scan, etc.)
+# to avoid FastAPI matching "jobs" or "scan" as a fingerprint value.
 @router.get("/{fingerprint}")
 async def get_track(fingerprint: str) -> dict:
     """Get full analysis for a specific track.
@@ -145,3 +164,122 @@ async def _run_analysis_task(
         logger.info("Background analysis complete: %s", audio_path)
     except Exception:
         logger.exception("Background analysis failed: %s", audio_path)
+
+
+# ---------------------------------------------------------------------------
+# Scan & Batch Analyze (FE-4)
+# ---------------------------------------------------------------------------
+
+
+class ScanRequest(BaseModel):
+    path: str
+
+
+class BatchAnalyzeRequest(BaseModel):
+    paths: list[str]
+    skip_waveform: bool = False
+
+
+@router.post("/scan")
+async def scan_directory(req: ScanRequest) -> dict:
+    """Scan a directory (or single file) for audio files.
+
+    Returns which files are new vs already analyzed.
+    """
+    from ..layer1.fingerprint import compute_fingerprint
+
+    target = Path(req.path)
+    if not target.exists():
+        raise HTTPException(400, f"Path not found: {req.path}")
+
+    # Collect audio files
+    if target.is_file():
+        if target.suffix.lower() not in AUDIO_EXTENSIONS:
+            raise HTTPException(400, f"Not an audio file: {target.name}")
+        audio_files = [target]
+    else:
+        audio_files = sorted(
+            f for f in target.iterdir()
+            if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS
+        )
+
+    store = _get_store()
+    new_files = []
+    already_analyzed = 0
+
+    for f in audio_files:
+        fp = compute_fingerprint(f)
+        if store.exists(fp):
+            already_analyzed += 1
+        else:
+            new_files.append({"path": str(f), "filename": f.name})
+
+    return {
+        "path": req.path,
+        "total_files": len(audio_files),
+        "already_analyzed": already_analyzed,
+        "new_files": new_files,
+    }
+
+
+@router.post("/analyze-batch")
+async def analyze_batch(
+    req: BatchAnalyzeRequest,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Start batch analysis of multiple audio files.
+
+    Returns a job_id for polling progress via GET /api/tracks/jobs/{job_id}.
+    """
+    if not req.paths:
+        raise HTTPException(400, "No paths provided")
+
+    # Validate all paths exist
+    for p in req.paths:
+        if not Path(p).exists():
+            raise HTTPException(400, f"Audio file not found: {p}")
+
+    job = create_job(req.paths)
+    background_tasks.add_task(
+        _run_batch_analysis,
+        job=job,
+        skip_waveform=req.skip_waveform,
+    )
+
+    return {"job_id": job.job_id}
+
+
+async def _run_batch_analysis(
+    job: AnalysisJob,
+    skip_waveform: bool = False,
+) -> None:
+    """Background task that processes batch analysis sequentially."""
+    from ..layer1.analysis import run_analysis
+
+    job.status = "running"
+
+    for i, file_result in enumerate(job.results):
+        job.current_file = file_result.filename
+        try:
+            await asyncio.to_thread(
+                run_analysis,
+                audio_path=file_result.path,
+                tracks_dir=_tracks_dir,
+                cache_path=_cache_path,
+                skip_waveform=skip_waveform,
+            )
+            file_result.status = "done"
+            # Get the fingerprint for the result
+            from ..layer1.fingerprint import compute_fingerprint
+            file_result.fingerprint = compute_fingerprint(Path(file_result.path))
+            job.completed += 1
+            logger.info("Batch [%d/%d] done: %s", i + 1, job.total, file_result.filename)
+        except Exception:
+            logger.exception("Batch [%d/%d] failed: %s", i + 1, job.total, file_result.filename)
+            file_result.status = "error"
+            file_result.error = "Analysis failed"
+            job.failed += 1
+
+    job.current_file = None
+    job.status = "complete" if job.failed == 0 else "failed"
+    logger.info("Batch job %s finished: %d/%d succeeded", job.job_id, job.completed, job.total)
