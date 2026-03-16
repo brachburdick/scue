@@ -304,3 +304,110 @@ The Python side has fixture files in `tests/fixtures/bridge/` that define the ex
 - beat-link handles network interface discovery automatically
 - On macOS, beat-link may need the network interface with Pioneer hardware to be active
 - The bridge should log which interface it binds to for debugging
+
+## Appendix: Additional Requirements
+
+Paste this at the end of the existing spec document, before any closing notes.
+
+---
+
+## Startup Sequence
+
+beat-link has a strict initialization order. The bridge must follow this sequence:
+
+```
+1. Parse CLI arguments (--port, --player-number)
+2. Start WebSocket server on configured port
+3. Emit bridge_status { connected: false, devices_online: 0 }
+4. DeviceFinder.getInstance().start()
+5. VirtualCdj.getInstance().setDeviceNumber(playerNumber)
+6. VirtualCdj.getInstance().start()
+   └─ This BLOCKS until it joins the network or times out (~10s)
+   └─ If timeout: log warning, emit bridge_status { connected: false }
+      The WebSocket server stays running. Retry on a configurable interval (default 10s).
+7. MetadataFinder.getInstance().start()
+8. BeatGridFinder.getInstance().start()
+9. WaveformFinder.getInstance().start()
+10. CrateDigger.getInstance().start()
+11. AnalysisTagFinder.getInstance().start()  (if available in the beat-link version)
+12. Register listeners for DeviceAnnouncement, CdjStatus, Beat, etc.
+13. Emit bridge_status { connected: true, devices_online: N }
+```
+
+**Critical:** The WebSocket server must start BEFORE beat-link initialization (step 2 before step 4). This ensures the Python manager can connect and receive status messages even if beat-link fails to find hardware. The Python side uses the WebSocket connection itself as a health check — if it can't connect, the bridge process is dead. If it connects but receives `connected: false`, the bridge is alive but no hardware is present.
+
+**Retry behavior:** If VirtualCdj fails to join the network at step 6, the bridge should retry periodically (every 10 seconds) rather than exiting. Hardware may be powered on after the bridge starts. On successful join, proceed to steps 7–13 and emit an updated `bridge_status`.
+
+## CLI Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--port <N>` | `17400` | WebSocket server port |
+| `--player-number <N>` | `5` | Player number to claim on the Pro DJ Link network. Must not conflict with connected CDJs (typically 1–4). Values 5–6 are conventional for software players. If the number is taken, startup will fail — log the error clearly. |
+| `--log-level <LEVEL>` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| `--retry-interval <S>` | `10` | Seconds between network join retries when no hardware is found |
+
+## Graceful Shutdown
+
+When the process receives SIGTERM (or SIGINT):
+
+1. Log "Shutting down beat-link bridge..."
+2. Stop all finders in reverse order: AnalysisTagFinder → CrateDigger → WaveformFinder → BeatGridFinder → MetadataFinder
+3. `VirtualCdj.getInstance().stop()` — this announces departure from the Pro DJ Link network. Without this, Pioneer hardware shows a phantom device for up to 30 seconds.
+4. `DeviceFinder.getInstance().stop()`
+5. Close all WebSocket connections
+6. Stop WebSocket server
+7. `System.exit(0)`
+
+Register a JVM shutdown hook to ensure this sequence runs even on unexpected termination:
+
+```java
+Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+    // steps 1-7 above
+}));
+```
+
+## Logging
+
+**All log output goes to stderr**, not stdout. This allows the Python manager to capture bridge logs separately from any JVM stdout output.
+
+Log format:
+```
+[2025-03-16T14:30:00.123Z] [INFO] Bridge started on port 17400
+[2025-03-16T14:30:00.456Z] [INFO] Claiming player number 5
+[2025-03-16T14:30:10.789Z] [WARN] VirtualCdj failed to join network, retrying in 10s
+[2025-03-16T14:30:20.123Z] [INFO] Joined Pro DJ Link network on interface en0 (169.254.20.1)
+[2025-03-16T14:30:20.456Z] [INFO] Found device: XDJ-AZ (player 1) at 169.254.20.101
+```
+
+Include timestamps (ISO 8601 with milliseconds), log level, and human-readable message. Log the network interface name and IP when joining the network — this is critical for debugging connectivity issues.
+
+**What to log at each level:**
+- `DEBUG`: Every message sent over WebSocket, raw beat-link event details
+- `INFO`: Startup/shutdown, network join/leave, device discovery, track loads
+- `WARN`: Network join timeout (retrying), MetadataFinder unable to retrieve data for a track, WebSocket client disconnect
+- `ERROR`: Uncaught exceptions, player number conflict, WebSocket server bind failure
+
+## Error Handling
+
+**Player number conflict:** If `VirtualCdj.start()` fails because the claimed player number is already taken, log an ERROR with the conflicting device info and emit a `bridge_status` with `connected: false` and an `error` field:
+
+```json
+{
+  "type": "bridge_status",
+  "timestamp": 1710600000.0,
+  "player_number": null,
+  "payload": {
+    "connected": false,
+    "devices_online": 0,
+    "version": "1.0.0",
+    "error": "Player number 5 is already in use by device at 169.254.20.50"
+  }
+}
+```
+
+**MetadataFinder failures:** Some tracks (from older CDJs, CDs, or non-rekordbox USBs) may not have metadata available. If MetadataFinder can't retrieve metadata for a loaded track, send a `track_metadata` message with null/empty fields and log a WARN. Do not skip the message — the Python side needs to know a track loaded even without metadata.
+
+**WebSocket client disconnect:** If the Python client disconnects, keep the bridge running. It will reconnect. Log the disconnect at WARN level and the reconnect at INFO.
+
+**Uncaught exceptions in listeners:** Wrap all beat-link listener callbacks in try-catch. An exception in one listener (e.g., WaveformFinder can't decode waveform data) must not crash the bridge or prevent other listeners from firing. Log the exception at ERROR and continue.
