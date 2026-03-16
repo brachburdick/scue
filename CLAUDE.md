@@ -62,5 +62,17 @@ Decision log: docs/DECISIONS.md
 ## Current State
 See docs/MILESTONES.md for what's built and what's next.
 
+## Bug Tracking
+When a bug is found and fixed, record it in the appropriate log under `docs/bugs/`:
+- `docs/bugs/frontend.md` — React/TS/Vite/Tailwind
+- `docs/bugs/layer0-bridge.md` — Beat-link bridge
+- `docs/bugs/layer1-analysis.md` — Track analysis & live tracking
+- `docs/bugs/layer2-cues.md` — Cue generation
+- `docs/bugs/layer3-effects.md` — Effect engine
+- `docs/bugs/layer4-output.md` — Output & hardware
+
+Every fix gets an entry: symptom, root cause, fix, and affected file(s). No fix is too small to record.
+
 ## Known Issues & Patterns
 See LEARNINGS.md — read it before starting work.
+See docs/bugs/ — per-layer bug logs for historical fixes.

@@ -30,3 +30,6 @@ React 18 + TypeScript (strict) + Vite + Tailwind CSS
 ## FE/BE contract
 All types in src/types/ must match the Python dataclasses documented in docs/CONTRACTS.md.
 If the backend changes a shape, update the corresponding TS type and fix all TypeScript errors.
+
+## Bug tracking
+When fixing any frontend bug, append an entry to `docs/bugs/frontend.md` with: symptom, root cause, fix, and affected file(s). No fix is too small to record.
