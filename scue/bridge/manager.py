@@ -123,12 +123,24 @@ class BridgeManager:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        # Give the subprocess a moment to start its WebSocket server
-        await asyncio.sleep(1.0)
-
-        if self._process.poll() is not None:
-            stderr = self._process.stderr.read().decode() if self._process.stderr else ""
-            raise RuntimeError(f"Bridge subprocess exited immediately: {stderr}")
+        # Java bridge needs several seconds to start WebSocket server + join network
+        for attempt in range(10):
+            await asyncio.sleep(1.0)
+            if self._process.poll() is not None:
+                stderr = self._process.stderr.read().decode() if self._process.stderr else ""
+                raise RuntimeError(f"Bridge subprocess exited (code {self._process.returncode}): {stderr[:500]}")
+            # Check if WebSocket port is accepting connections
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection("localhost", self._port), timeout=1.0
+                )
+                writer.close()
+                await writer.wait_closed()
+                logger.info("Bridge subprocess ready after %ds", attempt + 1)
+                return
+            except (ConnectionRefusedError, asyncio.TimeoutError, OSError):
+                continue
+        raise RuntimeError(f"Bridge subprocess did not open WebSocket port {self._port} within 10s")
 
     async def _connect_websocket(self) -> None:
         """Connect to the bridge's WebSocket server."""
