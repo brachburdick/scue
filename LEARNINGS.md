@@ -35,12 +35,40 @@ Problem: The package installed as `all-in-one-mlx` via pip but must be imported 
 Fix: `import allin1_mlx` and `allin1_mlx.analyze(path)`.
 Prevention: Double-check import name vs. package name for MLX forks.
 
+### allin1-mlx requires pre-converted MLX weights in mlx-weights/
+Date: 2026-03-16
+Context: First run of allin1-mlx after pip install all-in-one-mlx.
+Problem: FileNotFoundError for harmonix-fold0_mlx.safetensors. The package does NOT auto-download weights — it expects pre-converted MLX .npz or .safetensors files in a local `mlx-weights/` directory (default CWD-relative).
+Fix: Copy weights from POC's `mlx-weights/` directory to project root `mlx-weights/`. Pass `mlx_weights_dir=` kwarg explicitly via `_find_weights_dir()` that searches upward from the package.
+Prevention: Always verify weight file availability before first analysis run. The mlx-weights/ dir is gitignored (binary). Document weight setup in onboarding.
+
 ### librosa beat tracking drifts on tempo-variable tracks
 Date: 2025-03
 Context: Analyzing progressive house tracks with gradual BPM shift.
 Problem: librosa.beat.beat_track assumes constant tempo. Beats can drift by ~200ms over 5 minutes.
 Fix: Use librosa beat tracking as the working reference only. After Pioneer enrichment pass, replace the librosa beatgrid with Pioneer's hand-verified rekordbox grid.
 Prevention: Never rely solely on librosa beat grid for production timing. Always plan for Pioneer enrichment.
+
+### Section boundaries must be clamped to track start/end
+Date: 2026-03-16
+Context: Running analysis pipeline on real tracks with librosa-only fallback (no allin1-mlx).
+Problem: Ruptures change-point detection can place the first boundary at 1–2s into the track, leaving no coverage of the opening. Similarly, the last boundary may not reach the track end.
+Fix: After all snapping and scoring, clamp: first section.start = 0.0, last section.end = track duration.
+Prevention: Always post-process section lists to ensure full track coverage.
+
+### ruptures KernelCPD needs 4x downsample for performance
+Date: 2026-03-16
+Context: Running ruptures on full feature matrix (22 dimensions, ~1900 frames for a 3-min track).
+Problem: KernelCPD is O(n²). Without downsampling, analysis takes 30+ seconds per track.
+Fix: Downsample by 4x before feeding to ruptures. Boundary timestamps converted back at original resolution. No meaningful loss of precision for section-level boundaries.
+Prevention: Always downsample for ruptures. Adjust min_size accordingly.
+
+### bar counting is downbeat counting, not interval counting
+Date: 2026-03-16
+Context: Writing _count_bars for 8-bar snap pass.
+Problem: Counting bars by counting downbeats in a range counts the START markers, not intervals. A range from bar 0 to bar 8 has 9 downbeats (0,1,2,...8) but 8 bars.
+Fix: The implementation counts downbeats within [start, end) using a half-open interval. Tests must match this semantic. Include an extra downbeat at the end of the track's downbeat list.
+Prevention: Be explicit about whether counting markers or intervals. Document the half-open interval convention.
 
 ---
 

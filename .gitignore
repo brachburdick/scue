@@ -22,6 +22,14 @@ frontend/dist/
 *.db
 logs/
 cache/
+tracks/
+
+# ML model weights (binary, not in git)
+mlx-weights/
+
+# allin1-mlx byproducts
+demix/
+spec/
 
 # Test
 .pytest_cache/
