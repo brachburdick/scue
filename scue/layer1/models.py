@@ -142,6 +142,84 @@ class TrackAnalysis:
 
 
 # ---------------------------------------------------------------------------
+# Layer 1B — Live Tracking Types (TrackCursor contract)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SectionInfo:
+    """Current or upcoming section with progress info. Part of TrackCursor."""
+    label: str
+    start_time: float
+    end_time: float
+    bar_count: int
+    expected_bar_count: int
+    progress: float              # 0.0–1.0
+    confidence: float
+    irregular_phrase: bool
+    fakeout: bool
+    source: str                  # "analysis" | "pioneer_enriched"
+
+
+@dataclass
+class BeatPosition:
+    """Current beat position within a section. Part of TrackCursor."""
+    beat_in_bar: int             # 1–4
+    bar_in_section: int
+    is_downbeat: bool
+    bpm: float                   # effective BPM (pitch-adjusted)
+    original_bpm: float
+    timestamp: float             # wall clock
+
+
+@dataclass
+class PlaybackState:
+    """Playback transport state from Pioneer hardware. Part of TrackCursor."""
+    is_playing: bool
+    is_on_air: bool
+    player_number: int
+    playback_position_ms: float
+    pitch_percent: float
+
+
+@dataclass
+class TrackCursorFeatures:
+    """Interpolated Tier 3 features at the current playback position."""
+    energy: float = 0.5          # 0.0–1.0
+    mood: str = "neutral"
+    danceability: float = 0.5
+
+
+@dataclass
+class TrackCursor:
+    """Real-time cursor into a TrackAnalysis. The Layer 1 → Layer 2 interface.
+
+    Layer 2 imports only this class (and its contained types) from layer1.
+    Do not change this shape without updating docs/CONTRACTS.md.
+    """
+    current_section: SectionInfo
+    next_section: SectionInfo | None
+    upcoming_events: list[MusicalEvent]  # next N events, time-adjusted for current BPM
+    current_features: TrackCursorFeatures
+    beat_position: BeatPosition
+    playback_state: PlaybackState
+
+
+# ---------------------------------------------------------------------------
+# Divergence Logging
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DivergenceRecord:
+    """Logs a mismatch between SCUE's analysis and Pioneer/rekordbox data."""
+    track_fingerprint: str
+    divergence_field: str        # "beatgrid" | "bpm" | "key" | "section_boundary" | "section_label"
+    scue_value: str
+    pioneer_value: str
+    resolution: str              # "pioneer_adopted" | "scue_kept" | "manual_override"
+    timestamp: float = field(default_factory=time.time)
+
+
+# ---------------------------------------------------------------------------
 # Serialization helpers
 # ---------------------------------------------------------------------------
 

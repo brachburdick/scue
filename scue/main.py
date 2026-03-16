@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.bridge import init_bridge_api, router as bridge_router
 from .api.filesystem import router as filesystem_router
 from .api.tracks import init_tracks_api, router as tracks_router
-from .bridge import BridgeManager
+from .bridge import BridgeAdapter, BridgeManager
+from .layer1 import PlaybackTracker, TrackCache, TrackStore
 
 logger = logging.getLogger(__name__)
 
@@ -34,17 +35,29 @@ DEFAULT_CACHE_PATH = Path("cache/scue.db")
 
 
 _bridge_manager: BridgeManager | None = None
+_tracker: PlaybackTracker | None = None
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    """Initialize storage and bridge on app startup."""
-    global _bridge_manager
+    """Initialize storage, bridge, and playback tracker on app startup."""
+    global _bridge_manager, _tracker
     init_tracks_api(DEFAULT_TRACKS_DIR, DEFAULT_CACHE_PATH)
+
+    # Initialize Layer 1B: playback tracker
+    store = TrackStore(DEFAULT_TRACKS_DIR)
+    cache = TrackCache(DEFAULT_CACHE_PATH)
+    _tracker = PlaybackTracker(store, cache)
 
     # Initialize bridge manager (graceful — won't crash if JAR/JRE missing)
     _bridge_manager = BridgeManager()
     init_bridge_api(_bridge_manager)
+
+    # Wire bridge adapter → playback tracker
+    adapter = _bridge_manager.adapter
+    adapter.on_player_update = _tracker.on_player_update
+    adapter.on_track_loaded = _tracker.on_track_loaded
+
     await _bridge_manager.start()
     logger.info("Bridge status: %s", _bridge_manager.status)
 

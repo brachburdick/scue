@@ -15,6 +15,7 @@ import sqlite3
 from pathlib import Path
 
 from .models import (
+    DivergenceRecord,
     TrackAnalysis,
     analysis_from_dict,
     analysis_to_dict,
@@ -263,6 +264,74 @@ class TrackCache:
                 "SELECT COUNT(DISTINCT fingerprint) FROM tracks"
             ).fetchone()
         return row[0] if row else 0
+
+    def lookup_fingerprint(self, rekordbox_id: int) -> str | None:
+        """Look up a track fingerprint by rekordbox ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT fingerprint FROM track_ids WHERE rekordbox_id = ?",
+                (rekordbox_id,),
+            ).fetchone()
+        return row[0] if row else None
+
+    def link_rekordbox_id(self, rekordbox_id: int, fingerprint: str) -> None:
+        """Associate a rekordbox ID with a track fingerprint."""
+        import time
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO track_ids (rekordbox_id, fingerprint, first_seen) VALUES (?, ?, ?)",
+                (rekordbox_id, fingerprint, time.time()),
+            )
+
+    def store_divergence(self, record: DivergenceRecord) -> None:
+        """Persist a DivergenceRecord to the divergence_log table."""
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO divergence_log
+                (track_fingerprint, field, scue_value, pioneer_value, resolution, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                record.track_fingerprint,
+                record.divergence_field,
+                record.scue_value,
+                record.pioneer_value,
+                record.resolution,
+                record.timestamp,
+            ))
+
+    def query_divergences(
+        self,
+        track_fingerprint: str | None = None,
+        divergence_field: str | None = None,
+    ) -> list[DivergenceRecord]:
+        """Query logged divergences, optionally filtered."""
+        query = "SELECT track_fingerprint, field, scue_value, pioneer_value, resolution, timestamp FROM divergence_log"
+        params: list = []
+        conditions = []
+        if track_fingerprint:
+            conditions.append("track_fingerprint = ?")
+            params.append(track_fingerprint)
+        if divergence_field:
+            conditions.append("field = ?")
+            params.append(divergence_field)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY timestamp DESC"
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        return [
+            DivergenceRecord(
+                track_fingerprint=r[0],
+                divergence_field=r[1],
+                scue_value=r[2],
+                pioneer_value=r[3],
+                resolution=r[4],
+                timestamp=r[5],
+            )
+            for r in rows
+        ]
 
     def rebuild_from_store(self, store: TrackStore) -> int:
         """Rebuild the entire cache from JSON files.

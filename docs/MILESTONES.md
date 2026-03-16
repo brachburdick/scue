@@ -78,10 +78,17 @@ Completed: 2026-03-16
 - [x] 53 tests passing (messages, adapter, manager)
 - [ ] Java bridge JAR (`lib/beat-link-bridge.jar`) — not yet built, Python side ready to connect
 
-### Milestone 2 — Live Cursor + Pioneer Enrichment (Layer 1B)
-- Consume bridge data → PlaybackState + TrackCursor
-- Pioneer enrichment pass on first track load
-- Divergence logging
+### ~~Milestone 2 — Live Cursor + Pioneer Enrichment (Layer 1B)~~ → COMPLETE (2026-03-16)
+- [x] `scue/layer1/models.py` — Added TrackCursor, SectionInfo, BeatPosition, PlaybackState, TrackCursorFeatures, DivergenceRecord
+- [x] `scue/layer1/cursor.py` — build_cursor(): maps playback position into TrackAnalysis sections/events
+- [x] `scue/layer1/enrichment.py` — Pioneer enrichment pass: BPM/beatgrid/key swap, section rescaling, versioned storage
+- [x] `scue/layer1/divergence.py` — DivergenceRecord logging and querying via SQLite
+- [x] `scue/layer1/tracking.py` — PlaybackTracker: bridge adapter → TrackCursor, on-air-only cursor (ADR-006)
+- [x] `scue/layer1/storage.py` — Added lookup_fingerprint, link_rekordbox_id, store_divergence, query_divergences
+- [x] Bridge adapter → PlaybackTracker wired in main.py
+- [x] `docs/bridge-java-spec.md` — Java bridge JAR handoff spec for tech-lead agent
+- [x] 57 new tests (cursor: 16, enrichment: 12, tracking: 10, divergence: 6, helpers: 13), all passing
+- [x] Full suite: 156 passed, 11 skipped
 
 ### Milestone 3 — Cue Stream (Layer 2, section cues only)
 ### Milestone 4 — Basic Effect Engine (Layer 3A + 3B, minimal)
