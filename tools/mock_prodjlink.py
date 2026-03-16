@@ -11,13 +11,14 @@ Usage:
     # Replay at 2x speed:
     python tools/mock_prodjlink.py tests/fixtures/prodjlink/my_capture.json --speed 2.0
 
+    # Loop forever:
+    python tools/mock_prodjlink.py tests/fixtures/prodjlink/my_capture.json --loop
+
 Capture JSON format:
     [
       { "src_ip": "169.254.11.53", "src_port": 50000, "timestamp": 1700000000.0, "data_hex": "5173..." },
       ...
     ]
-
-Status: STUB — not yet implemented (Milestone 2).
 """
 
 import argparse
@@ -28,6 +29,30 @@ import time
 from pathlib import Path
 
 
+def replay(packets: list[dict], target: str, speed: float) -> None:
+    """Replay a list of packets to the target host."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        for i, pkt in enumerate(packets):
+            data = bytes.fromhex(pkt["data_hex"])
+            port = pkt.get("src_port", 50000)
+
+            # Inter-packet delay (scaled by speed)
+            if i > 0:
+                delay = (pkt["timestamp"] - packets[i - 1]["timestamp"]) / speed
+                if delay > 0:
+                    time.sleep(delay)
+
+            sock.sendto(data, (target, port))
+            print(
+                f"\r  Sent {i + 1}/{len(packets)}: {len(data)} bytes → {target}:{port}",
+                end="", flush=True,
+            )
+        print()  # newline after progress
+    finally:
+        sock.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Replay Pro DJ Link packet captures")
     parser.add_argument("capture_file", help="Path to JSON capture file")
@@ -35,6 +60,8 @@ def main():
                         help="Playback speed multiplier (default 1.0 = real time)")
     parser.add_argument("--target", default="127.0.0.1",
                         help="Target host to send packets to (default 127.0.0.1)")
+    parser.add_argument("--loop", action="store_true",
+                        help="Loop replay forever")
     args = parser.parse_args()
 
     capture_path = Path(args.capture_file)
@@ -45,17 +72,30 @@ def main():
     with open(capture_path) as f:
         packets = json.load(f)
 
-    print(f"Loaded {len(packets)} packets from {capture_path}")
-    print("TODO: replay not yet implemented — see Milestone 2")
+    if not packets:
+        print("Error: capture file is empty", file=sys.stderr)
+        sys.exit(1)
 
-    # TODO(milestone-2): implement
-    # for i, pkt in enumerate(packets):
-    #     data = bytes.fromhex(pkt["data_hex"])
-    #     port = pkt["src_port"]
-    #     delay = (packets[i]["timestamp"] - packets[i-1]["timestamp"]) / args.speed if i > 0 else 0
-    #     time.sleep(max(0, delay))
-    #     sock.sendto(data, (args.target, port))
-    #     print(f"Sent packet {i+1}/{len(packets)}: {len(data)} bytes to port {port}")
+    # Sort by timestamp
+    packets.sort(key=lambda p: p.get("timestamp", 0))
+
+    duration = packets[-1]["timestamp"] - packets[0]["timestamp"]
+    print(f"Loaded {len(packets)} packets from {capture_path}")
+    print(f"Duration: {duration:.1f}s (replay at {args.speed}x = {duration / args.speed:.1f}s)")
+    print(f"Target: {args.target}")
+    print()
+
+    try:
+        iteration = 0
+        while True:
+            iteration += 1
+            if args.loop:
+                print(f"Pass {iteration}:")
+            replay(packets, args.target, args.speed)
+            if not args.loop:
+                break
+    except KeyboardInterrupt:
+        print("\nStopped.")
 
 
 if __name__ == "__main__":

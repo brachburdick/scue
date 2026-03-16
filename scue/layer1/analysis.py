@@ -15,12 +15,18 @@ TODO(milestone-1): add SQLite storage via db.py (run_analysis currently returns 
 TODO(milestone-7): add Tier 2 event detection (percussion, melodic, effect sweeps).
 """
 
+import logging
+
 import numpy as np
 
 from .detectors import features as feat_mod
 from .detectors.sections import analyze_structure, detect_boundaries
 from .detectors.flow_model import classify_sections
 from .waveform import compute_rgb_waveform
+from .models import TrackAnalysis, Section, TrackFeatures
+from . import db as _db
+
+log = logging.getLogger(__name__)
 
 
 BOUNDARY_TOLERANCE_SEC = 2.0  # allin1 & ruptures boundaries within this are "matching"
@@ -75,6 +81,36 @@ def run_analysis(audio_path: str, ruptures_penalty: float = 5.0) -> dict:
 
     # Stage 9: Energy profile (downsampled RMS for the frontend)
     energy_profile = features["rms"][::4].tolist()
+
+    # ── Persist to SQLite ────────────────────────────────────────────
+    fp = _db.fingerprint(audio_path)
+
+    # Check if analysis already exists (avoid re-storing duplicates)
+    existing = _db.load_analysis(fp, version=1)
+    if existing is None:
+        section_objs = [
+            Section(
+                label=s["label"],
+                start=round(s["start"], 3),
+                end=round(s["end"], 3),
+                confidence=round(s.get("confidence", 0.5), 2),
+                original_label=s.get("original_label", s["label"]),
+            )
+            for s in segments
+        ]
+        track_analysis = TrackAnalysis(
+            fingerprint=fp,
+            audio_path=audio_path,
+            bpm=structure["bpm"],
+            beats=structure["beats"],
+            downbeats=structure["downbeats"],
+            sections=section_objs,
+            features=TrackFeatures(
+                energy_curve=[round(float(e), 4) for e in energy_profile],
+            ),
+        )
+        _db.store_analysis(track_analysis)
+        log.info("Persisted analysis for fp=%s", fp[:12])
 
     return {
         "bpm": structure["bpm"],

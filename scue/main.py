@@ -20,6 +20,8 @@ from fastapi.staticfiles import StaticFiles
 
 from scue.layer1.analysis import run_analysis
 from scue.layer1.prodjlink import ProDJLinkClient
+from scue.layer1.tracking import PlaybackTracker
+from scue.layer1.models import DeckState
 from scue.ui.websocket import ws_clients, broadcast, broadcast_json
 
 # ── Directory paths ────────────────────────────────────────────────────────
@@ -38,6 +40,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 # ── Pioneer real-time state ────────────────────────────────────────────────
 
 pioneer = ProDJLinkClient()
+tracker = PlaybackTracker()
 
 
 def _on_deck_update(channel: int, state: dict):
@@ -47,8 +50,25 @@ def _on_deck_update(channel: int, state: dict):
         if loop.is_running():
             loop.create_task(broadcast_json({"type": "deck_update", "channel": channel, "data": state}))
             loop.create_task(_broadcast_pioneer_status())
+
+            # Feed DeckState to PlaybackTracker for cursor generation
+            deck = pioneer.decks.get(channel)
+            if deck is not None:
+                cursor = tracker.on_deck_update(channel, deck)
+                if cursor is not None:
+                    loop.create_task(_broadcast_cursor(channel, cursor))
     except RuntimeError:
         pass
+
+
+async def _broadcast_cursor(channel: int, cursor):
+    """Broadcast a cursor_update to all WebSocket clients."""
+    from dataclasses import asdict
+    await broadcast_json({
+        "type": "cursor_update",
+        "channel": channel,
+        "data": asdict(cursor),
+    })
 
 
 async def _broadcast_pioneer_status():
