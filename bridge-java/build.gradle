@@ -1,0 +1,39 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.gradleup.shadow' version '9.0.0-beta11'
+}
+
+group = 'com.scue'
+version = '1.0.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.deepsymmetry:beat-link:8.0.0'
+    implementation 'org.java-websocket:Java-WebSocket:1.5.7'
+    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'org.slf4j:slf4j-simple:2.0.16'
+}
+
+application {
+    mainClass = 'com.scue.bridge.BeatLinkBridge'
+}
+
+shadowJar {
+    archiveBaseName.set('beat-link-bridge')
+    archiveClassifier.set('')
+    archiveVersion.set('')
+    mergeServiceFiles()
+}
+
+tasks.named('build') {
+    dependsOn shadowJar
+}
