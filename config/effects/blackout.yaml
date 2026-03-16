@@ -1,0 +1,7 @@
+# Blackout effect — everything off. Used for fakeout drops and dramatic pauses.
+effect:
+  name: "blackout"
+  description: "All channels to zero — complete darkness"
+  parameters: {}
+  output_channels: [brightness, color_r, color_g, color_b, strobe_rate]
+  one_shot: false

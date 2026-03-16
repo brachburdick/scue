@@ -1,11 +1,28 @@
+# ── Web server ────────────────────────────────────────────────────────────
 fastapi>=0.104
 uvicorn[standard]>=0.24
 python-multipart>=0.0.6
 websockets>=12.0
+
+# ── Network / Pioneer interface discovery ─────────────────────────────────
 netifaces>=0.11
-all-in-one-mlx>=1.0.5
-demucs-mlx[convert]>=1.4.3
+
+# ── Audio analysis (Layer 1) ──────────────────────────────────────────────
+all-in-one-mlx>=1.0.5          # Apple Silicon ML structure analysis
+demucs-mlx[convert]>=1.4.3    # Source separation (used by allin1-mlx)
 librosa>=0.10
-ruptures>=1.1.8
+ruptures>=1.1.8                # Change-point detection
 numpy>=1.24
 scipy>=1.11
+
+# ── Configuration ─────────────────────────────────────────────────────────
+pyyaml>=6.0                    # YAML config loading (config/ directory)
+
+# ── Testing ───────────────────────────────────────────────────────────────
+pytest>=7.4
+pytest-asyncio>=0.21
+
+# ── Future: Layer 4 output adapters (install when needed) ─────────────────
+# python-sacn>=1.9              # sACN / DMX output
+# python-osc>=1.8               # OSC output to Resolume / TouchDesigner
+# python-rtmidi>=1.5            # MIDI output

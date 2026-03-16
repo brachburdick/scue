@@ -1,0 +1,75 @@
+# Melodic / emotional routing preset
+# Softer, more atmospheric — good for melodic techno, deep house, progressive house.
+
+routing_preset: "melodic"
+description: "Soft, atmospheric show with slow color transitions and gentle beat reactivity"
+
+routes:
+
+  - name: "beat_soft_pulse"
+    trigger:
+      cue_type: "beat"
+      conditions:
+        payload.is_downbeat: true
+    effect: "pulse"
+    parameter_bindings:
+      intensity: 0.35
+      attack: 0.05
+      decay: 0.5
+      color: "palette.primary"
+    target_group: "pars_all"
+    priority: 5
+    blend_mode: "HTP"
+
+  - name: "drop_warm_flood"
+    trigger:
+      cue_type: "section_change"
+      conditions:
+        payload.to_label: ["drop"]
+    effect: "static"
+    parameter_bindings:
+      brightness: 0.85
+      color: "palette.accent"
+    target_group: "pars_all"
+    priority: 8
+    flush_on_trigger: true
+
+  - name: "build_rainbow_slow"
+    trigger:
+      cue_type: "section_change"
+      conditions:
+        payload.to_label: ["build"]
+    effect: "rainbow"
+    parameter_bindings:
+      speed: 0.1
+      saturation: 0.7
+      brightness: 0.6
+    target_group: "pars_all"
+    priority: 6
+    flush_on_trigger: true
+
+  - name: "breakdown_breathe"
+    trigger:
+      cue_type: "section_change"
+      conditions:
+        payload.to_label: ["breakdown", "verse", "intro", "outro"]
+    effect: "breathe"
+    parameter_bindings:
+      speed: 0.15
+      intensity: 0.3
+      color: "palette.secondary"
+    target_group: "pars_all"
+    priority: 4
+    flush_on_trigger: true
+
+  - name: "riser_sweep"
+    trigger:
+      cue_type: "riser"
+    effect: "sweep"
+    parameter_bindings:
+      direction: "forward"
+      speed: 0.5
+      color: "palette.accent"
+    target_group: "pars_all"
+    priority: 7
+    blend_mode: "LTP"

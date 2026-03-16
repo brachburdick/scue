@@ -1,50 +1,118 @@
-# SCUE — EDM Music Structure Analyzer
+# SCUE
 
-FastAPI server that analyzes EDM tracks and returns section labels (drops, builds, breakdowns, etc.) with beat grid and confidence scores.
+**Automated lighting, laser, and visual cue generation for live DJ sets.**
 
-## Run
+SCUE analyzes EDM tracks offline, tracks live Pioneer DJ playback via Pro DJ Link (no middleware required), generates semantic music events, maps those events to abstract lighting effects, and outputs control signals to DMX/OSC/MIDI hardware. The goal: a single DJ can run a full light/laser/visual show with zero manual cue triggering.
 
-```bash
-cd /Users/brach/Documents/DjTools/scue
-source .venv/bin/activate
-pip install -r requirements.txt   # only needed once or when deps change
-uvicorn app:app --reload --port 8000
+---
+
+## Current Status
+
+**Milestone 1 (in progress):** Audio analysis pipeline — section segmentation, EDM labeling, RGB waveform visualizer.
+
+**Milestone 2 (in progress):** Pioneer Pro DJ Link integration — real-time BPM, beat position, deck status via direct UDP.
+
+See `docs/MILESTONES.md` for the full roadmap.
+
+---
+
+## Architecture
+
+```
+Audio → [Layer 1: Analysis + Live Tracking]
+              ↓ TrackCursor
+         [Layer 2: Cue Generation]
+              ↓ CueEvent stream
+         [Layer 3: Effect Engine]
+              ↓ abstract FixtureOutput
+         [Layer 4: Hardware Output → DMX / OSC / MIDI]
 ```
 
-Then open **http://localhost:8000** and drop in an EDM track.
+Full details: `docs/ARCHITECTURE.md`
 
-### Model weights (first-time or fresh clone)
+---
 
-The app expects **all-in-one-mlx** harmonix weights in `mlx-weights/`. If you see “Could not find MLX weights for harmonix-fold0”, run:
+## Quickstart
 
+```bash
+# Install dependencies (Python 3.11+, Apple Silicon Mac)
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Start the server
+uvicorn scue.main:app --reload
+
+# Open the browser UI
+open http://localhost:8000
+```
+
+**Pioneer hardware:** Connect via CAT-5 ethernet. SCUE auto-discovers Pioneer devices on link-local interfaces (169.254.x.x). No beat-link-trigger required.
+
+**Model weights (first-time):** If you see "Could not find MLX weights for harmonix-fold0", run:
 ```bash
 python scripts/download_mlx_weights.py
 ```
 
-This downloads the pre-converted weights from the [all-in-one-mlx](https://github.com/ssmall256/all-in-one-mlx) repo.
+---
+
+## Project Structure
+
+```
+scue/                          # project root
+├── CLAUDE.md                  # AI agent instructions (root — loaded every session)
+├── LEARNINGS.md               # Append-only log of non-obvious discoveries
+├── docs/
+│   ├── ARCHITECTURE.md        # Full architecture plan
+│   ├── MILESTONES.md          # Current milestone status
+│   ├── DECISIONS.md           # Architectural decision records
+│   └── CONTRACTS.md           # Interface contracts between layers
+├── config/
+│   ├── venues/                # Venue layout YAML files
+│   ├── routing/               # Effect routing preset YAML files
+│   ├── effects/               # Effect definition YAML files
+│   ├── fixtures/              # Fixture profile YAML files
+│   └── palettes/              # Color palette YAML files
+├── scue/                      # Python package
+│   ├── main.py                # FastAPI app entry point
+│   ├── layer1/                # Track analysis + Pioneer integration
+│   ├── layer2/                # Cue generation (stub — Milestone 3)
+│   ├── layer3/                # Effect engine (stub — Milestone 4)
+│   ├── layer4/                # Hardware output (stub — Milestone 5)
+│   └── ui/                    # Browser UI + WebSocket handlers
+├── tests/
+│   ├── fixtures/              # Test audio files, packet captures
+│   ├── test_layer1/
+│   └── ...
+└── tools/                     # CLI utilities
+    ├── analyze_track.py       # Analyze a track from the command line
+    ├── mock_prodjlink.py      # Replay captured Pioneer packets (stub)
+    ├── cue_visualizer.py      # Visualize cue stream output (stub)
+    └── venue_preview.py       # 2D fixture preview (stub)
+```
 
 ---
 
-## How the analysis works
+## Development Commands
 
-1. **allin1-mlx** runs ML inference → BPM, beats, downbeats, generic segment labels.
-2. **librosa** extracts RMS energy, spectral centroid/flux, chroma, MFCCs, tempogram.
-3. **ruptures** (KernelCPD with RBF kernel) finds change points in the stacked feature matrix.
-4. **Merge**: allin1 segments are primary; ruptures boundaries that don’t match add sub-divisions.
-5. **EDM classification**: heuristics remap labels:
-   - **chorus** → **drop** (high energy + bass-heavy)
-   - Rising energy + centroid before a drop → **build**
-   - Brief energy dip between build and drop → **fakeout**
-   - **break/bridge** → **breakdown**
-6. Quantize all boundaries to nearest downbeat.
-7. Confidence scored by allin1 + ruptures agreement.
+```bash
+# Run the server
+uvicorn scue.main:app --reload
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run fast tests only (no audio fixtures needed)
+python -m pytest tests/ -v -m "not slow"
+
+# Analyze a track from CLI
+python tools/analyze_track.py path/to/track.mp3
+
+# Pioneer connectivity diagnostics
+curl http://localhost:8000/api/pioneer/debug
+```
 
 ---
 
-## Testing & accuracy
+## For AI Agents
 
-- **Ground truth**: Pick 10–20 tracks across sub-genres (house, dubstep, trance, DnB) and manually annotate sections (e.g. in a spreadsheet). Compare predicted vs. actual.
-- **Tune parameters**: The ruptures penalty is exposed as a query param on `/api/analyze` (e.g. `?penalty=5.0`). Start at 5.0; lower for more boundaries.
-- **Energy thresholds** in `analyzer/edm_classifier.py` (e.g. 1.2× for drops, 0.6× for fakeouts) will need sub-genre tuning — dubstep drops are more extreme than house drops.
-- **Edge cases**: tracks with no clear drop, multiple drops in succession, long ambient intros, tempo changes.
-- **Future**: use allin1’s embeddings for section similarity, train a lightweight classifier on annotated data, add sub-genre detection to auto-adjust thresholds.
+Read `CLAUDE.md` first. Each layer has its own `CLAUDE.md` auto-loaded when working in that directory. Read `docs/CONTRACTS.md` before modifying any inter-layer interfaces. Read `LEARNINGS.md` before starting any work.

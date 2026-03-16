@@ -11,7 +11,11 @@
       "WebFetch(domain:deepsymmetry.org)",
       "Bash(.venv/bin/python -c \":*)",
       "Bash(.venv/bin/pip list:*)",
-      "Bash(.venv/bin/pip install:*)"
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(python -c \":*)",
+      "Bash(python -m pytest tests/test_layer1/test_prodjlink.py -v)",
+      "Bash(pip install:*)"
     ]
   }
 }

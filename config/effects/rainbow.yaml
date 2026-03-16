@@ -1,0 +1,29 @@
+# Rainbow effect — color cycling across the hue wheel.
+effect:
+  name: "rainbow"
+  description: "Cycling hue rotation"
+  parameters:
+    speed:
+      type: float
+      min: 0.01
+      max: 10.0
+      default: 0.5
+      unit: "cycles/second"
+    saturation:
+      type: float
+      min: 0.0
+      max: 1.0
+      default: 1.0
+    brightness:
+      type: float
+      min: 0.0
+      max: 1.0
+      default: 1.0
+    spread:
+      type: float
+      min: 0.0
+      max: 1.0
+      default: 0.0
+      description: "0 = all same color, 1 = full rainbow spread across fixtures"
+  output_channels: [color_h, color_s, color_v]
+  one_shot: false

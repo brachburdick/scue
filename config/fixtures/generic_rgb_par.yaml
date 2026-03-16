@@ -1,0 +1,18 @@
+# Generic 3-channel RGB par can fixture profile.
+fixture_definition:
+  id: "generic_rgb_par"
+  description: "Generic RGB par can — 3-channel DMX"
+  channel_count: 3
+  channels:
+    - offset: 0
+      name: "red"
+      type: "color_r"
+      range: [0, 255]
+    - offset: 1
+      name: "green"
+      type: "color_g"
+      range: [0, 255]
+    - offset: 2
+      name: "blue"
+      type: "color_b"
+      range: [0, 255]

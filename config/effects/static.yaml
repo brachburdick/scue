@@ -1,0 +1,15 @@
+# Static effect — solid color and brightness. The baseline.
+effect:
+  name: "static"
+  description: "Solid color and brightness, no movement"
+  parameters:
+    brightness:
+      type: float
+      min: 0.0
+      max: 1.0
+      default: 1.0
+    color:
+      type: color
+      default: [1.0, 1.0, 1.0]
+  output_channels: [brightness, color_r, color_g, color_b]
+  one_shot: false

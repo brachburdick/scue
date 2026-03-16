@@ -1,0 +1,17 @@
+# Full Send — max brightness, max saturation, max strobe. The "drop hits" effect.
+effect:
+  name: "full_send"
+  description: "Maximum brightness, saturation, and configurable strobe. The drop effect."
+  parameters:
+    color:
+      type: color
+      default: [1.0, 0.0, 0.0]
+    strobe_rate:
+      type: float
+      min: 0.0
+      max: 20.0
+      default: 8.0
+      unit: "hz"
+      description: "0 = no strobe, solid on"
+  output_channels: [brightness, color_r, color_g, color_b, strobe_rate]
+  one_shot: false

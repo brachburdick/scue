@@ -1,0 +1,22 @@
+# Generic 4-channel RGBW par can fixture profile.
+fixture_definition:
+  id: "generic_rgbw_par"
+  description: "Generic RGBW par can — 4-channel DMX"
+  channel_count: 4
+  channels:
+    - offset: 0
+      name: "red"
+      type: "color_r"
+      range: [0, 255]
+    - offset: 1
+      name: "green"
+      type: "color_g"
+      range: [0, 255]
+    - offset: 2
+      name: "blue"
+      type: "color_b"
+      range: [0, 255]
+    - offset: 3
+      name: "white"
+      type: "brightness"
+      range: [0, 255]

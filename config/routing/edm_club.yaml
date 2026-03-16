@@ -1,0 +1,109 @@
+# EDM Club routing preset
+# Maps cue types to effect instances on fixture groups.
+# See docs/ARCHITECTURE.md → Sub-layer 3B for full schema reference.
+#
+# Parameter bindings:
+#   Fixed value:           attack: 0.02
+#   From cue data:         intensity: "cue.intensity"
+#   From current palette:  color: "palette.accent"
+
+routing_preset: "edm_club"
+description: "High-energy EDM club show with beat-reactive pars and section sweeps"
+
+routes:
+
+  # ── Beat / kick ──────────────────────────────────────────────────────────
+  - name: "kick_pulse_drop"
+    trigger:
+      cue_type: "kick"
+      conditions:
+        musical_context.section_label: ["drop"]
+        intensity: { min: 0.5 }
+    effect: "pulse"
+    parameter_bindings:
+      intensity: "cue.intensity"
+      attack: 0.01
+      decay: 0.12
+      color: "palette.accent"
+    target_group: "pars_all"
+    priority: 8
+    blend_mode: "HTP"
+
+  - name: "beat_pulse_build"
+    trigger:
+      cue_type: "beat"
+      conditions:
+        musical_context.section_label: ["build"]
+    effect: "pulse"
+    parameter_bindings:
+      intensity: 0.6
+      attack: 0.02
+      decay: 0.25
+      color: "palette.primary"
+    target_group: "pars_all"
+    priority: 5
+    blend_mode: "HTP"
+
+  # ── Section changes ──────────────────────────────────────────────────────
+  - name: "drop_full_send"
+    trigger:
+      cue_type: "section_change"
+      conditions:
+        payload.to_label: ["drop"]
+    effect: "full_send"
+    parameter_bindings:
+      color: "palette.accent"
+    target_group: "pars_all"
+    priority: 10
+    flush_on_trigger: true
+
+  - name: "breakdown_breathe"
+    trigger:
+      cue_type: "section_change"
+      conditions:
+        payload.to_label: ["breakdown", "verse"]
+    effect: "breathe"
+    parameter_bindings:
+      speed: 0.3
+      intensity: 0.4
+      color: "palette.secondary"
+    target_group: "pars_all"
+    priority: 6
+    flush_on_trigger: true
+
+  - name: "fakeout_blackout"
+    trigger:
+      cue_type: "section_change"
+      conditions:
+        payload.is_fakeout: true
+    effect: "blackout"
+    target_group: "pars_all"
+    priority: 10
+    flush_on_trigger: true
+
+  # ── Risers / anticipation ────────────────────────────────────────────────
+  - name: "riser_sweep"
+    trigger:
+      cue_type: "riser"
+    effect: "sweep"
+    parameter_bindings:
+      direction: "forward"
+      speed: "cue.intensity"
+      color: "palette.primary"
+    target_group: "pars_all"
+    priority: 7
+    blend_mode: "LTP"
+
+  # ── Ambient ──────────────────────────────────────────────────────────────
+  - name: "intro_outro_static"
+    trigger:
+      cue_type: "section_change"
+      conditions:
+        payload.to_label: ["intro", "outro"]
+    effect: "static"
+    parameter_bindings:
+      brightness: 0.3
+      color: "palette.primary"
+    target_group: "pars_all"
+    priority: 3
+    flush_on_trigger: true

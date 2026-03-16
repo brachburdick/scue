@@ -1,0 +1,33 @@
+# Pulse effect — brightness ramps up then decays. Good for beats and kicks.
+effect:
+  name: "pulse"
+  description: "Single brightness pulse with configurable attack and decay"
+  parameters:
+    attack:
+      type: float
+      min: 0.001
+      max: 2.0
+      default: 0.02
+      unit: "seconds"
+    sustain:
+      type: float
+      min: 0.0
+      max: 2.0
+      default: 0.0
+      unit: "seconds"
+    decay:
+      type: float
+      min: 0.01
+      max: 5.0
+      default: 0.2
+      unit: "seconds"
+    intensity:
+      type: float
+      min: 0.0
+      max: 1.0
+      default: 1.0
+    color:
+      type: color
+      default: [1.0, 1.0, 1.0]  # RGB, 0.0–1.0
+  output_channels: [brightness, color_r, color_g, color_b]
+  one_shot: true   # fires once per trigger, does not repeat

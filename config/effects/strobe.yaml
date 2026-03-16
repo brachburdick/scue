@@ -1,0 +1,27 @@
+# Strobe effect — rapid on/off. Good for drops and impacts.
+effect:
+  name: "strobe"
+  description: "Rapid brightness on/off strobing"
+  parameters:
+    rate:
+      type: float
+      min: 1.0
+      max: 30.0
+      default: 10.0
+      unit: "hz"
+    duty_cycle:
+      type: float
+      min: 0.1
+      max: 0.9
+      default: 0.5
+      description: "Fraction of each period that is ON"
+    intensity:
+      type: float
+      min: 0.0
+      max: 1.0
+      default: 1.0
+    color:
+      type: color
+      default: [1.0, 1.0, 1.0]
+  output_channels: [brightness, color_r, color_g, color_b]
+  one_shot: false

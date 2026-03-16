@@ -1,0 +1,46 @@
+# Default venue configuration — edit to match your physical setup.
+# See docs/ARCHITECTURE.md → Sub-layer 4A for full schema reference.
+
+venue:
+  name: "My Setup"
+
+  fixture_definitions:
+    - id: "generic_rgb_par"
+      description: "Generic 3-channel RGB par can"
+      channels:
+        - { name: "red",    type: "color_r",    range: [0, 255] }
+        - { name: "green",  type: "color_g",    range: [0, 255] }
+        - { name: "blue",   type: "color_b",    range: [0, 255] }
+      channel_count: 3
+
+    - id: "generic_rgbw_par"
+      description: "Generic 4-channel RGBW par can"
+      channels:
+        - { name: "red",    type: "color_r",    range: [0, 255] }
+        - { name: "green",  type: "color_g",    range: [0, 255] }
+        - { name: "blue",   type: "color_b",    range: [0, 255] }
+        - { name: "white",  type: "brightness", range: [0, 255] }
+      channel_count: 4
+
+  fixtures:
+    # Add your fixtures here. Example:
+    # - name: "Par 1"
+    #   definition: "generic_rgb_par"
+    #   dmx_universe: 1
+    #   dmx_start_address: 1
+    #   position: { x: 0.0, y: 0.0 }  # normalized 0.0–1.0
+    #   groups: ["pars_all", "pars_left"]
+
+  groups:
+    - name: "pars_all"
+      description: "All par cans"
+    - name: "pars_left"
+      description: "Left-side par cans"
+    - name: "pars_right"
+      description: "Right-side par cans"
+    - name: "movers"
+      description: "All moving heads"
+    - name: "lasers"
+      description: "All laser fixtures"
+    - name: "visuals"
+      description: "Video output targets"
