@@ -6,8 +6,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api.bridge import init_bridge_api, router as bridge_router
 from .api.filesystem import router as filesystem_router
 from .api.tracks import init_tracks_api, router as tracks_router
+from .bridge import BridgeManager
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +26,37 @@ app.add_middleware(
 # Register routers
 app.include_router(tracks_router)
 app.include_router(filesystem_router)
+app.include_router(bridge_router)
 
 # Default project paths (can be overridden via env or config)
 DEFAULT_TRACKS_DIR = Path("tracks")
 DEFAULT_CACHE_PATH = Path("cache/scue.db")
 
 
+_bridge_manager: BridgeManager | None = None
+
+
 @app.on_event("startup")
 async def startup() -> None:
-    """Initialize storage on app startup."""
+    """Initialize storage and bridge on app startup."""
+    global _bridge_manager
     init_tracks_api(DEFAULT_TRACKS_DIR, DEFAULT_CACHE_PATH)
+
+    # Initialize bridge manager (graceful — won't crash if JAR/JRE missing)
+    _bridge_manager = BridgeManager()
+    init_bridge_api(_bridge_manager)
+    await _bridge_manager.start()
+    logger.info("Bridge status: %s", _bridge_manager.status)
+
     logger.info("SCUE started")
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    """Clean up bridge on app shutdown."""
+    if _bridge_manager is not None:
+        await _bridge_manager.stop()
+    logger.info("SCUE stopped")
 
 
 @app.get("/api/health")

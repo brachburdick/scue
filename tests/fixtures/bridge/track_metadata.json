@@ -1,0 +1,71 @@
+[
+  {
+    "type": "track_metadata",
+    "timestamp": 1710600010.0,
+    "player_number": 1,
+    "payload": {
+      "title": "Strobe",
+      "artist": "deadmau5",
+      "album": "For Lack of a Better Name",
+      "genre": "Progressive House",
+      "key": "Fm",
+      "bpm": 128.0,
+      "duration": 637.0,
+      "color": null,
+      "rating": 5,
+      "comment": "",
+      "rekordbox_id": 42001
+    }
+  },
+  {
+    "type": "beat_grid",
+    "timestamp": 1710600010.1,
+    "player_number": 1,
+    "payload": {
+      "beats": [
+        {"beat_number": 1, "time_ms": 250.0, "bpm": 128.0},
+        {"beat_number": 2, "time_ms": 718.75, "bpm": 128.0},
+        {"beat_number": 3, "time_ms": 1187.5, "bpm": 128.0},
+        {"beat_number": 4, "time_ms": 1656.25, "bpm": 128.0},
+        {"beat_number": 5, "time_ms": 2125.0, "bpm": 128.0},
+        {"beat_number": 6, "time_ms": 2593.75, "bpm": 128.0},
+        {"beat_number": 7, "time_ms": 3062.5, "bpm": 128.0},
+        {"beat_number": 8, "time_ms": 3531.25, "bpm": 128.0}
+      ]
+    }
+  },
+  {
+    "type": "phrase_analysis",
+    "timestamp": 1710600010.2,
+    "player_number": 1,
+    "payload": {
+      "phrases": [
+        {"start_beat": 1, "end_beat": 128, "kind": "intro", "mood": 1},
+        {"start_beat": 129, "end_beat": 384, "kind": "verse", "mood": 1},
+        {"start_beat": 385, "end_beat": 512, "kind": "chorus", "mood": 2},
+        {"start_beat": 513, "end_beat": 640, "kind": "bridge", "mood": 1},
+        {"start_beat": 641, "end_beat": 768, "kind": "chorus", "mood": 3},
+        {"start_beat": 769, "end_beat": 896, "kind": "outro", "mood": 1}
+      ]
+    }
+  },
+  {
+    "type": "cue_points",
+    "timestamp": 1710600010.3,
+    "player_number": 1,
+    "payload": {
+      "cue_points": [
+        {"time_ms": 250.0, "name": "", "color": ""}
+      ],
+      "memory_points": [
+        {"time_ms": 250.0, "name": "Start", "color": "#00FF00"},
+        {"time_ms": 180000.0, "name": "Build", "color": "#FFFF00"},
+        {"time_ms": 240000.0, "name": "Drop", "color": "#FF0000"}
+      ],
+      "hot_cues": [
+        {"slot": 1, "time_ms": 250.0, "name": "Start", "color": "#00FF00"},
+        {"slot": 2, "time_ms": 240000.0, "name": "Drop", "color": "#FF0000"}
+      ]
+    }
+  }
+]

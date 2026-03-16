@@ -66,8 +66,17 @@ Completed: 2026-03-16
 - [x] QueryClientProvider wired into app root
 - [x] TypeScript types mirroring Python models (src/types/track.ts)
 
-### Milestone 0 — Beat-Link Bridge (Layer 0)
-- Java bridge JAR + Python manager + adapter + fallback
+### ~~Milestone 0 — Beat-Link Bridge (Layer 0, Python Side)~~ → COMPLETE (2026-03-16)
+- [x] `scue/bridge/messages.py` — BridgeMessage dataclass + 10 typed payload dataclasses
+- [x] `scue/bridge/client.py` — WebSocket client with reconnection handling
+- [x] `scue/bridge/adapter.py` — Stateful adapter: BridgeMessage → PlayerState (per-player accumulation)
+- [x] `scue/bridge/fallback.py` — UDP fallback parser (ported from POC, emits BridgeMessage)
+- [x] `scue/bridge/manager.py` — Subprocess lifecycle with graceful degradation (no_jre/no_jar states)
+- [x] `scue/api/bridge.py` — `GET /api/bridge/status` endpoint
+- [x] `tools/mock_bridge.py` — WebSocket replay tool for testing without Pioneer hardware
+- [x] 4 JSON fixture files (device discovery, playback session, track metadata, transition)
+- [x] 53 tests passing (messages, adapter, manager)
+- [ ] Java bridge JAR (`lib/beat-link-bridge.jar`) — not yet built, Python side ready to connect
 
 ### Milestone 2 — Live Cursor + Pioneer Enrichment (Layer 1B)
 - Consume bridge data → PlaybackState + TrackCursor
