@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: scue
+Version: 0.1.0
+Summary: Automated lighting/laser/visual cue generation for live DJ sets
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.100.0
+Requires-Dist: uvicorn[standard]>=0.23.0
+Requires-Dist: websockets>=11.0
+Requires-Dist: pyyaml>=6.0
+Provides-Extra: analysis
+Requires-Dist: librosa>=0.10.0; extra == "analysis"
+Requires-Dist: ruptures>=1.1.0; extra == "analysis"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: httpx>=0.24.0; extra == "dev"
