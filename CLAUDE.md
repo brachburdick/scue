@@ -2,6 +2,14 @@
 
 Automated lighting/laser/visual cue generation for live DJ sets.
 
+## Agent Workflow
+-   Multi-agent workflow docs: `docs/agents/`
+-   Agent roster & scope definitions: `docs/agents/AGENT_ROSTER.md`
+-   Handoff format contracts: `docs/agents/HANDOFF_CONTRACTS.md`
+-   Session summaries: `sessions/`
+-   Feature specs & task breakdowns: `specs/`
+
+
 ## Stack
 - Python 3.11+, FastAPI, asyncio
 - beat-link (Java library) via managed subprocess for Pro DJ Link protocol
