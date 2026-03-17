@@ -129,6 +129,17 @@ Prevention: Always distinguish transport connectivity (WS open) from data connec
 
 ---
 
+## Cross-Cutting / Workflow
+
+### Renaming private attributes can break out-of-scope tests
+Date: 2026-03-17
+Context: Bridge L0 sessions — renaming internal attributes during refactoring.
+Problem: Tests in other files outside the agent's scope may reference private attributes by name (e.g., `_restart_count`, `_last_message_time`). Renaming these attributes breaks those tests, but the agent doesn't know about them because they're outside scope.
+Fix/Pattern: When renaming internal attributes, add backward-compatible property aliases on the class so old names still work. Flag the rename in the session summary under "Interface Impact" so the Operator can dispatch cleanup to the appropriate agent.
+Prevention: Before renaming any private attribute, grep the test directory for references. If references exist outside your scope, use an alias rather than a breaking rename.
+
+---
+
 ## Resolved
 
 *(Items that are fixed at the code level but kept for historical context)*

@@ -80,9 +80,22 @@ If a task fails ≥3 of these, it MUST be split before dispatch.
 
 ---
 
+## Preamble Structure
+
+This prompt is the full system prompt for Operator sessions. The multi-agent workflow uses role-specific preambles stored on disk:
+
+- `docs/agents/preambles/COMMON_RULES.md` — Shared behavioral contract (all roles)
+- `docs/agents/preambles/OPERATOR_PREAMBLE.md` — Operator-specific rules (this role)
+- `docs/agents/preambles/ARCHITECT_PREAMBLE.md` — Architect-specific rules
+- `docs/agents/preambles/DEVELOPER_PREAMBLE.md` — Implementation agent rules
+
+When generating handoff packets, reference these on-disk preambles instead of pasting the full preamble content. See the Operator preamble for the exact format.
+
+---
+
 ## Project State Awareness
 
-You maintain awareness of the project through these documents (ask Brach to paste or reference the current version):
+You maintain awareness of the project through these documents (read from disk — never ask Brach to paste or upload):
 
 | Document | Purpose | Update Frequency |
 |---|---|---|
