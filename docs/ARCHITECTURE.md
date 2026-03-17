@@ -81,7 +81,12 @@ BridgeMessage {
   payload: {
     connected: bool
     devices_online: int
-    version: string                 # "1.1.0"
+    version: string                 # "1.2.0"
+    network_interface: string | null  # interface name the bridge bound to
+    network_address: string | null    # IP address of bound interface
+    interface_candidates: list | null # [{ name, address, type, score, selected }]
+    warning: string | null            # set when configured interface unavailable
+    error: string | null              # set on startup failures
   }
 }
 ```
@@ -122,10 +127,10 @@ BridgeMessage {
 
 **Not emitted by bridge (resolved by Python side per ADR-012):**
 - `track_metadata` — via rbox (DLP) or future extensions (legacy)
-- `beat_grid` — via rbox (DLP) or future extensions (legacy)
-- `waveform_detail` — via rbox (DLP) or future extensions (legacy)
-- `phrase_analysis` — via rbox (DLP) or future extensions (legacy)
-- `cue_points` — via rbox (DLP) or future extensions (legacy)
+- `beat_grid` — via pyrekordbox ANLZ parser (DLP) or future extensions (legacy)
+- `waveform_detail` — via pyrekordbox ANLZ parser (DLP) or future extensions (legacy)
+- `phrase_analysis` — via pyrekordbox ANLZ parser (DLP) or future extensions (legacy)
+- `cue_points` — via pyrekordbox ANLZ parser (DLP) or future extensions (legacy)
 
 ### Decoupling Strategy
 
@@ -154,7 +159,9 @@ Legacy hardware (CDJ-2000NXS2, CDJ-3000, etc.):
   Future: Python reads export.pdb directly (not yet implemented)
 
 DLP hardware (XDJ-AZ, Opus Quad, etc.):
-  USB mount → rbox.OneLibrary(exportLibrary.db) → Python direct parse → TrackAnalysis
+  USB mount → rbox.OneLibrary(exportLibrary.db) for DB metadata
+           → pyrekordbox/anlz_parser for ANLZ files (beat grid, cues, phrases)
+           → TrackAnalysis
 
 Both paths produce identical TrackAnalysis records.
 Layer 1 and above don't know or care which path was used.

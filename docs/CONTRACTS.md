@@ -15,6 +15,8 @@ class BridgeMessage:
     payload: dict           # type-specific, see ARCHITECTURE.md for schemas
 ```
 
+**bridge_status payload (v1.2.0):** Includes `network_interface`, `network_address`, `interface_candidates` (list of scored interface options), `warning`, and `error` fields. See ARCHITECTURE.md and `scue/bridge/messages.py:BridgeStatusPayload` for full schema.
+
 ## Layer 1 → Layer 2: DeckMix
 
 The DeckMix is the interface between Layer 1 and Layer 2.
@@ -97,6 +99,60 @@ class FixtureOutput:
     # Standard channel names: brightness, color_r, color_g, color_b,
     # color_h, color_s, color_v, position, beam_width, strobe_rate
 ```
+
+## Backend → Frontend: WebSocket Messages
+
+The backend streams typed JSON messages to the frontend over `ws://localhost:8000/ws`.
+Managed by `scue/api/ws.py` + `scue/api/ws_manager.py`. Frontend dispatch in `frontend/src/api/ws.ts`.
+
+### bridge_status (on every bridge state change)
+
+```json
+{
+  "type": "bridge_status",
+  "payload": {
+    "status": "running",
+    "port": 17400,
+    "network_interface": "en16",
+    "jar_path": "lib/beat-link-bridge.jar",
+    "jar_exists": true,
+    "jre_available": true,
+    "restart_count": 0,
+    "route_correct": true,
+    "route_warning": null,
+    "devices": { "<ip>": { "device_name": "XDJ-AZ", "device_number": 1, "device_type": "cdj", "uses_dlp": true } },
+    "players": { "1": { "bpm": 128.0, "pitch": 0.0, "playback_state": "playing", "is_on_air": true, "rekordbox_id": 42001, "beat_within_bar": 3, "track_type": "rekordbox" } }
+  }
+}
+```
+
+### pioneer_status (every 2 seconds)
+
+```json
+{
+  "type": "pioneer_status",
+  "payload": {
+    "is_receiving": true,
+    "last_message_age_ms": 450
+  }
+}
+```
+
+Frontend types: `frontend/src/types/ws.ts` (`WSMessage` union), `frontend/src/types/bridge.ts` (payload shapes).
+Store: `frontend/src/stores/bridgeStore.ts` (independent Zustand store).
+
+## Backend → Frontend: Network REST API
+
+Endpoints in `scue/api/network.py` for interface enumeration and route management.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/network/interfaces` | GET | List interfaces with scoring |
+| `/api/network/route` | GET | Current route state |
+| `/api/network/route/fix` | POST | Trigger route fix |
+| `/api/network/route/setup-status` | GET | Sudoers + launchd status |
+
+Frontend hooks: `frontend/src/api/network.ts` (TanStack Query).
 
 ### Change Protocol
 Any change to these contracts requires:

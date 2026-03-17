@@ -31,6 +31,13 @@ Problem: When a new track is loaded on the same deck of the XDJ-AZ, `CdjStatus.g
 Fix: Detect track changes by monitoring `CdjStatus.getRekordboxId()` for value changes (even though the ID is unreliable for metadata lookup, a change in ID reliably indicates a new track was loaded). Use multiple signals: rekordbox ID change OR trackType transition OR significant BPM change at same pitch.
 Prevention: All track-change detection in the bridge should use multiple signals rather than depending on any single signal.
 
+### beat-link binds to wrong network interface on macOS
+Date: 2026-03-16 (updated 2026-03-17)
+Context: Building the Java bridge JAR. beat-link auto-detection picked the wrong network interface.
+Problem: macOS has many interfaces (Wi-Fi, Thunderbolt bridge, VPN, Docker, AWDL, etc.). beat-link's default interface discovery may pick any of them. When it picks the wrong one, it silently connects to nothing — no error, no timeout, just no devices discovered. **Critical: beat-link 8.0.0 has NO API to force a specific network interface.** `VirtualCdj.start()` auto-discovers by sending probes to devices found by DeviceFinder. On macOS, the link-local broadcast route (169.254.255.255) must point to the correct interface or probes go nowhere.
+Fix: (1) Fix macOS route before starting bridge: `sudo ./tools/fix-djlink-route.sh en16`. (2) The bridge v1.2.0 checks the route on startup and emits a warning if wrong. (3) Python BridgeManager also checks and logs. (4) Bridge still does scored auto-detection and `--interface` CLI override for interface selection/logging, but the actual binding is beat-link's responsibility (driven by correct OS routing).
+Prevention: Always fix the macOS route after reboot/cable change. The route does not persist across reboots. Always log which interface was selected and why. Surface the interface list and selection in the bridge_status message so the UI can display it.
+
 ### macOS broadcast UDP reception — IP_BOUND_IF required
 Date: 2025-03
 Context: Connecting Pioneer XDJ-AZ via CAT-5 on en16 (169.254.20.47). Sockets binding correctly but packet_count stayed at 0.
@@ -83,6 +90,13 @@ Context: Writing _count_bars for 8-bar snap pass.
 Problem: Counting bars by counting downbeats in a range counts the START markers, not intervals. A range from bar 0 to bar 8 has 9 downbeats (0,1,2,...8) but 8 bars.
 Fix: The implementation counts downbeats within [start, end) using a half-open interval. Tests must match this semantic. Include an extra downbeat at the end of the track's downbeat list.
 Prevention: Be explicit about whether counting markers or intervals. Document the half-open interval convention.
+
+### rbox Rust ANLZ parser panics on DLP ANLZ files — replaced with pure Python
+Date: 2026-03-17
+Context: USB scanning with rbox v0.1.7 on XDJ-AZ ANLZ files.
+Problem: `rbox.Anlz()` causes a Rust `panic!()` on certain ANLZ files from XDJ-AZ USB exports. The panic aborts the entire Python process — it's uncatchable. The Rust parser hits unknown section variants in DLP-format ANLZ files and panics instead of returning an error. Not all files fail, but the risk is unpredictable.
+Fix/Pattern: Two-tier pure-Python ANLZ parsing (ADR-013): Tier 1: pyrekordbox `AnlzFile.parse_file()`. Tier 2: custom `anlz_parser.py` (zero deps, beat grid + cues only). Both are pure Python — exceptions, not panics. rbox kept for `exportLibrary.db` reading only.
+Prevention: Never use Rust-backed parsers for untrusted binary formats without subprocess isolation. Pure Python is slower but cannot abort the process. If a Rust library must be used, wrap it in a subprocess.
 
 ---
 

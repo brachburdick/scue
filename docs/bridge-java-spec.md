@@ -88,10 +88,23 @@ Sent once on startup and whenever bridge state changes.
   "payload": {
     "connected": true,
     "devices_online": 3,
-    "version": "1.1.0"
+    "version": "1.2.0",
+    "network_interface": "en5",
+    "network_address": "169.254.20.1",
+    "interface_candidates": [
+      { "name": "en5", "address": "169.254.20.1", "type": "ethernet", "score": 15, "selected": true },
+      { "name": "en7", "address": "10.0.0.5", "type": "ethernet", "score": 8, "selected": false },
+      { "name": "en0", "address": "192.168.1.100", "type": "wifi", "score": 3, "selected": false }
+    ]
   }
 }
 ```
+
+- `network_interface`: Name of the interface the bridge bound to (e.g. `en5`)
+- `network_address`: IP address of the bound interface
+- `interface_candidates`: All scored candidate interfaces (for UI display). Each entry: `name`, `address`, `type` (ethernet/wifi/virtual), `score`, `selected` (bool).
+- `warning`: Optional — set when configured interface was not found or down and auto-detect was used as fallback
+- `error`: Optional — set on startup failures (player number conflict, etc.)
 
 ### device_found / device_lost
 Sent when a Pioneer device appears or disappears on the network.
@@ -227,18 +240,23 @@ Paste this at the end of the existing spec document, before any closing notes.
 beat-link has a strict initialization order. The bridge must follow this sequence:
 
 ```
-1. Parse CLI arguments (--port, --player-number)
+1. Parse CLI arguments (--port, --player-number, --interface)
 2. Start WebSocket server on configured port
 3. Emit bridge_status { connected: false, devices_online: 0 }
-4. DeviceFinder.getInstance().start()
-5. VirtualCdj.getInstance().setDeviceNumber(playerNumber)
-6. VirtualCdj.getInstance().start()
+4. Run network interface selection (see § Network Interface Discovery and Selection)
+   └─ If --interface provided: validate the named interface (Layer 2)
+   └─ Otherwise: auto-detect with scoring (Layer 1)
+   └─ Run startup validation (Layer 3)
+5. DeviceFinder.getInstance().start()
+6. VirtualCdj.getInstance().setDeviceNumber(playerNumber)
+7. VirtualCdj.getInstance().setUseInterface(selectedInterface)
+8. VirtualCdj.getInstance().start()
    └─ This BLOCKS until it joins the network or times out (~10s)
    └─ If timeout: log warning, emit bridge_status { connected: false }
       The WebSocket server stays running. Retry on a configurable interval (default 10s).
-7. BeatFinder.getInstance().start()
-8. Register listeners for DeviceAnnouncement, CdjStatus, Beat
-9. Emit bridge_status { connected: true, devices_online: N }
+9. BeatFinder.getInstance().start()
+10. Register listeners for DeviceAnnouncement, CdjStatus, Beat
+11. Emit bridge_status { connected: true, devices_online: N, network_interface: ..., interface_candidates: [...] }
 ```
 
 **Per ADR-012:** Steps 7-11 from the original spec (MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder) are removed. Only BeatFinder is started.
@@ -253,6 +271,7 @@ beat-link has a strict initialization order. The bridge must follow this sequenc
 |----------|---------|-------------|
 | `--port <N>` | `17400` | WebSocket server port |
 | `--player-number <N>` | `5` | Player number to claim on the Pro DJ Link network. Must not conflict with connected CDJs (typically 1–4). Values 5–6 are conventional for software players. If the number is taken, startup will fail — log the error clearly. |
+| `--interface <name>` | (auto-detect) | Network interface name to bind to (e.g., `en5`, `eth0`). If the interface is not found or is down, falls back to auto-detection with a warning. |
 | `--log-level <LEVEL>` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `--retry-interval <S>` | `10` | Seconds between network join retries when no hardware is found |
 
@@ -330,3 +349,67 @@ macOS assigns the 169.254.255.255 broadcast route to whichever link-local interf
 
 ### rekordbox_id instability on XDJ-AZ
 `CdjStatus.getRekordboxId()` returns different values for the same track when toggling between paused and playing states. The Python adapter handles this by only firing `on_track_loaded` on nonzero ID changes.
+
+## Network Interface Discovery and Selection
+
+beat-link auto-discovers the network interface to bind to, but frequently picks the wrong one — Wi-Fi instead of Ethernet, a VPN adapter, Docker's virtual bridge, or a Thunderbolt bridge. On macOS there are often 8+ interfaces. Picking the wrong one means the bridge silently connects to nothing.
+
+The bridge implements a three-layer interface selection strategy:
+
+### Layer 1 — Smart Auto-Detection (default)
+
+When no `--interface` argument is provided:
+
+1. Enumerate all network interfaces via `NetworkInterface.getNetworkInterfaces()`
+2. Filter out: loopback, down/inactive interfaces, virtual interfaces (names starting with `veth`, `docker`, `br-`, `vmnet`, `utun`, `awdl`, `llw`, `bridge`)
+3. Score remaining interfaces:
+   - +10 if the interface has a link-local address (169.254.x.x) — this is the Pro DJ Link auto-config range
+   - +5 if the interface name suggests wired Ethernet (`en0`–`en9` on macOS, `eth*` on Linux, `Ethernet*` on Windows)
+   - +3 if the interface has a 10.x.x.x or 192.168.x.x address (common manual DJ network configs)
+   - -5 if the interface name suggests Wi-Fi (`en0` with Wi-Fi type on macOS, `wlan*`, `Wi-Fi`)
+   - -10 if the interface name suggests VPN or virtual (`utun*`, `tun*`, `tap*`)
+4. Select the highest-scoring interface
+5. Log the decision at INFO level: `"Auto-selected interface en5 (169.254.20.1, score=15). Other candidates: en0 (192.168.1.100, score=3, Wi-Fi), en7 (10.0.0.5, score=8)"`
+6. Include the full candidate list and scores in the `bridge_status` message payload so the Python side can surface it in the UI
+
+### Layer 2 — User Selection (via CLI argument)
+
+When `--interface <name>` is provided:
+
+1. Look up the named interface via `NetworkInterface.getByName(name)`
+2. If found and up: use it. Log at INFO: `"Using configured interface en5 (169.254.20.1)"`
+3. If found but down: log at WARN: `"Configured interface en5 exists but is down. Falling back to auto-detection."` → run Layer 1.
+4. If not found: log at WARN: `"Configured interface en5 not found. Available interfaces: [en0, en7, lo0]. Falling back to auto-detection."` → run Layer 1.
+5. In both fallback cases, include a `"warning"` field in the `bridge_status` payload so the UI can alert the user.
+
+### Layer 3 — Startup Validation
+
+After interface selection (whether auto or manual), before calling `VirtualCdj.getInstance().start()`:
+
+1. Call `VirtualCdj.getInstance().setUseInterface(selectedInterface)` (if beat-link's API supports specifying the interface; otherwise, set the system property or use the approach documented in beat-link's README for interface selection)
+2. Verify the interface is active: `selectedInterface.isUp()` and `selectedInterface.getInetAddresses()` returns at least one non-loopback address
+3. After `VirtualCdj.start()`, verify that devices are discoverable within 10 seconds. If no devices appear but the interface is up, log at WARN: `"No Pioneer devices found on en5 (169.254.20.1). Check physical connection and that hardware is powered on."`
+
+### Implementation in Java
+
+```java
+// Pseudocode for interface selection
+NetworkInterface selectedInterface = null;
+
+if (cliInterfaceName != null) {
+    // Layer 2: User-specified
+    selectedInterface = NetworkInterface.getByName(cliInterfaceName);
+    if (selectedInterface == null || !selectedInterface.isUp()) {
+        log.warn("Configured interface {} not available, falling back to auto-detection", cliInterfaceName);
+        selectedInterface = null; // triggers Layer 1
+    }
+}
+
+if (selectedInterface == null) {
+    // Layer 1: Auto-detection with scoring
+    selectedInterface = autoDetectInterface();
+}
+
+log.info("Using interface {} ({})", selectedInterface.getName(), getAddress(selectedInterface));
+VirtualCdj.getInstance().setUseInterface(selectedInterface);
+```

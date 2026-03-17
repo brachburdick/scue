@@ -25,9 +25,25 @@ Fix: Stripped MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, and A
 File(s): bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java, bridge-java/src/main/java/com/scue/bridge/MessageEmitter.java, scue/bridge/adapter.py, scue/bridge/messages.py, scue/bridge/manager.py
 
 ### macOS link-local broadcast routing goes to wrong interface
-Date: 2026-03-16
+Date: 2026-03-16 (updated 2026-03-17)
 Milestone: M-0
-Symptom: Bridge connected but immediately cycled between device_found/device_lost. VirtualCdj threw NoRouteToHostException when sending announcement packets.
-Root cause: macOS assigns the 169.254.255.255 broadcast route to whichever link-local interface registers first (usually en0/Wi-Fi). When Pioneer hardware is on Ethernet (en16), broadcast packets go out the wrong interface. Breaks on reboot, cable unplug/replug, or adapter change.
-Fix: Manual route fix: `sudo route delete 169.254.255.255 && sudo route add -host 169.254.255.255 -interface en16`. Needs automation via startup script.
-File(s): N/A (OS-level routing)
+Symptom: Bridge connected but immediately cycled between device_found/device_lost. VirtualCdj threw NoRouteToHostException when sending announcement packets. On v1.2.0 with `--interface` flag, bridge runs but `devices: {}` because beat-link probes go out the wrong interface.
+Root cause: macOS assigns the 169.254.255.255 broadcast route to whichever link-local interface registers first (usually en0/Wi-Fi). When Pioneer hardware is on Ethernet (en16), broadcast packets go out the wrong interface. beat-link 8.0.0 has NO API to force a specific network interface — VirtualCdj.start() auto-discovers by probing, so the OS route must be correct. Breaks on reboot, cable unplug/replug, or adapter change.
+Fix: (1) `sudo ./tools/fix-djlink-route.sh en16` fixes the route. (2) Java bridge v1.2.0 checks the route on startup and emits a warning with the fix command if wrong. (3) Python BridgeManager also checks and logs a warning before launching subprocess.
+File(s): bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java, scue/bridge/manager.py, tools/fix-djlink-route.sh
+
+### Nonsensical pitch value when no track is loaded
+Date: 2026-03-17
+Milestone: M-0
+Symptom: Player status shows `pitch: -6.95` (or similar garbage) when no track is loaded on a deck.
+Root cause: `CdjStatus.getPitch()` returns a raw hardware value even when `trackType == NO_TRACK`. The BPM was already guarded with a NO_TRACK check but pitch was not.
+Fix: Apply the same `noTrack ? 0.0 : ...` guard to pitch calculation, matching the existing BPM guard.
+File(s): bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java
+
+### rbox ANLZ parser panics on XDJ-AZ exported files
+Date: 2026-03-16
+Milestone: M-0B
+Symptom: `rbox.Anlz()` constructor causes Rust panic (process abort) when opening certain ANLZ0000.DAT files from XDJ-AZ USB exports. The panic occurs during ANLZ section parsing with "no variants matched" and "assertion failed" errors in the BeatGrid parser.
+Root cause: rbox v0.1.7's Rust ANLZ parser doesn't handle all ANLZ section variants exported by the XDJ-AZ. The parser encounters unknown section tags at certain file offsets and panics instead of returning an error.
+Fix: Replaced rbox ANLZ parsing with two-tier pure-Python strategy (ADR-013): pyrekordbox (primary) + custom anlz_parser.py (fallback). rbox retained for exportLibrary.db reading only. ANLZ reading re-enabled.
+File(s): scue/layer1/usb_scanner.py, scue/layer1/anlz_parser.py, pyproject.toml

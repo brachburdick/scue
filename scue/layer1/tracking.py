@@ -119,20 +119,35 @@ class PlaybackTracker:
             log.info("Player %d: no analysis found for fp=%s", pn, fp[:12])
             return
 
-        # Trigger enrichment on first load with Pioneer BPM
+        # Trigger enrichment on first load with Pioneer data
         if fp not in self._enriched and player.bpm > 0:
+            # Fetch cached Pioneer metadata from USB scan (ADR-012)
+            pioneer_meta = self._cache.get_pioneer_metadata(rb_id)
+
+            pioneer_key = player.key
+            pioneer_beatgrid: list[float] | None = None
+            if pioneer_meta:
+                if not pioneer_key and pioneer_meta.get("key_name"):
+                    pioneer_key = pioneer_meta["key_name"]
+                bg = pioneer_meta.get("beatgrid")
+                if bg:
+                    # Extract beat timestamps in ms for enrichment
+                    pioneer_beatgrid = [b["time_ms"] for b in bg if "time_ms" in b]
+
             enriched = run_enrichment_pass(
                 analysis,
                 pioneer_bpm=player.bpm,
                 store=self._store,
                 cache=self._cache,
-                pioneer_key=player.key,
+                pioneer_key=pioneer_key,
+                pioneer_beatgrid=pioneer_beatgrid,
             )
             self._enriched.add(fp)
             analysis = enriched
             log.info(
-                "Player %d: enriched fp=%s with Pioneer BPM=%.2f",
-                pn, fp[:12], player.bpm,
+                "Player %d: enriched fp=%s with Pioneer BPM=%.2f key=%s beatgrid=%s",
+                pn, fp[:12], player.bpm, pioneer_key or "(none)",
+                f"{len(pioneer_beatgrid)} beats" if pioneer_beatgrid else "(none)",
             )
 
         self._player_analysis[pn] = analysis

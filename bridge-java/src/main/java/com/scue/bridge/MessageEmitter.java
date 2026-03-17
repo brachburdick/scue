@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -48,11 +49,33 @@ public class MessageEmitter {
 
     // ── Message types ───────────────────────────────────────────────────────
 
-    public void emitBridgeStatus(boolean connected, int devicesOnline, String version, String error) {
+    /**
+     * Emit bridge_status with network interface information.
+     *
+     * @param connected          whether beat-link is connected to the Pro DJ Link network
+     * @param devicesOnline      number of discovered Pioneer devices
+     * @param version            bridge version string
+     * @param error              error message (null if no error)
+     * @param networkInterface   name of the selected network interface (null if unknown)
+     * @param networkAddress     IP address of the selected interface (null if unknown)
+     * @param interfaceCandidates list of scored interface candidates (null if not yet evaluated)
+     * @param warning            warning message (null if no warning)
+     */
+    public void emitBridgeStatus(boolean connected, int devicesOnline, String version, String error,
+                                  String networkInterface, String networkAddress,
+                                  List<Map<String, Object>> interfaceCandidates, String warning) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("connected", connected);
         payload.put("devices_online", devicesOnline);
         payload.put("version", version);
+        payload.put("network_interface", networkInterface);
+        payload.put("network_address", networkAddress);
+        if (interfaceCandidates != null) {
+            payload.put("interface_candidates", interfaceCandidates);
+        }
+        if (warning != null) {
+            payload.put("warning", warning);
+        }
         if (error != null) {
             payload.put("error", error);
         }

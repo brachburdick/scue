@@ -6,6 +6,7 @@ If the bridge JAR or JRE is unavailable, degrades gracefully.
 
 import asyncio
 import logging
+import platform
 import shutil
 import subprocess
 import time
@@ -15,6 +16,9 @@ from pathlib import Path
 from .adapter import BridgeAdapter
 from .client import BridgeWebSocket, DEFAULT_BRIDGE_URL
 from .messages import BridgeMessage
+from ..network.models import RouteFixResult
+from ..network.route import check_route as network_check_route
+from ..network.route import fix_route as network_fix_route
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +45,15 @@ class BridgeManager:
         self,
         jar_path: Path = DEFAULT_JAR_PATH,
         port: int = DEFAULT_PORT,
+        network_interface: str | None = None,
         on_message: Callable[[BridgeMessage], None] | None = None,
+        auto_fix_route: bool = True,
     ) -> None:
         self._jar_path = jar_path
         self._port = port
+        self._network_interface = network_interface
         self._external_on_message = on_message
+        self._auto_fix_route = auto_fix_route
 
         self._status = "stopped"
         self._process: subprocess.Popen | None = None
@@ -55,6 +63,11 @@ class BridgeManager:
         self._health_task: asyncio.Task | None = None
         self._restart_count = 0
         self._last_message_time: float = 0.0
+        self._route_correct: bool | None = None
+        self._route_warning: str | None = None
+
+        # Callback for state change notifications (used by WebSocket broadcaster)
+        self.on_state_change: Callable[[], None] | None = None
 
     @property
     def status(self) -> str:
@@ -68,6 +81,14 @@ class BridgeManager:
     def port(self) -> int:
         return self._port
 
+    @property
+    def network_interface(self) -> str | None:
+        return self._network_interface
+
+    @network_interface.setter
+    def network_interface(self, value: str | None) -> None:
+        self._network_interface = value
+
     def _check_jre(self) -> bool:
         """Check if Java is available on the system."""
         return shutil.which("java") is not None
@@ -76,21 +97,32 @@ class BridgeManager:
         """Check if the bridge JAR exists."""
         return self._jar_path.exists()
 
+    def _notify_state_change(self) -> None:
+        """Notify listeners of a state change (for WebSocket broadcast)."""
+        if self.on_state_change is not None:
+            try:
+                self.on_state_change()
+            except Exception as e:
+                logger.debug("State change callback error: %s", e)
+
     async def start(self) -> None:
         """Start the bridge. Degrades gracefully if JAR/JRE unavailable."""
         if self._status == "running":
             return
 
         self._status = "starting"
+        self._notify_state_change()
 
         if not self._check_jre():
             logger.warning("Java not found — bridge unavailable")
             self._status = "no_jre"
+            self._notify_state_change()
             return
 
         if not self._check_jar():
             logger.warning("Bridge JAR not found at %s — bridge unavailable", self._jar_path)
             self._status = "no_jar"
+            self._notify_state_change()
             return
 
         try:
@@ -100,10 +132,12 @@ class BridgeManager:
             self._restart_count = 0
             self._start_listen_loop()
             self._start_health_check()
+            self._notify_state_change()
             logger.info("Bridge started on port %d", self._port)
         except Exception as e:
             logger.error("Bridge start failed: %s", e)
             self._status = "crashed"
+            self._notify_state_change()
             await self._cleanup()
 
     async def stop(self) -> None:
@@ -111,13 +145,107 @@ class BridgeManager:
         logger.info("Stopping bridge")
         await self._cleanup()
         self._status = "stopped"
+        self._notify_state_change()
+
+    async def restart(self) -> None:
+        """Stop and restart the bridge (e.g. after config change)."""
+        logger.info("Restarting bridge (config change)")
+        await self.stop()
+        self._restart_count = 0
+        await self.start()
+
+    def _check_and_fix_route(self) -> None:
+        """Check the macOS broadcast route and attempt to fix it if auto_fix is enabled.
+
+        Uses the network.route module for both checking and fixing. Falls back
+        to logging a warning if the sudoers entry is not installed.
+        """
+        if platform.system() != "Darwin" or not self._network_interface:
+            self._route_correct = None
+            self._route_warning = None
+            return
+
+        try:
+            result = network_check_route(self._network_interface)
+            self._route_correct = result.correct
+
+            if result.correct:
+                logger.info(
+                    "macOS broadcast route OK: 169.254.255.255 -> %s",
+                    result.current_interface,
+                )
+                self._route_warning = None
+                return
+
+            # Route is wrong — try to fix if auto_fix is enabled
+            logger.warning(
+                "macOS routes 169.254.255.255 via %s, not %s",
+                result.current_interface,
+                self._network_interface,
+            )
+
+            if self._auto_fix_route:
+                fix_result = network_fix_route(self._network_interface)
+                if fix_result.success:
+                    logger.info(
+                        "Auto-fixed broadcast route: %s -> %s",
+                        fix_result.previous_interface,
+                        fix_result.new_interface,
+                    )
+                    self._route_correct = True
+                    self._route_warning = None
+                    return
+                else:
+                    logger.warning("Auto-fix failed: %s", fix_result.error)
+                    self._route_warning = fix_result.error
+
+            # Could not fix — log the manual fix command
+            if not self._route_warning:
+                self._route_warning = (
+                    f"macOS routes 169.254.255.255 via {result.current_interface}, "
+                    f"not {self._network_interface}. Fix with: "
+                    f"sudo ./tools/fix-djlink-route.sh {self._network_interface}"
+                )
+        except Exception as e:
+            logger.debug("Could not check macOS broadcast route: %s", e)
+            self._route_correct = None
+            self._route_warning = None
+
+    async def fix_route(self) -> RouteFixResult:
+        """Attempt to fix the broadcast route. Callable from the API."""
+        if not self._network_interface:
+            return RouteFixResult(
+                success=False,
+                error="No network interface configured",
+                previous_interface=None,
+                new_interface="",
+            )
+        result = network_fix_route(self._network_interface)
+        if result.success:
+            self._route_correct = True
+            self._route_warning = None
+            self._notify_state_change()
+        return result
+
+    def _check_macos_route(self) -> None:
+        """On macOS, check if the 169.254.255.255 broadcast route matches the configured interface.
+
+        Pro DJ Link uses link-local broadcasts. If macOS routes them to the wrong
+        interface, beat-link will never discover devices. Logs a warning with the fix command.
+
+        Deprecated: use _check_and_fix_route() instead, which also attempts auto-fix.
+        """
+        self._check_and_fix_route()
 
     async def _launch_subprocess(self) -> None:
         """Launch the bridge JAR as a subprocess."""
+        self._check_and_fix_route()
         cmd = [
             "java", "-jar", str(self._jar_path),
             "--port", str(self._port),
         ]
+        if self._network_interface:
+            cmd.extend(["--interface", self._network_interface])
         self._process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -167,10 +295,12 @@ class BridgeManager:
                 self._adapter.handle_message(msg)
                 if self._external_on_message is not None:
                     self._external_on_message(msg)
+                self._notify_state_change()
         except Exception as e:
             logger.error("Listen loop error: %s", e)
             if self._status == "running":
                 self._status = "crashed"
+                self._notify_state_change()
 
     async def _health_check_loop(self) -> None:
         """Periodically check bridge health and restart if needed."""
@@ -184,6 +314,7 @@ class BridgeManager:
             if self._process is not None and self._process.poll() is not None:
                 logger.warning("Bridge subprocess died (exit code %d)", self._process.returncode)
                 self._status = "crashed"
+                self._notify_state_change()
                 await self._schedule_restart()
                 break
 
@@ -193,6 +324,7 @@ class BridgeManager:
                 if silence > HEALTH_CHECK_INTERVAL * 2:
                     logger.warning("Bridge silent for %.1fs — restarting", silence)
                     self._status = "crashed"
+                    self._notify_state_change()
                     await self._schedule_restart()
                     break
 
@@ -244,10 +376,13 @@ class BridgeManager:
         return {
             "status": self._status,
             "port": self._port,
+            "network_interface": self._network_interface,
             "jar_path": str(self._jar_path),
             "jar_exists": self._check_jar(),
             "jre_available": self._check_jre(),
             "restart_count": self._restart_count,
+            "route_correct": self._route_correct,
+            "route_warning": self._route_warning,
             "devices": {
                 ip: {
                     "device_name": d.device_name,

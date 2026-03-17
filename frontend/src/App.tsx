@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Shell } from "./components/layout/Shell.tsx";
 import { TracksPage } from "./pages/TracksPage.tsx";
@@ -5,8 +6,14 @@ import { BLTPage } from "./pages/BLTPage.tsx";
 import { EnrichmentPage } from "./pages/EnrichmentPage.tsx";
 import { LogsPage } from "./pages/LogsPage.tsx";
 import { NetworkPage } from "./pages/NetworkPage.tsx";
+import { connectWebSocket, disconnectWebSocket } from "./api/ws";
 
 function App() {
+  useEffect(() => {
+    connectWebSocket();
+    return () => disconnectWebSocket();
+  }, []);
+
   return (
     <Routes>
       <Route element={<Shell />}>

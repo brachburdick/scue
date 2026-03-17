@@ -66,6 +66,11 @@ class BridgeStatusPayload:
     connected: bool
     devices_online: int
     version: str = ""
+    network_interface: str | None = None
+    network_address: str | None = None
+    interface_candidates: list[dict] | None = None  # [{ name, address, type, score, selected }]
+    warning: str | None = None
+    error: str | None = None
 
 
 @dataclass

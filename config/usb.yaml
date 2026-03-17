@@ -1,0 +1,9 @@
+# USB scanning configuration
+# Used by the pre-set USB scan to read Pioneer metadata from exportLibrary.db
+
+usb:
+  # Path to the exportLibrary.db file relative to USB root
+  db_relative_path: "PIONEER/rekordbox/exportLibrary.db"
+
+  # Path to ANLZ analysis files relative to USB root (beatgrids, cue points)
+  anlz_relative_path: "PIONEER/USBANLZ"

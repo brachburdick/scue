@@ -1,0 +1,105 @@
+"""WebSocket endpoint for real-time bridge state streaming to the frontend.
+
+Message types pushed to frontend:
+- bridge_status: full bridge state on every change
+- pioneer_status: liveness watchdog (is_receiving, last_message_age_ms)
+"""
+
+import asyncio
+import logging
+import time
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from .ws_manager import WSManager
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# Singleton — set up by main.py
+_ws_manager: WSManager | None = None
+_bridge_manager = None  # type: ignore  # Set by init_ws()
+
+
+def init_ws(ws_manager: WSManager, bridge_manager: object) -> None:
+    """Store references for the WebSocket endpoint."""
+    global _ws_manager, _bridge_manager
+    _ws_manager = ws_manager
+    _bridge_manager = bridge_manager
+
+
+def _build_bridge_status() -> dict:
+    """Build a bridge_status message from the current bridge manager state."""
+    if _bridge_manager is None:
+        return {
+            "type": "bridge_status",
+            "payload": {"status": "not_initialized"},
+        }
+    return {
+        "type": "bridge_status",
+        "payload": _bridge_manager.to_status_dict(),
+    }
+
+
+def _build_pioneer_status() -> dict:
+    """Build a pioneer_status liveness message."""
+    if _bridge_manager is None:
+        return {
+            "type": "pioneer_status",
+            "payload": {"is_receiving": False, "last_message_age_ms": -1},
+        }
+
+    last_time = getattr(_bridge_manager, "_last_message_time", 0.0)
+    if last_time > 0:
+        age_ms = int((time.time() - last_time) * 1000)
+        is_receiving = age_ms < 5000  # 5s threshold
+    else:
+        age_ms = -1
+        is_receiving = False
+
+    return {
+        "type": "pioneer_status",
+        "payload": {
+            "is_receiving": is_receiving,
+            "last_message_age_ms": age_ms,
+        },
+    }
+
+
+@router.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket) -> None:
+    """WebSocket endpoint for real-time bridge state updates.
+
+    On connect, immediately sends current bridge_status.
+    Then streams updates whenever the bridge state changes.
+    Also sends periodic pioneer_status every 2 seconds.
+    """
+    if _ws_manager is None:
+        await ws.close(code=1011, reason="WebSocket manager not initialized")
+        return
+
+    await _ws_manager.connect(ws)
+
+    try:
+        # Send initial state
+        await ws.send_json(_build_bridge_status())
+
+        # Keep connection alive, handle client messages (ping/pong)
+        while True:
+            try:
+                # Wait for client messages (ping/pong/close)
+                # Timeout every 2s to send pioneer_status
+                data = await asyncio.wait_for(ws.receive_text(), timeout=2.0)
+            except asyncio.TimeoutError:
+                # Send periodic pioneer status
+                try:
+                    await ws.send_json(_build_pioneer_status())
+                except Exception:
+                    break
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug("WebSocket error: %s", e)
+    finally:
+        _ws_manager.disconnect(ws)

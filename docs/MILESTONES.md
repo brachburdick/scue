@@ -90,6 +90,19 @@ Completed: 2026-03-16
 - [x] 57 new tests (cursor: 16, enrichment: 12, tracking: 10, divergence: 6, helpers: 13), all passing
 - [x] Full suite: 156 passed, 11 skipped
 
+### ~~Milestone 0B — USB Scanner & rbox Metadata (ADR-012 Completion)~~ → COMPLETE (2026-03-16)
+- [x] `rbox>=0.1.7` added as optional dependency (`[project.optional-dependencies.usb]`)
+- [x] `scue/layer1/usb_scanner.py` — read_usb_library (via rbox OneLibrary), match_usb_tracks (path stem + title/artist + prefix matching), apply_scan_results
+- [x] `scue/layer1/storage.py` — pioneer_metadata SQLite table with store/get/list methods
+- [x] `scue/api/usb.py` — POST /api/usb/scan, GET /api/usb/status, GET /api/usb/pioneer-metadata
+- [x] `scue/layer1/tracking.py` — enrichment now uses cached Pioneer metadata (key, beatgrid) from USB scan
+- [x] `config/usb.yaml` — USB path configuration
+- [x] Wired into main.py (usb_router + init_usb_api)
+- [x] 21 new tests (scanner: 19, prefix matching, storage), all passing
+- [x] Verified against real XDJ-AZ USB backup: 2022 tracks read, 4/4 analyses matched
+- [x] Full suite: 177 passed, 11 skipped
+- [ ] ANLZ beatgrid reading deferred: rbox Rust parser panics on some XDJ-AZ ANLZ files (tracked in bugs/layer0-bridge.md)
+
 ### Milestone 3 — Cue Stream (Layer 2, section cues only)
 ### Milestone 4 — Basic Effect Engine (Layer 3A + 3B, minimal)
 ### Milestone 5 — DMX Output (Layer 4A + 4B)

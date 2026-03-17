@@ -51,6 +51,16 @@ Decision: For devices that use Device Library Plus, bypass beat-link's metadata 
 The bridge reports which path is active per device so the Python side knows whether to expect metadata from the bridge or from rbox.
 Consequences: New dependency: `rbox` (pip install rbox). The USB must be accessible to the SCUE computer (mounted directly or same USB accessible via hub). Track matching between rbox-imported metadata and beat-link's live playback uses the rekordbox ID from CdjStatus — it's the correct DLP ID and maps directly to records in `exportLibrary.db`. When beat-link adds DLP support in a future release, the bridge path can be used for all devices and rbox becomes a fallback.
 
+## ADR-013: pyrekordbox for ANLZ parsing, rbox retained for database reading
+Date: 2026-03-17
+Context: rbox v0.1.7's Rust ANLZ parser panics (uncatchable process abort) on some XDJ-AZ Device Library Plus ANLZ files. The panic occurs when the parser encounters unknown section variants at certain offsets. Since Rust panics kill the Python process, this cannot be safely caught or isolated in-process.
+Decision: Replace rbox's ANLZ parsing with a two-tier pure-Python strategy:
+- **Tier 1: pyrekordbox** (v0.4.4+) — full ANLZ support via `AnlzFile.parse_file()`. Handles beat grid (PQTZ), cue points (PCOB), and phrase analysis (PSSI). Pure Python, raises normal exceptions on failure.
+- **Tier 2: custom `anlz_parser.py`** — zero-dependency fallback. Reads PQTZ (beat grid) and PCOB (cue lists) only. Skips all other sections. Raises `AnlzParseError` on failure.
+- If both fail, enrichment falls back to librosa-derived data (existing behavior).
+rbox's `OneLibrary` is retained for `exportLibrary.db` reading — it works correctly and is the only Python library that supports the DLP/OneLibrary USB database format. pyrekordbox's `Rekordbox6Database` targets the desktop `master.db`, not the USB database.
+Consequences: New dependency: `pyrekordbox>=0.4.4` (added to `[usb]` optional deps alongside rbox). ANLZ reading is now re-enabled in the USB scanner — no more Rust panic risk. All ANLZ parsing runs in pure Python with normal exception handling.
+
 ## ADR-008: Sequential batch analysis with in-memory job tracking
 Date: 2026-03
 Context: `run_analysis()` is CPU-bound (~3-4s/track with librosa/MLX). Parallel analysis would thrash memory. SCUE is a local tool — no persistence needed for job state.

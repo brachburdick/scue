@@ -179,6 +179,21 @@ class TrackCache:
                     timestamp REAL NOT NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pioneer_metadata (
+                    rekordbox_id INTEGER PRIMARY KEY,
+                    title TEXT NOT NULL DEFAULT '',
+                    artist TEXT NOT NULL DEFAULT '',
+                    bpm REAL NOT NULL DEFAULT 0.0,
+                    key_name TEXT NOT NULL DEFAULT '',
+                    beatgrid_json TEXT NOT NULL DEFAULT '[]',
+                    cue_points_json TEXT NOT NULL DEFAULT '[]',
+                    memory_points_json TEXT NOT NULL DEFAULT '[]',
+                    hot_cues_json TEXT NOT NULL DEFAULT '[]',
+                    file_path TEXT NOT NULL DEFAULT '',
+                    scan_timestamp REAL NOT NULL
+                )
+            """)
 
     def _connect(self) -> sqlite3.Connection:
         """Get a database connection."""
@@ -332,6 +347,82 @@ class TrackCache:
             )
             for r in rows
         ]
+
+    def store_pioneer_metadata(self, rekordbox_id: int, metadata: dict) -> None:
+        """Cache Pioneer metadata from a USB scan for later enrichment.
+
+        Args:
+            rekordbox_id: DLP track ID from the USB database.
+            metadata: Dict with keys: title, artist, bpm, key_name,
+                      beatgrid (list[float]), cue_points (list[dict]),
+                      memory_points (list[dict]), hot_cues (list[dict]),
+                      file_path, scan_timestamp.
+        """
+        import time as _time
+
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO pioneer_metadata
+                (rekordbox_id, title, artist, bpm, key_name,
+                 beatgrid_json, cue_points_json, memory_points_json, hot_cues_json,
+                 file_path, scan_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                rekordbox_id,
+                metadata.get("title", ""),
+                metadata.get("artist", ""),
+                metadata.get("bpm", 0.0),
+                metadata.get("key_name", ""),
+                json.dumps(metadata.get("beatgrid", [])),
+                json.dumps(metadata.get("cue_points", [])),
+                json.dumps(metadata.get("memory_points", [])),
+                json.dumps(metadata.get("hot_cues", [])),
+                metadata.get("file_path", ""),
+                metadata.get("scan_timestamp", _time.time()),
+            ))
+
+    def get_pioneer_metadata(self, rekordbox_id: int) -> dict | None:
+        """Retrieve cached Pioneer metadata for a track.
+
+        Returns:
+            Dict with beatgrid (list[float]), cue_points, memory_points,
+            hot_cues, title, artist, bpm, key_name, file_path.
+            None if no metadata cached for this ID.
+        """
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM pioneer_metadata WHERE rekordbox_id = ?",
+                (rekordbox_id,),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "rekordbox_id": row["rekordbox_id"],
+            "title": row["title"],
+            "artist": row["artist"],
+            "bpm": row["bpm"],
+            "key_name": row["key_name"],
+            "beatgrid": json.loads(row["beatgrid_json"]),
+            "cue_points": json.loads(row["cue_points_json"]),
+            "memory_points": json.loads(row["memory_points_json"]),
+            "hot_cues": json.loads(row["hot_cues_json"]),
+            "file_path": row["file_path"],
+            "scan_timestamp": row["scan_timestamp"],
+        }
+
+    def list_pioneer_metadata(self) -> list[dict]:
+        """List all cached Pioneer metadata (for UI / debugging)."""
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT rekordbox_id, title, artist, bpm, key_name, file_path, scan_timestamp "
+                "FROM pioneer_metadata ORDER BY title"
+            ).fetchall()
+
+        return [dict(row) for row in rows]
 
     def rebuild_from_store(self, store: TrackStore) -> int:
         """Rebuild the entire cache from JSON files.

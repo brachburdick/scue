@@ -20,3 +20,22 @@ export type {
   BrowseEntry,
   BrowseResponse,
 } from "./analyze";
+
+export type {
+  BridgeStatus,
+  InterfaceAddress,
+  NetworkInterface,
+  InterfaceListResponse,
+  RouteStatusResponse,
+  RouteFixResponse,
+  RouteSetupStatus,
+  DeviceInfo,
+  PlayerInfo,
+  BridgeState,
+} from "./bridge";
+
+export type {
+  WSBridgeStatus,
+  WSPioneerStatus,
+  WSMessage,
+} from "./ws";
