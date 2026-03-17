@@ -2,9 +2,11 @@
 
 ## Overview
 
-SCUE needs full access to the Pro DJ Link protocol to receive track metadata, beatgrids, waveforms, phrase analysis, cue points, and real-time beat/status events from Pioneer DJ hardware. The open-source [beat-link](https://github.com/Deep-Symmetry/beat-link) Java library (~30K lines) implements this protocol. Rather than porting it to Python, SCUE runs beat-link as a managed subprocess that streams typed JSON messages over a local WebSocket.
+SCUE needs access to the Pro DJ Link protocol to receive real-time playback data (BPM, pitch, beat position, play/pause state, on-air status) from Pioneer DJ hardware. The open-source [beat-link](https://github.com/Deep-Symmetry/beat-link) Java library (~30K lines) implements this protocol. Rather than porting it to Python, SCUE runs beat-link as a managed subprocess that streams typed JSON messages over a local WebSocket.
 
-This document specifies the Java bridge application. The Python consumer side is already built and tested (`scue/bridge/`).
+**Per ADR-012 (v1.1.0):** The bridge provides **real-time playback data only**. Track metadata (title, artist, key), beatgrids, waveforms, phrase analysis, and cue points are **not** emitted by the bridge. Metadata resolution is handled by the Python side via `rbox` (for DLP hardware) or future extensions (for legacy hardware). This was driven by the discovery that beat-link's MetadataFinder returns incorrect data on Device Library Plus hardware (XDJ-AZ, Opus Quad, CDJ-3000X) due to DLP vs DeviceSQL ID namespace conflicts.
+
+This document specifies the Java bridge application. The Python consumer side is already built and tested (`scue/bridge/`). The JAR is built and deployed at `lib/beat-link-bridge.jar` (v1.1.0).
 
 ## Architecture
 
@@ -33,30 +35,32 @@ Pioneer Hardware (CDJ/XDJ/DJM on Pro DJ Link network)
 
 1. Start beat-link's `DeviceAnnouncement` listener and `VirtualCdj` instance
 2. Connect to the Pro DJ Link network (auto-discover interface)
-3. Start a `MetadataFinder` to request track metadata from players
-4. Subscribe to all available data streams
-5. Start a WebSocket server on a configurable port (default: 17400)
-6. Translate each beat-link event into a typed JSON message (schemas below)
-7. Stream messages to all connected WebSocket clients
-8. Accept a `--port <N>` CLI argument for the WebSocket port
+3. Start `BeatFinder` for real-time beat events
+4. Start a WebSocket server on a configurable port (default: 17400)
+5. Translate each beat-link event into a typed JSON message (schemas below)
+6. Stream messages to all connected WebSocket clients
+7. Accept a `--port <N>` CLI argument for the WebSocket port
+
+**Not started (per ADR-012):** MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder. These are stripped from the JAR.
 
 ## beat-link API Entry Points
 
-The bridge should use these beat-link classes:
+The bridge uses only these beat-link classes (v1.1.0 lean bridge per ADR-012):
 
 | Class | Purpose |
 |-------|---------|
-| `org.deepsymmetry.beatlink.DeviceAnnouncementListener` | Device discovery (CDJs, DJMs appearing/disappearing) |
-| `org.deepsymmetry.beatlink.VirtualCdj` | Core connection to the Pro DJ Link network |
-| `org.deepsymmetry.beatlink.CdjStatus` | Per-player playback state (BPM, pitch, beat, play/pause, on-air) |
-| `org.deepsymmetry.beatlink.Beat` | Real-time beat events |
-| `org.deepsymmetry.beatlink.data.MetadataFinder` | Track metadata requests (title, artist, key, etc.) |
-| `org.deepsymmetry.beatlink.data.BeatGridFinder` | Beat grid data |
-| `org.deepsymmetry.beatlink.data.WaveformFinder` | Waveform detail data |
-| `org.deepsymmetry.beatlink.data.CrateDigger` | Cue points, memory points, hot cues |
-| `org.deepsymmetry.beatlink.data.AnalysisTagFinder` | Phrase analysis (rekordbox 6+ KUVO data) |
+| `org.deepsymmetry.beatlink.DeviceFinder` | Device discovery (CDJs, DJMs appearing/disappearing) |
+| `org.deepsymmetry.beatlink.DeviceAnnouncementListener` | Callbacks for device found/lost events |
+| `org.deepsymmetry.beatlink.VirtualCdj` | Core connection to the Pro DJ Link network + CdjStatus updates |
+| `org.deepsymmetry.beatlink.CdjStatus` | Per-player playback state (BPM, pitch, beat, play/pause, on-air, rekordbox_id) |
+| `org.deepsymmetry.beatlink.BeatFinder` | Real-time beat events |
+| `org.deepsymmetry.beatlink.Beat` | Beat event data |
+
+**Stripped (per ADR-012):** MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder. These are incompatible with Device Library Plus hardware and cause incorrect metadata on XDJ-AZ, Opus Quad, CDJ-3000X, OMNIS-DUO.
 
 ## Message Types and JSON Schemas
+
+**v1.1.0 (ADR-012):** The bridge emits 5 message types. Track metadata, beatgrids, waveforms, phrase analysis, and cue points are resolved by the Python side, not the bridge.
 
 All messages follow this envelope:
 
@@ -84,7 +88,7 @@ Sent once on startup and whenever bridge state changes.
   "payload": {
     "connected": true,
     "devices_online": 3,
-    "version": "1.0.0"
+    "version": "1.1.0"
   }
 }
 ```
@@ -101,13 +105,15 @@ Sent when a Pioneer device appears or disappears on the network.
     "device_name": "XDJ-AZ",
     "device_number": 1,
     "device_type": "cdj",
-    "ip_address": "169.254.20.101"
+    "ip_address": "169.254.20.101",
+    "uses_dlp": true
   }
 }
 ```
 
 - `device_type`: `"cdj"` | `"djm"` | `"rekordbox"`
 - `player_number`: set for CDJs (1-4), null for DJMs
+- `uses_dlp`: `true` for Device Library Plus hardware (XDJ-AZ, Opus Quad, CDJ-3000X, OMNIS-DUO). Detected by matching device name against known DLP models. The Python side uses this to choose the metadata resolution path (rbox vs legacy).
 
 ### player_status
 Sent on every `CdjStatus` update (~5Hz per player).
@@ -126,119 +132,19 @@ Sent on every `CdjStatus` update (~5Hz per player).
     "is_on_air": true,
     "track_source_player": 1,
     "track_source_slot": "usb",
-    "track_type": "rekordbox"
-  }
-}
-```
-
-- `bpm`: Effective BPM (after pitch adjustment)
-- `pitch`: Pitch adjustment as percentage (e.g., 2.5 means +2.5%)
-- `beat_within_bar`: 1-4
-- `playback_state`: `"playing"` | `"paused"` | `"cued"` | `"searching"`
-- `track_source_slot`: `"sd"` | `"usb"` | `"cd"` | `"collection"`
-
-### track_metadata
-Sent when a new track is loaded on a player (via `MetadataFinder`).
-
-```json
-{
-  "type": "track_metadata",
-  "timestamp": 1710600010.0,
-  "player_number": 1,
-  "payload": {
-    "title": "Strobe",
-    "artist": "deadmau5",
-    "album": "For Lack of a Better Name",
-    "genre": "Progressive House",
-    "key": "Fm",
-    "bpm": 128.0,
-    "duration": 637.0,
-    "color": null,
-    "rating": 5,
-    "comment": "",
+    "track_type": "rekordbox",
     "rekordbox_id": 42001
   }
 }
 ```
 
-- `bpm`: rekordbox-analyzed BPM (original, not pitch-adjusted)
-- `duration`: seconds
-- `color`: rekordbox track color hex string or null
-- `key`: musical key as detected by rekordbox (e.g., "Fm", "Ab", "G#m")
-
-### beat_grid
-Sent after track_metadata, contains the full rekordbox beat grid.
-
-```json
-{
-  "type": "beat_grid",
-  "timestamp": 1710600010.1,
-  "player_number": 1,
-  "payload": {
-    "beats": [
-      { "beat_number": 1, "time_ms": 250.0, "bpm": 128.0 },
-      { "beat_number": 2, "time_ms": 718.75, "bpm": 128.0 }
-    ]
-  }
-}
-```
-
-### waveform_detail
-Sent after track_metadata. Base64-encoded waveform data.
-
-```json
-{
-  "type": "waveform_detail",
-  "timestamp": 1710600010.2,
-  "player_number": 1,
-  "payload": {
-    "data": "<base64-encoded>",
-    "total_beats": 1358
-  }
-}
-```
-
-### phrase_analysis
-Sent if the track has rekordbox 6+ phrase analysis (KUVO data).
-
-```json
-{
-  "type": "phrase_analysis",
-  "timestamp": 1710600010.3,
-  "player_number": 1,
-  "payload": {
-    "phrases": [
-      { "start_beat": 1, "end_beat": 128, "kind": "intro", "mood": 1 },
-      { "start_beat": 129, "end_beat": 384, "kind": "verse", "mood": 1 }
-    ]
-  }
-}
-```
-
-- `kind`: rekordbox phrase type string
-- `mood`: rekordbox mood integer
-
-### cue_points
-Sent after track_metadata.
-
-```json
-{
-  "type": "cue_points",
-  "timestamp": 1710600010.4,
-  "player_number": 1,
-  "payload": {
-    "cue_points": [
-      { "time_ms": 250.0, "name": "", "color": "" }
-    ],
-    "memory_points": [
-      { "time_ms": 250.0, "name": "Start", "color": "#00FF00" }
-    ],
-    "hot_cues": [
-      { "slot": 1, "time_ms": 250.0, "name": "Start", "color": "#00FF00" }
-    ]
-  }
-}
-```
+- `bpm`: Effective BPM (after pitch adjustment). Returns 0.0 when paused.
+- `pitch`: Pitch adjustment as percentage (e.g., 2.5 means +2.5%)
+- `beat_within_bar`: 1-4 (cycles correctly during playback; static when paused)
+- `playback_state`: `"playing"` | `"paused"` | `"cued"` | `"searching"`
+- `is_on_air`: `true` only when BOTH channel fader is up AND master knob is not off
+- `track_source_slot`: `"sd"` | `"usb"` | `"cd"` | `"collection"`
+- `rekordbox_id`: DLP track ID from CdjStatus. **Warning:** On XDJ-AZ, this value can differ between paused and playing states for the same track. The Python adapter handles this by firing `on_track_loaded` only when the ID changes to a nonzero value different from the current one.
 
 ### beat
 Real-time beat events (~2Hz at 128 BPM). High frequency — keep payloads small.
@@ -256,18 +162,23 @@ Real-time beat events (~2Hz at 128 BPM). High frequency — keep payloads small.
 }
 ```
 
+### Messages NOT emitted by the bridge (per ADR-012)
+
+The following message types are defined in the Python adapter (`scue/bridge/messages.py`) for future use but are **not emitted by the v1.1.0 bridge JAR**. They will be populated by the Python side reading directly from USB databases:
+
+- `track_metadata` — resolved via `rbox` (DLP) or future bridge extensions (legacy)
+- `beat_grid` — resolved via `rbox` (DLP) or future bridge extensions (legacy)
+- `waveform_detail` — resolved via `rbox` (DLP) or future bridge extensions (legacy)
+- `phrase_analysis` — resolved via `rbox` (DLP) or future bridge extensions (legacy)
+- `cue_points` — resolved via `rbox` (DLP) or future bridge extensions (legacy)
+
 ## Message Ordering
 
-When a track loads on a player, send messages in this order:
-1. `track_metadata`
-2. `beat_grid`
-3. `waveform_detail`
-4. `phrase_analysis` (if available)
-5. `cue_points`
-
-Then continuously:
-- `player_status` (~5Hz)
-- `beat` (on each beat)
+The bridge continuously emits:
+- `player_status` (~5Hz per player)
+- `beat` (on each beat during playback)
+- `device_found` / `device_lost` (on device discovery changes)
+- `bridge_status` (on state changes)
 
 ## Build Requirements
 
@@ -325,14 +236,12 @@ beat-link has a strict initialization order. The bridge must follow this sequenc
    └─ This BLOCKS until it joins the network or times out (~10s)
    └─ If timeout: log warning, emit bridge_status { connected: false }
       The WebSocket server stays running. Retry on a configurable interval (default 10s).
-7. MetadataFinder.getInstance().start()
-8. BeatGridFinder.getInstance().start()
-9. WaveformFinder.getInstance().start()
-10. CrateDigger.getInstance().start()
-11. AnalysisTagFinder.getInstance().start()  (if available in the beat-link version)
-12. Register listeners for DeviceAnnouncement, CdjStatus, Beat, etc.
-13. Emit bridge_status { connected: true, devices_online: N }
+7. BeatFinder.getInstance().start()
+8. Register listeners for DeviceAnnouncement, CdjStatus, Beat
+9. Emit bridge_status { connected: true, devices_online: N }
 ```
+
+**Per ADR-012:** Steps 7-11 from the original spec (MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder) are removed. Only BeatFinder is started.
 
 **Critical:** The WebSocket server must start BEFORE beat-link initialization (step 2 before step 4). This ensures the Python manager can connect and receive status messages even if beat-link fails to find hardware. The Python side uses the WebSocket connection itself as a health check — if it can't connect, the bridge process is dead. If it connects but receives `connected: false`, the bridge is alive but no hardware is present.
 
@@ -352,7 +261,7 @@ beat-link has a strict initialization order. The bridge must follow this sequenc
 When the process receives SIGTERM (or SIGINT):
 
 1. Log "Shutting down beat-link bridge..."
-2. Stop all finders in reverse order: AnalysisTagFinder → CrateDigger → WaveformFinder → BeatGridFinder → MetadataFinder
+2. `BeatFinder.getInstance().stop()`
 3. `VirtualCdj.getInstance().stop()` — this announces departure from the Pro DJ Link network. Without this, Pioneer hardware shows a phantom device for up to 30 seconds.
 4. `DeviceFinder.getInstance().stop()`
 5. Close all WebSocket connections
@@ -406,8 +315,18 @@ Include timestamps (ISO 8601 with milliseconds), log level, and human-readable m
 }
 ```
 
-**MetadataFinder failures:** Some tracks (from older CDJs, CDs, or non-rekordbox USBs) may not have metadata available. If MetadataFinder can't retrieve metadata for a loaded track, send a `track_metadata` message with null/empty fields and log a WARN. Do not skip the message — the Python side needs to know a track loaded even without metadata.
-
 **WebSocket client disconnect:** If the Python client disconnects, keep the bridge running. It will reconnect. Log the disconnect at WARN level and the reconnect at INFO.
 
-**Uncaught exceptions in listeners:** Wrap all beat-link listener callbacks in try-catch. An exception in one listener (e.g., WaveformFinder can't decode waveform data) must not crash the bridge or prevent other listeners from firing. Log the exception at ERROR and continue.
+**Uncaught exceptions in listeners:** Wrap all beat-link listener callbacks in try-catch. An exception in one listener must not crash the bridge or prevent other listeners from firing. Log the exception at ERROR and continue.
+
+## DLP Device Detection
+
+The bridge detects Device Library Plus hardware by matching the device name (lowercased) against known DLP models: `xdj-az`, `opus-quad`, `omnis-duo`, `cdj-3000x`. When a DLP device is found, the `device_found` message includes `"uses_dlp": true`. The Python adapter uses this flag to choose the correct metadata resolution path.
+
+## Known Issues
+
+### macOS link-local broadcast routing
+macOS assigns the 169.254.255.255 broadcast route to whichever link-local interface registers first (usually en0/Wi-Fi). When Pioneer hardware is on Ethernet (en16), broadcast packets go out the wrong interface, causing device_found/device_lost cycling. Manual fix: `sudo route delete 169.254.255.255 && sudo route add -host 169.254.255.255 -interface en16`. Needs automation via startup script.
+
+### rekordbox_id instability on XDJ-AZ
+`CdjStatus.getRekordboxId()` returns different values for the same track when toggling between paused and playing states. The Python adapter handles this by only firing `on_track_loaded` on nonzero ID changes.

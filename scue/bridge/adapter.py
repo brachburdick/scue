@@ -50,6 +50,7 @@ class DeviceInfo:
     device_type: str  # "cdj" | "djm" | "rekordbox"
     ip_address: str
     last_seen: float = 0.0
+    uses_dlp: bool = False  # True for Device Library Plus hardware (XDJ-AZ, Opus Quad, etc.)
 
 
 @dataclass
@@ -170,9 +171,13 @@ class BridgeAdapter:
             device_type=payload.device_type,
             ip_address=payload.ip_address,
             last_seen=msg.timestamp,
+            uses_dlp=payload.uses_dlp,
         )
         self._devices[payload.ip_address] = device
-        logger.info("Device found: %s (#%d) at %s", payload.device_name, payload.device_number, payload.ip_address)
+        logger.info(
+            "Device found: %s (#%d) at %s (dlp=%s)",
+            payload.device_name, payload.device_number, payload.ip_address, payload.uses_dlp,
+        )
 
         if self.on_device_change is not None:
             self.on_device_change(device, "found")
@@ -211,6 +216,28 @@ class BridgeAdapter:
         player.playback_state = payload.playback_state
         player.is_on_air = payload.is_on_air
         player.last_update = msg.timestamp
+
+        # Detect track changes via rekordbox_id in player_status.
+        # Per ADR-012: The bridge no longer sends track_metadata messages.
+        # Metadata is resolved by the Python side (via rbox for DLP hardware).
+        # We fire on_track_loaded when the rekordbox_id changes so Layer 1 can
+        # look up metadata from the USB database.
+        new_rb_id = payload.rekordbox_id
+        if new_rb_id != 0 and new_rb_id != player.rekordbox_id:
+            old_rb_id = player.rekordbox_id
+            player.rekordbox_id = new_rb_id
+            if old_rb_id != 0:
+                logger.info("Track changed on player %d: rbid %d → %d", msg.player_number, old_rb_id, new_rb_id)
+            else:
+                logger.info("Track detected on player %d: rbid=%d", msg.player_number, new_rb_id)
+
+            # Fire track loaded callback with rekordbox_id so Layer 1 can resolve metadata
+            if self.on_track_loaded is not None:
+                self.on_track_loaded(msg.player_number, str(new_rb_id), "")
+        elif new_rb_id == 0 and player.rekordbox_id != 0:
+            # Track unloaded
+            player.rekordbox_id = 0
+            logger.info("Track unloaded on player %d", msg.player_number)
 
         if self.on_player_update is not None:
             self.on_player_update(player)

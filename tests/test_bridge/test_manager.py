@@ -83,21 +83,24 @@ class TestManagerStatusDict:
             device_number=1,
             device_type="cdj",
             ip_address="169.254.20.101",
+            uses_dlp=True,
         )
         mgr.adapter._players[1] = PlayerState(
             player_number=1,
-            title="Strobe",
-            artist="deadmau5",
             bpm=128.0,
             playback_state="playing",
             is_on_air=True,
+            rekordbox_id=42,
         )
 
         status = mgr.to_status_dict()
         assert "169.254.20.101" in status["devices"]
         assert status["devices"]["169.254.20.101"]["device_name"] == "XDJ-AZ"
+        assert status["devices"]["169.254.20.101"]["uses_dlp"] is True
         assert "1" in status["players"]
-        assert status["players"]["1"]["title"] == "Strobe"
+        assert status["players"]["1"]["bpm"] == 128.0
+        assert status["players"]["1"]["playback_state"] == "playing"
+        assert status["players"]["1"]["rekordbox_id"] == 42
 
 
 class TestManagerPort:

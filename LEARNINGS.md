@@ -17,6 +17,20 @@ Prevention: How to avoid in the future?
 
 ## Layer 0 — Beat-Link Bridge
 
+### beat-link MetadataFinder returns wrong metadata on XDJ-AZ (and all Device Library Plus hardware)
+Date: 2026-03-16
+Context: Building the Java bridge JAR. Testing with Pioneer XDJ-AZ all-in-one DJ unit.
+Problem: Track metadata (title, artist) from MetadataFinder is incorrect after the first track load per player. BPM from CdjStatus is always correct. The XDJ-AZ uses Device Library Plus (DLP) format (`exportLibrary.db`) with a different ID namespace than legacy `export.pdb`. When MetadataFinder uses the DLP ID to query CrateDigger's DeviceSQL data, it retrieves the wrong record. Confirmed known issue: beat-link-trigger's CHANGELOG states the XDJ-AZ always uses Device Library Plus IDs.
+Fix: Use the `rbox` Python library to read metadata directly from the USB's `exportLibrary.db`, bypassing beat-link's metadata system entirely. Use beat-link only for real-time playback data (BPM, pitch, beat position, on-air, beat events). See ADR-012 in DECISIONS.md.
+Prevention: Any time new Pioneer hardware is supported, check whether it uses DLP or legacy DeviceSQL. Affected hardware: XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X.
+
+### XDJ-AZ track change detection: trackType does NOT transition through NO_TRACK
+Date: 2026-03-16
+Context: Same debugging session as above.
+Problem: When a new track is loaded on the same deck of the XDJ-AZ, `CdjStatus.getTrackType()` stays as `REKORDBOX` — it never passes through `NO_TRACK`. Track-change detection watching for `NO_TRACK → REKORDBOX` transitions never fires.
+Fix: Detect track changes by monitoring `CdjStatus.getRekordboxId()` for value changes (even though the ID is unreliable for metadata lookup, a change in ID reliably indicates a new track was loaded). Use multiple signals: rekordbox ID change OR trackType transition OR significant BPM change at same pitch.
+Prevention: All track-change detection in the bridge should use multiple signals rather than depending on any single signal.
+
 ### macOS broadcast UDP reception — IP_BOUND_IF required
 Date: 2025-03
 Context: Connecting Pioneer XDJ-AZ via CAT-5 on en16 (169.254.20.47). Sockets binding correctly but packet_count stayed at 0.

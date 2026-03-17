@@ -57,6 +57,7 @@ class DevicePayload:
     device_number: int
     device_type: str  # "cdj" | "djm" | "rekordbox"
     ip_address: str
+    uses_dlp: bool = False  # True for Device Library Plus hardware (XDJ-AZ, Opus Quad, etc.)
 
 
 @dataclass
@@ -79,6 +80,7 @@ class PlayerStatusPayload:
     track_source_player: int = 0
     track_source_slot: str = ""  # "sd" | "usb" | "cd" | "collection"
     track_type: str = ""
+    rekordbox_id: int = 0
 
 
 @dataclass

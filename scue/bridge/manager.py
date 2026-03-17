@@ -253,16 +253,19 @@ class BridgeManager:
                     "device_name": d.device_name,
                     "device_number": d.device_number,
                     "device_type": d.device_type,
+                    "uses_dlp": d.uses_dlp,
                 }
                 for ip, d in self._adapter.devices.items()
             },
             "players": {
                 str(pn): {
-                    "title": p.title,
-                    "artist": p.artist,
                     "bpm": p.bpm,
+                    "pitch": p.pitch,
                     "playback_state": p.playback_state,
                     "is_on_air": p.is_on_air,
+                    "rekordbox_id": p.rekordbox_id,
+                    "beat_within_bar": p.beat_within_bar,
+                    "track_type": getattr(p, "track_type", ""),
                 }
                 for pn, p in self._adapter.players.items()
             },

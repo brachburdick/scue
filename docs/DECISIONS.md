@@ -42,6 +42,15 @@ Context: SCUE runs locally and audio files are already on the local filesystem. 
 Decision: The analyze flow uses path-based input — user provides a directory path (typed or via server-side filesystem browser), backend scans it, then analyzes new files in place. No file copying or upload.
 Consequences: Requires a server-side filesystem browse endpoint (`GET /api/filesystem/browse`) since browsers cannot expose absolute paths from native file pickers. Analysis reads files directly from their original location.
 
+## ADR-012: Direct USB database reading via rbox for Device Library Plus hardware
+Date: 2026-03-16
+Context: The XDJ-AZ (and Opus Quad, OMNIS-DUO, CDJ-3000X) uses Device Library Plus (One Library) format exclusively. beat-link's MetadataFinder and CrateDigger cannot reliably retrieve metadata from these devices because they use a different ID namespace (DLP IDs vs DeviceSQL IDs). Confirmed known issue with beat-link v8.0.0.
+Decision: For devices that use Device Library Plus, bypass beat-link's metadata system entirely. Use the `rbox` Python library to read track metadata, beatgrid, cue points, and phrase analysis directly from the USB's `exportLibrary.db` file. Use beat-link exclusively for real-time playback data (BPM, pitch, beat position, on-air status, beat events), which works correctly on all hardware. This creates two metadata paths:
+- **DLP path (XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X):** rbox reads exportLibrary.db from USB → Python processes metadata directly. beat-link provides real-time playback data only.
+- **Legacy path (CDJ-2000NXS2, CDJ-3000, XDJ-1000, etc.):** beat-link MetadataFinder + CrateDigger works normally for both metadata and real-time data.
+The bridge reports which path is active per device so the Python side knows whether to expect metadata from the bridge or from rbox.
+Consequences: New dependency: `rbox` (pip install rbox). The USB must be accessible to the SCUE computer (mounted directly or same USB accessible via hub). Track matching between rbox-imported metadata and beat-link's live playback uses the rekordbox ID from CdjStatus — it's the correct DLP ID and maps directly to records in `exportLibrary.db`. When beat-link adds DLP support in a future release, the bridge path can be used for all devices and rbox becomes a fallback.
+
 ## ADR-008: Sequential batch analysis with in-memory job tracking
 Date: 2026-03
 Context: `run_analysis()` is CPU-bound (~3-4s/track with librosa/MLX). Parallel analysis would thrash memory. SCUE is a local tool — no persistence needed for job state.

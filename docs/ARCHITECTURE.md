@@ -55,20 +55,33 @@ SCUE's Python side:
 4. Monitors the subprocess health (restart on crash, with backoff)
 5. Receives typed JSON messages and feeds them into Layer 1
 
-### Bridge Message Types
+### Bridge Message Types (v1.1.0 — ADR-012)
 
-The bridge emits these message types (all as JSON over WebSocket):
+The bridge emits **5 message types** (real-time data only). Track metadata, beatgrids, waveforms, phrase analysis, and cue points are resolved by the Python side, not the bridge.
 
 **Connection & device discovery:**
 ```
 BridgeMessage {
-  type: "device_found" | "device_lost" | "bridge_status"
+  type: "device_found" | "device_lost"
   timestamp: float
+  player_number: int | null
   payload: {
     device_name: string
     device_number: int
     device_type: "cdj" | "djm" | "rekordbox"
     ip_address: string
+    uses_dlp: bool                  # true for DLP hardware (XDJ-AZ, Opus Quad, etc.)
+  }
+}
+
+BridgeMessage {
+  type: "bridge_status"
+  timestamp: float
+  player_number: null
+  payload: {
+    connected: bool
+    devices_online: int
+    version: string                 # "1.1.0"
   }
 }
 ```
@@ -80,88 +93,16 @@ BridgeMessage {
   timestamp: float
   player_number: int
   payload: {
-    bpm: float
+    bpm: float                      # effective BPM (0.0 when paused)
     pitch: float                    # pitch adjustment percentage
     beat_within_bar: int            # 1–4
     beat_number: int                # absolute beat count
     playback_state: "playing" | "paused" | "cued" | "searching"
-    is_on_air: bool                 # true if this deck is live (fader up on DJM)
+    is_on_air: bool                 # true only when fader up AND master not off
     track_source_player: int
     track_source_slot: "sd" | "usb" | "cd" | "collection"
     track_type: string
-  }
-}
-```
-
-**Track metadata (not available via raw UDP):**
-```
-BridgeMessage {
-  type: "track_metadata"
-  player_number: int
-  payload: {
-    title: string
-    artist: string
-    album: string
-    genre: string
-    key: string                     # musical key as detected by rekordbox
-    bpm: float                      # rekordbox analyzed BPM
-    duration: float                 # seconds
-    color: string | null            # rekordbox track color assignment
-    rating: int
-    comment: string
-    rekordbox_id: int
-  }
-}
-```
-
-**Beat grid:**
-```
-BridgeMessage {
-  type: "beat_grid"
-  player_number: int
-  payload: {
-    beats: [{ beat_number: int, time_ms: float, bpm: float }]
-  }
-}
-```
-
-**Waveform data:**
-```
-BridgeMessage {
-  type: "waveform_detail"
-  player_number: int
-  payload: {
-    data: string                    # base64-encoded or chunked
-    total_beats: int
-  }
-}
-```
-
-**Phrase analysis (rekordbox 6+ / KUVO):**
-```
-BridgeMessage {
-  type: "phrase_analysis"
-  player_number: int
-  payload: {
-    phrases: [{
-      start_beat: int
-      end_beat: int
-      kind: string                  # rekordbox phrase type (intro, verse, chorus, etc.)
-      mood: int
-    }]
-  }
-}
-```
-
-**Cue points and memory points:**
-```
-BridgeMessage {
-  type: "cue_points"
-  player_number: int
-  payload: {
-    cue_points: [{ time_ms: float, name: string, color: string }]
-    memory_points: [{ time_ms: float, name: string, color: string }]
-    hot_cues: [{ slot: int, time_ms: float, name: string, color: string }]
+    rekordbox_id: int               # DLP track ID (may be unstable between pause/play on XDJ-AZ)
   }
 }
 ```
@@ -179,6 +120,13 @@ BridgeMessage {
 }
 ```
 
+**Not emitted by bridge (resolved by Python side per ADR-012):**
+- `track_metadata` — via rbox (DLP) or future extensions (legacy)
+- `beat_grid` — via rbox (DLP) or future extensions (legacy)
+- `waveform_detail` — via rbox (DLP) or future extensions (legacy)
+- `phrase_analysis` — via rbox (DLP) or future extensions (legacy)
+- `cue_points` — via rbox (DLP) or future extensions (legacy)
+
 ### Decoupling Strategy
 
 The bridge is treated as a replaceable data source. Layer 1 does not import from the bridge directly — it consumes `BridgeMessage` objects through an adapter in `scue/bridge/adapter.py` that normalizes bridge data into Layer 1's internal types. If beat-link is ever replaced, only the adapter changes.
@@ -187,13 +135,34 @@ The bridge JAR is stored in `lib/beat-link-bridge.jar` and is NOT compiled from 
 
 ### Fallback Behavior
 
-If the bridge fails to start (no JRE, JAR missing, etc.), SCUE falls back to the direct UDP parser (`bridge/fallback.py`) for basic data. The UI indicates degraded mode: "Beat-Link bridge unavailable: running in basic mode. BPM, beat position, and play state available. Track metadata, waveforms, phrase analysis, and cue points unavailable."
+If the bridge fails to start (no JRE, JAR missing, etc.), SCUE falls back to the direct UDP parser (`bridge/fallback.py`) for basic data. The UI indicates degraded mode: "Beat-Link bridge unavailable: running in basic mode. BPM, beat position, and play state available. Device discovery, on-air status, and rekordbox_id unavailable."
 
 ### Testing Strategy
 
 - Unit test the adapter: feed mock `BridgeMessage` JSON and verify Layer 1 receives correct internal types.
 - Integration test: start the bridge subprocess against a mock Pro DJ Link network (or recorded packet captures replayed via beat-link's built-in tools).
 - Health monitoring test: kill the bridge subprocess and verify SCUE detects the failure, falls back gracefully, and restarts the bridge.
+
+### Device Library Plus Workaround (ADR-012)
+
+Pioneer hardware splits into two database formats: **DeviceSQL** (legacy `export.pdb`) used by CDJ-2000NXS2, CDJ-3000, etc., and **Device Library Plus** (encrypted `exportLibrary.db`) used by XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X. The track IDs are different namespaces — beat-link's MetadataFinder returns wrong metadata on DLP hardware.
+
+In v1.1.0, all metadata finders (MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder) are **stripped from the bridge JAR**. The bridge provides real-time playback data only. Metadata is resolved by the Python side:
+
+```
+Legacy hardware (CDJ-2000NXS2, CDJ-3000, etc.):
+  Future: Python reads export.pdb directly (not yet implemented)
+
+DLP hardware (XDJ-AZ, Opus Quad, etc.):
+  USB mount → rbox.OneLibrary(exportLibrary.db) → Python direct parse → TrackAnalysis
+
+Both paths produce identical TrackAnalysis records.
+Layer 1 and above don't know or care which path was used.
+```
+
+The bridge detects DLP hardware from `DeviceAnnouncement` device name and sets `uses_dlp: true` in the `device_found` message. The Python adapter uses this flag to choose the correct metadata resolution path. beat-link provides all real-time playback data (BPM, pitch, beat position, on-air, beat events, rekordbox_id) which works correctly on all hardware.
+
+**Constraint:** The USB must be physically accessible to the SCUE computer (mounted via hub or copied before the set).
 
 ---
 

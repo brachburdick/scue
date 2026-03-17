@@ -12,6 +12,11 @@ import java.util.Map;
  * Constructs typed JSON messages matching the SCUE bridge protocol and broadcasts
  * them via the WebSocket server.
  *
+ * Per ADR-012: Only real-time playback messages are emitted.
+ * Track metadata, beatgrids, waveforms, cue points, and phrase analysis are
+ * handled by the Python side via rbox (for DLP hardware) or future bridge
+ * extensions (for legacy hardware).
+ *
  * All messages follow the envelope:
  * { "type": "...", "timestamp": ..., "player_number": ..., "payload": { ... } }
  */
@@ -41,7 +46,7 @@ public class MessageEmitter {
         wsServer.broadcastMessage(json);
     }
 
-    // ── Convenience methods for each message type ──────────────────────────
+    // ── Message types ───────────────────────────────────────────────────────
 
     public void emitBridgeStatus(boolean connected, int devicesOnline, String version, String error) {
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -54,16 +59,19 @@ public class MessageEmitter {
         emit("bridge_status", null, payload);
     }
 
-    public void emitDeviceFound(String deviceName, int deviceNumber, String deviceType, String ipAddress, Integer playerNumber) {
+    public void emitDeviceFound(String deviceName, int deviceNumber, String deviceType,
+                                 String ipAddress, Integer playerNumber, boolean usesDlp) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("device_name", deviceName);
         payload.put("device_number", deviceNumber);
         payload.put("device_type", deviceType);
         payload.put("ip_address", ipAddress);
+        payload.put("uses_dlp", usesDlp);
         emit("device_found", playerNumber, payload);
     }
 
-    public void emitDeviceLost(String deviceName, int deviceNumber, String deviceType, String ipAddress, Integer playerNumber) {
+    public void emitDeviceLost(String deviceName, int deviceNumber, String deviceType,
+                                String ipAddress, Integer playerNumber) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("device_name", deviceName);
         payload.put("device_number", deviceNumber);
@@ -76,7 +84,7 @@ public class MessageEmitter {
                                   int beatWithinBar, int beatNumber,
                                   String playbackState, boolean isOnAir,
                                   int trackSourcePlayer, String trackSourceSlot,
-                                  String trackType) {
+                                  String trackType, int rekordboxId) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("bpm", bpm);
         payload.put("pitch", pitch);
@@ -87,56 +95,8 @@ public class MessageEmitter {
         payload.put("track_source_player", trackSourcePlayer);
         payload.put("track_source_slot", trackSourceSlot);
         payload.put("track_type", trackType);
-        emit("player_status", playerNumber, payload);
-    }
-
-    public void emitTrackMetadata(int playerNumber, String title, String artist,
-                                   String album, String genre, String key,
-                                   double bpm, double duration, String color,
-                                   int rating, String comment, int rekordboxId) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("title", title);
-        payload.put("artist", artist);
-        payload.put("album", album);
-        payload.put("genre", genre);
-        payload.put("key", key);
-        payload.put("bpm", bpm);
-        payload.put("duration", duration);
-        payload.put("color", color);
-        payload.put("rating", rating);
-        payload.put("comment", comment);
         payload.put("rekordbox_id", rekordboxId);
-        emit("track_metadata", playerNumber, payload);
-    }
-
-    public void emitBeatGrid(int playerNumber, java.util.List<Map<String, Object>> beats) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("beats", beats);
-        emit("beat_grid", playerNumber, payload);
-    }
-
-    public void emitWaveformDetail(int playerNumber, String base64Data, int totalBeats) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("data", base64Data);
-        payload.put("total_beats", totalBeats);
-        emit("waveform_detail", playerNumber, payload);
-    }
-
-    public void emitPhraseAnalysis(int playerNumber, java.util.List<Map<String, Object>> phrases) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("phrases", phrases);
-        emit("phrase_analysis", playerNumber, payload);
-    }
-
-    public void emitCuePoints(int playerNumber,
-                               java.util.List<Map<String, Object>> cuePoints,
-                               java.util.List<Map<String, Object>> memoryPoints,
-                               java.util.List<Map<String, Object>> hotCues) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("cue_points", cuePoints);
-        payload.put("memory_points", memoryPoints);
-        payload.put("hot_cues", hotCues);
-        emit("cue_points", playerNumber, payload);
+        emit("player_status", playerNumber, payload);
     }
 
     public void emitBeat(int playerNumber, int beatWithinBar, double bpm, double pitch) {

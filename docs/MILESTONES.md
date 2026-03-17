@@ -76,7 +76,7 @@ Completed: 2026-03-16
 - [x] `tools/mock_bridge.py` — WebSocket replay tool for testing without Pioneer hardware
 - [x] 4 JSON fixture files (device discovery, playback session, track metadata, transition)
 - [x] 53 tests passing (messages, adapter, manager)
-- [ ] Java bridge JAR (`lib/beat-link-bridge.jar`) — not yet built, Python side ready to connect
+- [x] Java bridge JAR (`lib/beat-link-bridge.jar`) — v1.1.0 built and tested with XDJ-AZ (ADR-012: real-time data only, metadata finders stripped)
 
 ### ~~Milestone 2 — Live Cursor + Pioneer Enrichment (Layer 1B)~~ → COMPLETE (2026-03-16)
 - [x] `scue/layer1/models.py` — Added TrackCursor, SectionInfo, BeatPosition, PlaybackState, TrackCursorFeatures, DivergenceRecord

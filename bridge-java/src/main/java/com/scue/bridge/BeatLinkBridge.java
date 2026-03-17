@@ -1,7 +1,6 @@
 package com.scue.bridge;
 
 import org.deepsymmetry.beatlink.*;
-import org.deepsymmetry.beatlink.data.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,19 +12,34 @@ import java.util.concurrent.*;
  * Beat-link bridge — connects to Pioneer DJ hardware via Pro DJ Link and streams
  * typed JSON messages over a local WebSocket to the SCUE Python process.
  *
- * Startup sequence follows the spec:
+ * Per ADR-012: This bridge provides REAL-TIME PLAYBACK DATA ONLY:
+ *   - player_status (BPM, pitch, beat position, play state, on-air, rekordbox ID)
+ *   - beat events
+ *   - device discovery
+ *
+ * Track metadata, beatgrids, waveforms, cue points, and phrase analysis are NOT
+ * provided by the bridge. For Device Library Plus hardware (XDJ-AZ, Opus Quad, etc.),
+ * the Python side reads metadata directly from the USB via the rbox library.
+ * For legacy hardware, a separate metadata path may be added in future.
+ *
+ * Startup sequence:
  *   1. Parse CLI args
  *   2. Start WebSocket server
  *   3. Emit bridge_status { connected: false }
- *   4-13. Initialize beat-link components in order
- *   14. Register listeners, emit bridge_status { connected: true }
- *
- * If hardware is not found, retries periodically.
+ *   4. Start DeviceFinder
+ *   5. Configure and start VirtualCdj
+ *   6. Start BeatFinder
+ *   7. Register listeners, emit bridge_status { connected: true }
  */
 public class BeatLinkBridge {
 
     private static final Logger log = LoggerFactory.getLogger(BeatLinkBridge.class);
-    private static final String VERSION = "1.0.0";
+    private static final String VERSION = "1.1.0";
+
+    // Known Device Library Plus hardware models
+    private static final Set<String> DLP_DEVICES = Set.of(
+        "xdj-az", "opus-quad", "omnis-duo", "cdj-3000x"
+    );
 
     private final int port;
     private final int playerNumber;
@@ -36,8 +50,10 @@ public class BeatLinkBridge {
     private volatile boolean running = true;
     private volatile boolean beatLinkConnected = false;
 
-    // Track which rekordbox IDs we've already sent metadata for (per player)
-    private final Map<Integer, Integer> lastLoadedTrack = new ConcurrentHashMap<>();
+    // Track the last known rekordbox ID per player for track-change detection
+    private final Map<Integer, Integer> lastRekordboxId = new ConcurrentHashMap<>();
+    // Track which devices use DLP (detected from device name)
+    private final Set<String> dlpDeviceIps = ConcurrentHashMap.newKeySet();
 
     public BeatLinkBridge(int port, int playerNumber, int retryInterval) {
         this.port = port;
@@ -59,7 +75,7 @@ public class BeatLinkBridge {
         // Register shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown));
 
-        // Steps 4-13: Initialize beat-link (with retry), reconnect on drop
+        // Initialize beat-link (with retry), reconnect on drop
         while (running) {
             if (!beatLinkConnected) {
                 try {
@@ -102,11 +118,11 @@ public class BeatLinkBridge {
     }
 
     private void initBeatLink() throws Exception {
-        // Step 4: Start DeviceFinder
+        // Start DeviceFinder
         DeviceFinder.getInstance().start();
         log.info("DeviceFinder started");
 
-        // Step 5-6: Configure and start VirtualCdj
+        // Configure and start VirtualCdj
         VirtualCdj.getInstance().setDeviceNumber((byte) playerNumber);
 
         if (!VirtualCdj.getInstance().start()) {
@@ -116,33 +132,12 @@ public class BeatLinkBridge {
         String iface = VirtualCdj.getInstance().getLocalAddress() != null
             ? VirtualCdj.getInstance().getLocalAddress().getHostAddress()
             : "unknown";
-        log.info("Joined Pro DJ Link network on interface {} ({})", iface,
-            VirtualCdj.getInstance().getLocalAddress());
+        log.info("Joined Pro DJ Link network on interface {}", iface);
 
-        // Steps 7-11: Start finders
-        MetadataFinder.getInstance().start();
-        log.info("MetadataFinder started");
-
-        BeatGridFinder.getInstance().start();
-        log.info("BeatGridFinder started");
-
-        WaveformFinder.getInstance().start();
-        log.info("WaveformFinder started");
-
-        CrateDigger.getInstance().start();
-        log.info("CrateDigger started");
-
-        try {
-            AnalysisTagFinder.getInstance().start();
-            log.info("AnalysisTagFinder started");
-        } catch (Exception e) {
-            log.warn("AnalysisTagFinder not available: {}", e.getMessage());
-        }
-
-        // Step 12: Register all listeners
+        // Register all listeners
         registerListeners();
 
-        // Step 13: Emit connected status
+        // Emit connected status
         beatLinkConnected = true;
         int deviceCount = DeviceFinder.getInstance().getCurrentDevices().size();
         emitter.emitBridgeStatus(true, deviceCount, VERSION, null);
@@ -172,6 +167,7 @@ public class BeatLinkBridge {
             public void deviceLost(DeviceAnnouncement device) {
                 try {
                     emitDeviceLost(device);
+                    dlpDeviceIps.remove(device.getAddress().getHostAddress());
                     if (DeviceFinder.getInstance().isRunning()) {
                         int count = DeviceFinder.getInstance().getCurrentDevices().size();
                         emitter.emitBridgeStatus(true, count, VERSION, null);
@@ -203,48 +199,7 @@ public class BeatLinkBridge {
         });
         BeatFinder.getInstance().start();
 
-        // Metadata listener — fires when track metadata becomes available
-        MetadataFinder.getInstance().addTrackMetadataListener(new TrackMetadataListener() {
-            @Override
-            public void metadataChanged(TrackMetadataUpdate update) {
-                try {
-                    handleMetadataUpdate(update);
-                } catch (Exception e) {
-                    log.error("Error in metadata listener: {}", e.getMessage(), e);
-                }
-            }
-        });
-
-        // Beat grid listener
-        BeatGridFinder.getInstance().addBeatGridListener(new BeatGridListener() {
-            @Override
-            public void beatGridChanged(BeatGridUpdate update) {
-                try {
-                    handleBeatGridUpdate(update);
-                } catch (Exception e) {
-                    log.error("Error in beatgrid listener: {}", e.getMessage(), e);
-                }
-            }
-        });
-
-        // Waveform listener
-        WaveformFinder.getInstance().addWaveformListener(new WaveformListener() {
-            @Override
-            public void previewChanged(WaveformPreviewUpdate update) {
-                // We only care about detail waveforms
-            }
-
-            @Override
-            public void detailChanged(WaveformDetailUpdate update) {
-                try {
-                    handleWaveformDetail(update);
-                } catch (Exception e) {
-                    log.error("Error in waveform listener: {}", e.getMessage(), e);
-                }
-            }
-        });
-
-        log.info("All listeners registered");
+        log.info("All listeners registered (real-time data only, no metadata finders)");
     }
 
     // ── Event handlers ─────────────────────────────────────────────────────
@@ -254,10 +209,16 @@ public class BeatLinkBridge {
         String name = device.getDeviceName();
         String ip = device.getAddress().getHostAddress();
         String type = classifyDevice(device);
-        Integer playerNum = "cdj".equals(type) && num >= 1 && num <= 4 ? num : null;
+        boolean usesDlp = isDlpDevice(name);
 
-        emitter.emitDeviceFound(name, num, type, ip, playerNum);
-        log.info("Found device: {} (player {}) at {}", name, num, ip);
+        if (usesDlp) {
+            dlpDeviceIps.add(ip);
+            log.info("Device {} uses Device Library Plus — metadata will come from rbox, not bridge", name);
+        }
+
+        Integer playerNum = "cdj".equals(type) && num >= 1 && num <= 4 ? num : null;
+        emitter.emitDeviceFound(name, num, type, ip, playerNum, usesDlp);
+        log.info("Found device: {} (number {}, type {}, dlp={}) at {}", name, num, type, usesDlp, ip);
     }
 
     private void emitDeviceLost(DeviceAnnouncement device) {
@@ -268,15 +229,13 @@ public class BeatLinkBridge {
         Integer playerNum = "cdj".equals(type) && num >= 1 && num <= 4 ? num : null;
 
         emitter.emitDeviceLost(name, num, type, ip, playerNum);
-        log.info("Lost device: {} (player {})", name, num);
+        log.info("Lost device: {} (number {})", name, num);
     }
 
     private void handleCdjStatus(CdjStatus status) {
         int pn = status.getDeviceNumber();
-        // getEffectiveTempo() returns garbage when no track is loaded
         double bpm = status.getTrackType() == CdjStatus.TrackType.NO_TRACK
             ? 0.0 : status.getEffectiveTempo();
-        // Pitch: beat-link raw is 0-2097152, center=1048576. Convert to percentage.
         double pitchPct = ((status.getPitch() / 1048576.0) - 1.0) * 100.0;
         int beatInBar = status.getBeatWithinBar();
         int beatNum = status.getBeatNumber();
@@ -289,9 +248,23 @@ public class BeatLinkBridge {
         String trackType = status.getTrackType() != null
             ? status.getTrackType().name().toLowerCase()
             : "unknown";
+        int rekordboxId = status.getRekordboxId();
 
         emitter.emitPlayerStatus(pn, bpm, pitchPct, beatInBar, beatNum,
-            playState, onAir, srcPlayer, srcSlot, trackType);
+            playState, onAir, srcPlayer, srcSlot, trackType, rekordboxId);
+
+        // Track-change detection: log when rekordbox ID changes.
+        // The Python side uses this ID to look up metadata in the rbox database.
+        Integer prevId = lastRekordboxId.put(pn, rekordboxId);
+        if (prevId != null && prevId != rekordboxId) {
+            if (rekordboxId == 0) {
+                log.info("Track unloaded on player {}", pn);
+            } else {
+                log.info("Track change on player {}: rbid {} → {} (type={})", pn, prevId, rekordboxId, trackType);
+            }
+        } else if (prevId == null && rekordboxId != 0) {
+            log.info("First track detected on player {}: rbid {} (type={})", pn, rekordboxId, trackType);
+        }
     }
 
     private void handleBeat(Beat beat) {
@@ -302,84 +275,10 @@ public class BeatLinkBridge {
         emitter.emitBeat(pn, beatInBar, bpm, pitchPct);
     }
 
-    private void handleMetadataUpdate(TrackMetadataUpdate update) {
-        int pn = update.player;
-        TrackMetadata md = update.metadata;
-
-        if (md == null) {
-            // Track unloaded or metadata unavailable — emit with empty fields
-            log.warn("No metadata available for player {}", pn);
-            emitter.emitTrackMetadata(pn, "", "", "", "", "", 0, 0, null, 0, "", 0);
-            return;
-        }
-
-        String title = md.getTitle() != null ? md.getTitle() : "";
-        String artist = md.getArtist() != null ? md.getArtist().label : "";
-        String album = md.getAlbum() != null ? md.getAlbum().label : "";
-        String genre = md.getGenre() != null ? md.getGenre().label : "";
-        String key = md.getKey() != null ? md.getKey().label : "";
-        double bpm = md.getTempo() / 100.0;
-        double duration = md.getDuration();
-        String color = md.getColor() != null ? String.format("#%06X", md.getColor().color.getRGB() & 0xFFFFFF) : null;
-        int rating = md.getRating();
-        String comment = md.getComment() != null ? md.getComment() : "";
-
-        // rekordbox ID: use the track's rekordbox ID from the CdjStatus
-        CdjStatus latestStatus = (CdjStatus) VirtualCdj.getInstance().getLatestStatusFor(pn);
-        int rbId = latestStatus != null ? latestStatus.getRekordboxId() : 0;
-
-        emitter.emitTrackMetadata(pn, title, artist, album, genre, key, bpm, duration, color, rating, comment, rbId);
-        log.info("Track loaded on player {}: {} — {}", pn, title, artist);
-    }
-
-    private void handleBeatGridUpdate(BeatGridUpdate update) {
-        int pn = update.player;
-        BeatGrid grid = update.beatGrid;
-
-        if (grid == null) {
-            return;
-        }
-
-        List<Map<String, Object>> beats = new ArrayList<>();
-        for (int i = 1; i <= grid.beatCount; i++) {
-            Map<String, Object> beat = new LinkedHashMap<>();
-            beat.put("beat_number", i);
-            beat.put("time_ms", (double) grid.getTimeWithinTrack(i));
-            beat.put("bpm", grid.getBpm(i) / 100.0);
-            beats.add(beat);
-        }
-
-        emitter.emitBeatGrid(pn, beats);
-        log.info("Beat grid for player {}: {} beats", pn, grid.beatCount);
-    }
-
-    private void handleWaveformDetail(WaveformDetailUpdate update) {
-        int pn = update.player;
-        WaveformDetail detail = update.detail;
-
-        if (detail == null) {
-            return;
-        }
-
-        // Encode raw waveform bytes as base64
-        String base64Data = Base64.getEncoder().encodeToString(detail.getData().array());
-        // Estimate total beats from beat grid if available
-        BeatGrid grid = BeatGridFinder.getInstance().getLatestBeatGridFor(pn);
-        int totalBeats = grid != null ? grid.beatCount : 0;
-
-        emitter.emitWaveformDetail(pn, base64Data, totalBeats);
-        log.info("Waveform detail for player {}", pn);
-    }
-
     /**
      * Clean up beat-link components so we can reinitialize cleanly.
      */
     private void cleanupBeatLink() {
-        try { AnalysisTagFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
-        try { CrateDigger.getInstance().stop(); } catch (Exception e) { /* ignore */ }
-        try { WaveformFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
-        try { BeatGridFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
-        try { MetadataFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
         try { BeatFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
         try { if (VirtualCdj.getInstance().isRunning()) VirtualCdj.getInstance().stop(); } catch (Exception e) { /* ignore */ }
         try { if (DeviceFinder.getInstance().isRunning()) DeviceFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
@@ -390,13 +289,22 @@ public class BeatLinkBridge {
     private String classifyDevice(DeviceAnnouncement device) {
         int num = device.getDeviceNumber();
         String name = device.getDeviceName().toLowerCase();
-        // Device numbers 33+ are mixer channels on all-in-one units (XDJ-AZ, etc.)
         if (num >= 33 || name.contains("djm") || name.contains("mixer")) {
             return "djm";
         } else if (name.contains("rekordbox")) {
             return "rekordbox";
         }
         return "cdj";
+    }
+
+    private boolean isDlpDevice(String deviceName) {
+        String lower = deviceName.toLowerCase().replaceAll("[\\s_]", "-");
+        for (String dlp : DLP_DEVICES) {
+            if (lower.contains(dlp)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String getPlaybackState(CdjStatus status) {
@@ -414,15 +322,8 @@ public class BeatLinkBridge {
         running = false;
 
         try {
-            // Stop finders in reverse order
-            try { AnalysisTagFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
-            try { CrateDigger.getInstance().stop(); } catch (Exception e) { /* ignore */ }
-            try { WaveformFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
-            try { BeatGridFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
-            try { MetadataFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
             try { BeatFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
 
-            // Leave the Pro DJ Link network cleanly
             if (VirtualCdj.getInstance().isRunning()) {
                 VirtualCdj.getInstance().stop();
                 log.info("VirtualCdj stopped — left Pro DJ Link network");
@@ -432,7 +333,6 @@ public class BeatLinkBridge {
                 DeviceFinder.getInstance().stop();
             }
 
-            // Close WebSocket
             if (wsServer != null) {
                 wsServer.stop(1000);
                 log.info("WebSocket server stopped");
@@ -452,7 +352,6 @@ public class BeatLinkBridge {
         int retryInterval = 10;
         String logLevel = "INFO";
 
-        // Parse CLI arguments
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--port":
