@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .adapter import BridgeAdapter
 from .client import BridgeWebSocket, DEFAULT_BRIDGE_URL
-from .messages import BridgeMessage
+from .messages import BRIDGE_STATUS, BridgeMessage
 from ..network.models import RouteFixResult
 from ..network.route import check_route as network_check_route
 from ..network.route import fix_route as network_fix_route
@@ -25,7 +25,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_JAR_PATH = Path("lib/beat-link-bridge.jar")
 DEFAULT_PORT = 17400
 HEALTH_CHECK_INTERVAL = 10.0  # seconds between health checks
-MAX_BACKOFF = 30.0
+
+# TODO: move to config/bridge.yaml
+RESTART_BASE_DELAY = 2.0  # seconds — base for exponential backoff
+RESTART_MAX_DELAY = 30.0  # seconds — backoff cap
 
 
 class BridgeManager:
@@ -61,8 +64,10 @@ class BridgeManager:
         self._adapter = BridgeAdapter()
         self._listen_task: asyncio.Task | None = None
         self._health_task: asyncio.Task | None = None
-        self._restart_count = 0
+        self._consecutive_failures = 0
+        self._next_retry_at: float | None = None  # time.time() when next retry fires
         self._last_message_time: float = 0.0
+        self._last_pioneer_message_time: float = 0.0
         self._route_correct: bool | None = None
         self._route_warning: str | None = None
 
@@ -72,6 +77,15 @@ class BridgeManager:
     @property
     def status(self) -> str:
         return self._status
+
+    @property
+    def _restart_count(self) -> int:
+        """Backward-compat alias for _consecutive_failures."""
+        return self._consecutive_failures
+
+    @_restart_count.setter
+    def _restart_count(self, value: int) -> None:
+        self._consecutive_failures = value
 
     @property
     def adapter(self) -> BridgeAdapter:
@@ -129,7 +143,8 @@ class BridgeManager:
             await self._launch_subprocess()
             await self._connect_websocket()
             self._status = "running"
-            self._restart_count = 0
+            self._consecutive_failures = 0
+            self._next_retry_at = None
             self._start_listen_loop()
             self._start_health_check()
             self._notify_state_change()
@@ -151,7 +166,8 @@ class BridgeManager:
         """Stop and restart the bridge (e.g. after config change)."""
         logger.info("Restarting bridge (config change)")
         await self.stop()
-        self._restart_count = 0
+        self._consecutive_failures = 0
+        self._next_retry_at = None
         await self.start()
 
     def _check_and_fix_route(self) -> None:
@@ -292,7 +308,12 @@ class BridgeManager:
 
         try:
             async for msg in self._ws_client.listen():
-                self._last_message_time = time.time()
+                now = time.time()
+                self._last_message_time = now
+                # Track Pioneer-originated messages separately from bridge
+                # heartbeats so is_receiving reflects actual hardware traffic
+                if msg.type != BRIDGE_STATUS:
+                    self._last_pioneer_message_time = now
                 self._adapter.handle_message(msg)
                 if self._external_on_message is not None:
                     self._external_on_message(msg)
@@ -302,6 +323,7 @@ class BridgeManager:
             if self._status == "running":
                 self._status = "crashed"
                 self._notify_state_change()
+                await self._schedule_restart()
 
     async def _health_check_loop(self) -> None:
         """Periodically check bridge health and restart if needed."""
@@ -330,12 +352,34 @@ class BridgeManager:
                     break
 
     async def _schedule_restart(self) -> None:
-        """Restart with exponential backoff."""
-        self._restart_count += 1
-        backoff = min(2 ** self._restart_count, MAX_BACKOFF)
-        logger.info("Restarting bridge in %.1fs (attempt %d)", backoff, self._restart_count)
+        """Restart with immediate first retry, then exponential backoff.
+
+        First retry after a crash: immediate (0 delay).
+        Subsequent consecutive failures: base_delay * 2^(failures-1), capped.
+        """
+        self._consecutive_failures += 1
         await self._cleanup()
-        await asyncio.sleep(backoff)
+
+        if self._consecutive_failures == 1:
+            # First failure — retry immediately
+            delay = 0.0
+            logger.info("Restarting bridge immediately (attempt %d)", self._consecutive_failures)
+        else:
+            # Subsequent failures — exponential backoff
+            delay = min(
+                RESTART_BASE_DELAY * (2 ** (self._consecutive_failures - 2)),
+                RESTART_MAX_DELAY,
+            )
+            logger.info(
+                "Restarting bridge in %.1fs (attempt %d)",
+                delay, self._consecutive_failures,
+            )
+
+        if delay > 0:
+            self._next_retry_at = time.time() + delay
+            self._notify_state_change()
+            await asyncio.sleep(delay)
+        self._next_retry_at = None
         await self.start()
 
     async def _cleanup(self) -> None:
@@ -374,6 +418,11 @@ class BridgeManager:
 
     def to_status_dict(self) -> dict:
         """Return a JSON-serializable status summary."""
+        # Compute seconds until next retry (null when not retrying)
+        next_retry_in_s: float | None = None
+        if self._next_retry_at is not None:
+            next_retry_in_s = max(0.0, self._next_retry_at - time.time())
+
         return {
             "status": self._status,
             "port": self._port,
@@ -381,7 +430,9 @@ class BridgeManager:
             "jar_path": str(self._jar_path),
             "jar_exists": self._check_jar(),
             "jre_available": self._check_jre(),
-            "restart_count": self._restart_count,
+            "restart_count": self._consecutive_failures,
+            "restart_attempt": self._consecutive_failures,
+            "next_retry_in_s": next_retry_in_s,
             "route_correct": self._route_correct,
             "route_warning": self._route_warning,
             "devices": {

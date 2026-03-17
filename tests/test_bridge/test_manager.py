@@ -1,12 +1,18 @@
 """Tests for bridge manager — state machine, graceful degradation."""
 
 import asyncio
+import time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scue.bridge.manager import BridgeManager
+from scue.bridge.manager import (
+    BridgeManager,
+    RESTART_BASE_DELAY,
+    RESTART_MAX_DELAY,
+)
+from scue.bridge.messages import BridgeMessage
 
 
 class TestManagerStateTransitions:
@@ -111,3 +117,308 @@ class TestManagerPort:
     def test_custom_port(self):
         mgr = BridgeManager(port=18000)
         assert mgr.port == 18000
+
+
+class TestPioneerMessageTracking:
+    """Verify that _last_pioneer_message_time is only updated by
+    Pioneer-originated messages (device_found, player_status, beat, etc.),
+    NOT by bridge_status heartbeats."""
+
+    def _make_msg(self, msg_type: str, player_number: int | None = None) -> BridgeMessage:
+        return BridgeMessage(
+            type=msg_type,
+            timestamp=time.time(),
+            player_number=player_number,
+            payload={},
+        )
+
+    def test_initial_pioneer_time_is_zero(self):
+        mgr = BridgeManager()
+        assert mgr._last_pioneer_message_time == 0.0
+
+    def test_bridge_status_does_not_update_pioneer_time(self):
+        """bridge_status messages must NOT update _last_pioneer_message_time."""
+        mgr = BridgeManager()
+        msg = self._make_msg("bridge_status")
+        # Simulate what _listen_loop does
+        now = time.time()
+        mgr._last_message_time = now
+        if msg.type != "bridge_status":
+            mgr._last_pioneer_message_time = now
+        mgr._adapter.handle_message(msg)
+
+        assert mgr._last_pioneer_message_time == 0.0
+        assert mgr._last_message_time == now
+
+    def test_device_found_updates_pioneer_time(self):
+        """device_found messages MUST update _last_pioneer_message_time."""
+        mgr = BridgeManager()
+        msg = BridgeMessage(
+            type="device_found",
+            timestamp=time.time(),
+            player_number=1,
+            payload={
+                "device_name": "XDJ-AZ",
+                "device_number": 1,
+                "device_type": "cdj",
+                "ip_address": "169.254.20.101",
+                "uses_dlp": True,
+            },
+        )
+        now = time.time()
+        mgr._last_message_time = now
+        if msg.type != "bridge_status":
+            mgr._last_pioneer_message_time = now
+        mgr._adapter.handle_message(msg)
+
+        assert mgr._last_pioneer_message_time == now
+
+    def test_player_status_updates_pioneer_time(self):
+        """player_status messages MUST update _last_pioneer_message_time."""
+        mgr = BridgeManager()
+        msg = BridgeMessage(
+            type="player_status",
+            timestamp=time.time(),
+            player_number=1,
+            payload={
+                "bpm": 128.0, "pitch": 0.0, "beat_within_bar": 1,
+                "beat_number": 1, "playback_state": "playing", "is_on_air": True,
+            },
+        )
+        now = time.time()
+        mgr._last_message_time = now
+        if msg.type != "bridge_status":
+            mgr._last_pioneer_message_time = now
+
+        assert mgr._last_pioneer_message_time == now
+
+    def test_beat_updates_pioneer_time(self):
+        """beat messages MUST update _last_pioneer_message_time."""
+        mgr = BridgeManager()
+        msg = self._make_msg("beat", player_number=1)
+        now = time.time()
+        mgr._last_message_time = now
+        if msg.type != "bridge_status":
+            mgr._last_pioneer_message_time = now
+
+        assert mgr._last_pioneer_message_time == now
+
+    def test_mixed_messages_only_pioneer_updates_pioneer_time(self):
+        """Sequence of bridge_status then device_found: only device_found
+        should update pioneer time."""
+        mgr = BridgeManager()
+
+        # Process bridge_status
+        bs_msg = self._make_msg("bridge_status")
+        t1 = time.time()
+        mgr._last_message_time = t1
+        if bs_msg.type != "bridge_status":
+            mgr._last_pioneer_message_time = t1
+        mgr._adapter.handle_message(bs_msg)
+        assert mgr._last_pioneer_message_time == 0.0
+
+        # Process device_found
+        df_msg = BridgeMessage(
+            type="device_found",
+            timestamp=time.time(),
+            player_number=1,
+            payload={
+                "device_name": "XDJ-AZ",
+                "device_number": 1,
+                "device_type": "cdj",
+                "ip_address": "169.254.20.101",
+                "uses_dlp": True,
+            },
+        )
+        t2 = time.time()
+        mgr._last_message_time = t2
+        if df_msg.type != "bridge_status":
+            mgr._last_pioneer_message_time = t2
+        mgr._adapter.handle_message(df_msg)
+
+        assert mgr._last_pioneer_message_time == t2
+        assert mgr._last_message_time == t2
+
+
+class TestRestartLogic:
+    """Test immediate-first-then-backoff restart behavior."""
+
+    def _make_manager(self) -> BridgeManager:
+        mgr = BridgeManager()
+        # Prevent actual start() from launching subprocess
+        mgr.start = AsyncMock()
+        return mgr
+
+    @pytest.mark.asyncio
+    async def test_first_failure_immediate_retry(self):
+        """First crash should retry with 0 delay."""
+        mgr = self._make_manager()
+        mgr._status = "crashed"
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await mgr._schedule_restart()
+
+        assert mgr._consecutive_failures == 1
+        # Should NOT have called asyncio.sleep (delay == 0)
+        mock_sleep.assert_not_called()
+        # start() should have been called
+        mgr.start.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_second_failure_base_backoff(self):
+        """Second consecutive crash should use base delay (2s)."""
+        mgr = self._make_manager()
+        mgr._consecutive_failures = 1  # Already had one failure
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await mgr._schedule_restart()
+
+        assert mgr._consecutive_failures == 2
+        mock_sleep.assert_awaited_once()
+        delay = mock_sleep.call_args[0][0]
+        assert delay == RESTART_BASE_DELAY  # 2.0s
+
+    @pytest.mark.asyncio
+    async def test_third_failure_doubled_backoff(self):
+        """Third consecutive crash should use 2x base delay (4s)."""
+        mgr = self._make_manager()
+        mgr._consecutive_failures = 2
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await mgr._schedule_restart()
+
+        assert mgr._consecutive_failures == 3
+        delay = mock_sleep.call_args[0][0]
+        assert delay == RESTART_BASE_DELAY * 2  # 4.0s
+
+    @pytest.mark.asyncio
+    async def test_backoff_caps_at_max(self):
+        """Backoff should cap at RESTART_MAX_DELAY."""
+        mgr = self._make_manager()
+        mgr._consecutive_failures = 20  # Very high failure count
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await mgr._schedule_restart()
+
+        delay = mock_sleep.call_args[0][0]
+        assert delay == RESTART_MAX_DELAY  # 30.0s
+
+    @pytest.mark.asyncio
+    async def test_success_resets_failure_counter(self):
+        """Successful start() should reset _consecutive_failures to 0."""
+        mgr = BridgeManager()
+        mgr._consecutive_failures = 5
+        mgr._next_retry_at = time.time() + 10
+
+        # Simulate a successful start reaching the "running" state
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_check_jar", return_value=True), \
+             patch.object(mgr, "_launch_subprocess", new_callable=AsyncMock), \
+             patch.object(mgr, "_connect_websocket", new_callable=AsyncMock), \
+             patch.object(mgr, "_start_listen_loop"), \
+             patch.object(mgr, "_start_health_check"):
+            await mgr.start()
+
+        assert mgr._consecutive_failures == 0
+        assert mgr._next_retry_at is None
+        assert mgr.status == "running"
+
+    @pytest.mark.asyncio
+    async def test_after_reset_next_crash_is_immediate(self):
+        """After a successful start resets the counter, next crash should retry immediately."""
+        mgr = self._make_manager()
+
+        # Simulate: had failures, then success, then crash again
+        mgr._consecutive_failures = 0  # Reset after success
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await mgr._schedule_restart()
+
+        assert mgr._consecutive_failures == 1
+        mock_sleep.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_jre_does_not_retry(self):
+        """no_jre state should NOT trigger _schedule_restart."""
+        mgr = BridgeManager()
+        with patch.object(mgr, "_check_jre", return_value=False):
+            await mgr.start()
+
+        assert mgr.status == "no_jre"
+        assert mgr._consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_no_jar_does_not_retry(self):
+        """no_jar state should NOT trigger _schedule_restart."""
+        mgr = BridgeManager(jar_path=Path("/nonexistent/bridge.jar"))
+        with patch.object(mgr, "_check_jre", return_value=True):
+            await mgr.start()
+
+        assert mgr.status == "no_jar"
+        assert mgr._consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_backoff_progression(self):
+        """Verify full backoff sequence: 0, 2, 4, 8, 16, 30, 30..."""
+        expected_delays = [0.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0]
+        mgr = self._make_manager()
+
+        for i, expected in enumerate(expected_delays):
+            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                await mgr._schedule_restart()
+                mgr.start.reset_mock()
+
+                if expected == 0.0:
+                    mock_sleep.assert_not_called()
+                else:
+                    delay = mock_sleep.call_args[0][0]
+                    assert delay == expected, (
+                        f"Attempt {i + 1}: expected {expected}s, got {delay}s"
+                    )
+
+
+class TestStatusDictRestartFields:
+    """Test that to_status_dict() exposes restart state."""
+
+    def test_running_state_has_zero_restart_fields(self):
+        """When running normally, restart_attempt=0 and next_retry_in_s=None."""
+        mgr = BridgeManager()
+        mgr._status = "running"
+        status = mgr.to_status_dict()
+
+        assert status["restart_attempt"] == 0
+        assert status["next_retry_in_s"] is None
+
+    def test_crashed_state_shows_failure_count(self):
+        """After failures, restart_attempt reflects consecutive_failures."""
+        mgr = BridgeManager()
+        mgr._consecutive_failures = 3
+        status = mgr.to_status_dict()
+
+        assert status["restart_attempt"] == 3
+
+    def test_next_retry_in_s_when_waiting(self):
+        """next_retry_in_s should show remaining time when a retry is scheduled."""
+        mgr = BridgeManager()
+        mgr._next_retry_at = time.time() + 5.0
+        status = mgr.to_status_dict()
+
+        assert status["next_retry_in_s"] is not None
+        assert 4.0 < status["next_retry_in_s"] <= 5.0
+
+    def test_next_retry_in_s_clamps_to_zero(self):
+        """next_retry_in_s should not go negative if retry time has passed."""
+        mgr = BridgeManager()
+        mgr._next_retry_at = time.time() - 1.0  # Already past
+        status = mgr.to_status_dict()
+
+        assert status["next_retry_in_s"] == 0.0
+
+    def test_restart_count_backward_compat(self):
+        """restart_count field should still be present (backward compat)."""
+        mgr = BridgeManager()
+        mgr._consecutive_failures = 2
+        status = mgr.to_status_dict()
+
+        assert status["restart_count"] == 2
+        assert status["restart_attempt"] == 2

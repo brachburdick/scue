@@ -708,7 +708,7 @@ settings:
 | Concern | Choice | Rationale |
 |---|---|---|
 | Language | **TypeScript (strict mode)** | Type safety, better AI-assisted coding, catches contract violations at compile time. |
-| Framework | **React 18+** | Brach's familiarity. Performance adequate for state display at 60fps. |
+| Framework | **React 19** | Brach's familiarity. Performance adequate for state display at 60fps. |
 | Styling | **Tailwind CSS** | Utility-first, fast iteration, consistent design system. |
 | Build tool | **Vite** | Fast HMR, first-class TS/React support. |
 | State management | **Zustand** | Minimal boilerplate, TS-native, independent stores per concern. |
@@ -898,7 +898,7 @@ Deliverable: All remaining pages with full functionality.
 | Track data storage | **JSON files (source of truth) + SQLite (cache/index)** | Portable, inspectable. SQLite rebuilt from files. |
 | Log storage | **Rotating log files + in-memory ring buffer** | No DB table overhead. Files for history, buffer for live console. |
 | Real-time event bus | **In-process async queues (asyncio.Queue)** | All layers on same machine. Consider ZeroMQ if needed later. |
-| Frontend framework | **React 18+ with TypeScript (strict)** | Familiar, adequate performance, type safety for contracts. |
+| Frontend framework | **React 19 with TypeScript (strict)** | Familiar, adequate performance, type safety for contracts. |
 | Frontend build | **Vite** | Fast dev server, first-class TS/React. |
 | Frontend styling | **Tailwind CSS** | Utility-first, fast iteration. |
 | Frontend state | **Zustand** | Minimal boilerplate, TS-native, independent stores. |

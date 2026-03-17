@@ -15,7 +15,7 @@ Automated lighting/laser/visual cue generation for live DJ sets.
 - beat-link (Java library) via managed subprocess for Pro DJ Link protocol
 - librosa, allin1-mlx for audio analysis
 - JSON files (source of truth) + SQLite (derived cache) for track data
-- React 18 + TypeScript (strict) + Vite + Tailwind for frontend
+- React 19 + TypeScript (strict) + Vite + Tailwind for frontend
 - Zustand for FE state, TanStack Query/Table for data fetching/display
 - WebSocket for real-time FE/BE communication, REST for CRUD
 - YAML for all configuration (effects, fixtures, routing, palettes)

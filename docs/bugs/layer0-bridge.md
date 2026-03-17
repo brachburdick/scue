@@ -56,17 +56,19 @@ Root cause: `CdjStatus.getPitch()` returns a raw hardware value even when `track
 Fix: Apply the same `noTrack ? 0.0 : ...` guard to pitch calculation, matching the existing BPM guard.
 File(s): bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java
 
-### [OPEN] Pioneer traffic detected but device never "discovered" by beat-link
+### [FIXED] Pioneer traffic detected but device never "discovered" by beat-link
 Date: 2026-03-17
 Milestone: M-0
 Symptom: Bridge reports Pioneer traffic on en16 (traffic indicator fires, `isReceiving=true`) but `devices` remains empty — beat-link never emits a device_found event.
-Root cause: Unknown. The bridge WebSocket adapter distinguishes between receiving raw Pro DJ Link UDP packets (`pioneer_status.is_receiving`) and beat-link completing its full device-discovery handshake (`device_found` event). It is not yet clear whether "traffic detected" should be equivalent to "device discovered," or whether there is a separate beat-link announcement handshake that must complete first.
-Fix: Not yet investigated.
-File(s): scue/bridge/adapter.py (suspected), bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java
+Root cause: Two compounding issues:
+1. **`is_receiving` was inflated by bridge heartbeats.** `pioneer_status.is_receiving` was derived from `_last_message_time` which was updated by ALL WebSocket messages from the Java bridge, including `bridge_status` heartbeats. When VirtualCdj.start() failed repeatedly (due to route issues), the bridge's error-recovery `bridge_status` emissions kept `is_receiving` flickering to `true`, misleading the frontend into showing "Pioneer traffic detected" when no Pioneer hardware data was actually arriving.
+2. **Listen loop crash left bridge in zombie state.** When the WebSocket listen loop encountered an error, it set `_status = "crashed"` but did NOT trigger `_schedule_restart()`. The health check loop saw the non-"running" status and exited without restarting. The Java subprocess kept running (zombie) but its WebSocket server died, leaving the Python side permanently stuck in "crashed" state with `restart_count: 1`.
+Fix:
+1. Split message tracking into `_last_message_time` (all messages, for bridge liveness) and `_last_pioneer_message_time` (only device_found/player_status/beat/etc., for Pioneer traffic). Updated `ws.py` to use `_last_pioneer_message_time` for `is_receiving` and added `bridge_connected` field to `pioneer_status` WS message.
+2. Added `await self._schedule_restart()` to the listen loop error handler so the bridge auto-recovers from WebSocket disconnections.
+File(s): scue/bridge/manager.py, scue/api/ws.py
 
-Open questions:
-- What does "device discovered" actually mean in beat-link's model? At what point does beat-link emit device_found — is it just receipt of a CDJ announcement packet, or does it require a full handshake (VirtualCdj probing, DeviceFinder confirming, etc.)?
-- The device should arguably be considered "discovered" as soon as Pioneer traffic is detected on the correct interface. Is there a way to surface partial device state (e.g. IP, device number from raw packets) before beat-link completes discovery, so the UI is not blank during the handshake window?
+Remaining open questions:
 - Is there a way to maintain device state in the UI when we temporarily stop receiving Pioneer traffic (e.g. deck paused, USB unplugged briefly)? Losing all device info on a momentary gap seems fragile for live use.
 
 ### rbox ANLZ parser panics on XDJ-AZ exported files

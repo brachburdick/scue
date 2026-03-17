@@ -77,6 +77,8 @@ Completed: 2026-03-16
 - [x] 4 JSON fixture files (device discovery, playback session, track metadata, transition)
 - [x] 53 tests passing (messages, adapter, manager)
 - [x] Java bridge JAR (`lib/beat-link-bridge.jar`) — v1.1.0 built and tested with XDJ-AZ (ADR-012: real-time data only, metadata finders stripped)
+- [ ] **[AUDIT]** Fallback parser not wired into BridgeManager state machine — `fallback` state defined but no transition path. See `specs/audit-2026-03-17/fallback-parser-integration.md`
+- [ ] **[AUDIT]** Fallback parser has no dedicated test file. See `specs/audit-2026-03-17/fallback-parser-integration.md`
 
 ### ~~Milestone 2 — Live Cursor + Pioneer Enrichment (Layer 1B)~~ → COMPLETE (2026-03-16)
 - [x] `scue/layer1/models.py` — Added TrackCursor, SectionInfo, BeatPosition, PlaybackState, TrackCursorFeatures, DivergenceRecord
@@ -108,6 +110,22 @@ Completed: 2026-03-16
 ### Milestone 5 — DMX Output (Layer 4A + 4B)
 ### Milestone 6 — End-to-End Demo
 ### Milestone FE-2 — WebSocket + Console + Bridge Status
+**Status:** PARTIALLY COMPLETE — WebSocket client + bridgeStore built as part of FE-BLT. Console log streaming remains.
+- [x] WebSocket client with auto-reconnect (`api/ws.ts`)
+- [x] `bridgeStore` — bridge status, devices, players, dotStatus, isStartingUp
+- [x] `pioneer_status` message handling (is_receiving, lastMessageAgeMs)
+- [ ] Console panel wired to real-time bridge log output (currently placeholder)
+
+### ~~Milestone FE-BLT — Bridge Page~~ → COMPLETE (2026-03-17)
+- [x] BridgeStatusPanel: StatusBanner, TrafficIndicator, DeviceList, PlayerList
+- [x] HardwareSelectionPanel: RouteStatusBanner, ActionBar, InterfaceSelector
+- [x] InterfaceRow with type/link-local badges and scoring
+- [x] Route auto-fix on page load (at most once per mount)
+- [x] Startup gating pattern: all queries gated with `enabled: !isStartingUp`
+- [x] TopBar: StatusDot (bridge status only), TrafficDot (Pioneer liveness), StartupIndicator
+- [x] 6 bugs found and fixed (see `docs/bugs/frontend.md`)
+- [ ] **[OPEN BUG]** Pioneer traffic indicator flickers during active playback
+
 ### ~~Milestone FE-4 — Upload & Analyze Flow~~ → COMPLETE (2026-03-16)
 - [x] Path-based scan → batch analyze → progress tracking flow
 - [x] `POST /api/tracks/scan` — directory scanning with fingerprint-based dedup

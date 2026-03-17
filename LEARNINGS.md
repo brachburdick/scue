@@ -137,3 +137,16 @@ Prevention: Always distinguish transport connectivity (WS open) from data connec
 Context: Initially attempted to use beat-link-trigger OSC expressions to bridge Pioneer data.
 Problem: Required the DJ to configure OSC expressions manually in beat-link-trigger; no turnkey setup. Expressions never configured, so no data arrived.
 Resolution: Replaced entirely with beat-link library as managed subprocess (ADR-005 in new architecture). No beat-link-trigger dependency.
+
+### Bridge listen loop crash does not auto-recover (fixed)
+Date: 2026-03-17
+Context: Investigating device discovery blocker — bridge reported is_receiving=true but devices stayed empty.
+Problem: When _listen_loop errors (WebSocket disconnect), the handler set status="crashed" but did not call _schedule_restart(). The health check loop saw non-"running" status and exited its loop. Result: permanent "crashed" state with no recovery path. The Java subprocess could still be running with a dead WebSocket server (zombie process).
+Fix: Added _schedule_restart() call in listen loop error handler. Also separated _last_pioneer_message_time from _last_message_time so is_receiving reflects actual Pioneer traffic, not bridge heartbeats.
+Prevention: Any status transition to "crashed" should trigger restart logic. Audit all paths that set _status = "crashed" to ensure they either call _schedule_restart() or have a clear reason not to (e.g., no_jre/no_jar). Also: always check for zombie Java processes after unexpected bridge crashes — `ps aux | grep beat-link`.
+### is_receiving can be inflated by bridge heartbeats (fixed)
+Date: 2026-03-17
+Context: Same investigation as above.
+Problem: _last_message_time was updated by ALL WebSocket messages including bridge_status heartbeats. When VirtualCdj.start() failed, bridge_status error messages kept is_receiving flickering to true. Frontend showed "Pioneer traffic detected" when no Pioneer hardware was actually communicating.
+Fix: Added separate _last_pioneer_message_time that only updates on device/player/beat messages. pioneer_status.is_receiving now derives from this. Added bridge_connected field for bridge process liveness.
+Prevention: When building status indicators, always distinguish between "transport is alive" and "data source is producing data." They are different failure modes.

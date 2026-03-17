@@ -89,7 +89,7 @@ class TestBridgeStatus:
             adapter.handle_message(msg)
 
         assert adapter.bridge_connected is True
-        assert adapter.bridge_version == "1.0.0"
+        assert adapter.bridge_version == "1.2.0"
 
 
 class TestPlayerStatus:
