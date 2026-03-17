@@ -32,6 +32,7 @@ function dispatch(msg: WSMessage): void {
 
 function onOpen(): void {
   backoff = 1000;
+  useBridgeStore.getState().setWsConnected(true);
 }
 
 function onMessage(event: MessageEvent): void {
@@ -45,6 +46,7 @@ function onMessage(event: MessageEvent): void {
 
 function onClose(): void {
   ws = null;
+  useBridgeStore.getState().setWsConnected(false);
   scheduleReconnect();
 }
 

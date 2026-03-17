@@ -12,28 +12,31 @@ import type {
 
 // --- Query hooks ---
 
-export function useInterfaces() {
+export function useInterfaces({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery<InterfaceListResponse>({
     queryKey: ["network", "interfaces"],
     queryFn: () => apiFetch<InterfaceListResponse>("/network/interfaces"),
+    enabled,
     refetchOnWindowFocus: true,
     staleTime: 10_000,
   });
 }
 
-export function useRouteStatus() {
+export function useRouteStatus({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery<RouteStatusResponse>({
     queryKey: ["network", "route"],
     queryFn: () => apiFetch<RouteStatusResponse>("/network/route"),
+    enabled,
     refetchOnWindowFocus: true,
     staleTime: 5_000,
   });
 }
 
-export function useRouteSetupStatus() {
+export function useRouteSetupStatus({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery<RouteSetupStatus>({
     queryKey: ["network", "route", "setup-status"],
     queryFn: () => apiFetch<RouteSetupStatus>("/network/route/setup-status"),
+    enabled,
     staleTime: 60_000,
   });
 }
@@ -73,7 +76,11 @@ export function useFixRoute() {
 }
 
 export function useRestartBridge() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: restartBridge,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["network", "route"] });
+    },
   });
 }

@@ -1,9 +1,53 @@
+import { useEffect, useRef } from "react";
 import { useRouteStatus, useRouteSetupStatus, useFixRoute } from "../../api/network";
+import { useBridgeStore } from "../../stores/bridgeStore";
 
 export function RouteStatusBanner() {
-  const { data: route, refetch: refetchRoute } = useRouteStatus();
-  const { data: setup } = useRouteSetupStatus();
+  const isStartingUp = useBridgeStore((s) => s.isStartingUp);
+  const { data: route, refetch: refetchRoute } = useRouteStatus({
+    enabled: !isStartingUp,
+  });
+  const { data: setup } = useRouteSetupStatus({ enabled: !isStartingUp });
   const fixMutation = useFixRoute();
+
+  // Auto-fix the route once on startup if a mismatch is detected and sudoers
+  // is installed. Fires at most once per page load via the ref guard.
+  // Defense-in-depth: the bridge manager also attempts auto-fix before launch,
+  // but macOS can reset the route after the subprocess starts.
+  const hasAutoFixed = useRef(false);
+  const canFix = setup?.sudoers_installed ?? false;
+
+  useEffect(() => {
+    if (
+      !isStartingUp &&
+      route &&
+      route.route_applicable &&
+      !route.correct &&
+      canFix &&
+      !hasAutoFixed.current &&
+      !fixMutation.isPending
+    ) {
+      hasAutoFixed.current = true;
+      fixMutation
+        .mutateAsync(route.expected_interface!)
+        .then(() => refetchRoute())
+        .catch(() => {
+          // Visible via fixMutation.isError — no silent swallow
+        });
+    }
+  }, [isStartingUp, route, canFix]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // During startup, show a muted placeholder that matches the banner's layout weight
+  if (isStartingUp) {
+    return (
+      <div className="rounded-lg bg-gray-800/40 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-gray-700" />
+          <span className="text-sm text-gray-600">Route status — waiting for startup…</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!route || !route.route_applicable) {
     return null; // Not macOS or not applicable
@@ -33,8 +77,6 @@ export function RouteStatusBanner() {
   }
 
   // Route is wrong
-  const canFix = setup?.sudoers_installed ?? false;
-
   return (
     <div className="rounded-lg bg-yellow-900/30 px-4 py-3 space-y-2">
       <div className="flex items-center justify-between">

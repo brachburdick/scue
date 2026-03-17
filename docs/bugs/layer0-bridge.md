@@ -24,6 +24,22 @@ Root cause: XDJ-AZ uses Device Library Plus (DLP) format with different track ID
 Fix: Stripped MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, and AnalysisTagFinder from the bridge JAR (ADR-012). Bridge now provides real-time playback data only. Metadata resolution moved to Python side via rbox library reading directly from USB's exportLibrary.db. Updated adapter to fire on_track_loaded from rekordbox_id changes in player_status. Updated status endpoint to include uses_dlp flag per device.
 File(s): bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java, bridge-java/src/main/java/com/scue/bridge/MessageEmitter.java, scue/bridge/adapter.py, scue/bridge/messages.py, scue/bridge/manager.py
 
+### fix_route() reports failure after successful route add on macOS
+Date: 2026-03-17
+Milestone: M-0 (route automation)
+Symptom: POST `/api/network/route/fix` returned HTTP 500 with "Route fix ran but route still points to None" even though `sudo scue-route-fix en16` exited 0 and printed "Route fixed: 169.254.255.255 -> en16".
+Root cause: `fix_route()` verified the fix with `route get 169.254.255.255` immediately after the script ran. On macOS, `route get` for link-local broadcast addresses does not reliably reflect a just-added host route — it falls back to the connected subnet route and often omits the `interface:` line entirely. The fix had actually succeeded at the kernel level, but the verification produced a false negative. Additionally, `netstat -rn` is a more authoritative source than `route get` for checking whether a specific host route exists.
+Fix: (1) Removed the hard-fail on post-fix verification in `fix_route()`. Script exit 0 is now the source of truth for success; `route get` discrepancies are logged at DEBUG level only. (2) Rewrote `get_current_route()` to prefer `netstat -rn -f inet` (checks the actual kernel routing table for an exact `169.254.255.255` host-route entry) and fall back to `route get` only if no netstat match is found.
+File(s): scue/network/route.py
+
+### check_sudoers_installed() always returns False despite sudoers being present
+Date: 2026-03-17
+Milestone: M-0 (route automation)
+Symptom: RouteStatusBanner showed "Route fix not available. Run: sudo ./tools/install-route-fix.sh" even after the user had successfully run the installer. The "Fix Now" button never appeared.
+Root cause: `check_sudoers_installed()` ran `sudo -n /usr/local/bin/scue-route-fix --check`. The installed script handled `--check` AFTER the `^en[0-9]+$` interface validation regex, so `--check` failed the regex and the script exited 1 before reaching the check handler. `sudo -n` propagated the exit code; Python saw rc=1 and returned False. Sudoers was correctly installed but detected as missing.
+Fix: (1) Rewrote `check_sudoers_installed()` to use file presence (`os.path.isfile` for both `/usr/local/bin/scue-route-fix` and `/etc/sudoers.d/scue-djlink`) instead of a subprocess call — more reliable and faster. (2) Fixed argument ordering in `install-route-fix.sh` so the generated script handles `--check` before the regex validation for future installs.
+File(s): scue/network/route.py, tools/install-route-fix.sh
+
 ### macOS link-local broadcast routing goes to wrong interface
 Date: 2026-03-16 (updated 2026-03-17)
 Milestone: M-0

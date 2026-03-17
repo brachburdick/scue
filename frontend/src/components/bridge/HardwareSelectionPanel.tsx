@@ -9,9 +9,9 @@ export function HardwareSelectionPanel() {
   return (
     <div className="space-y-4">
       <h2 className="text-sm font-semibold text-white">Hardware Selection</h2>
-      <InterfaceSelector onInterfaceChanged={() => setPendingChanges(true)} />
       <RouteStatusBanner />
       <ActionBar pendingChanges={pendingChanges} />
+      <InterfaceSelector onInterfaceChanged={() => setPendingChanges(true)} />
     </div>
   );
 }

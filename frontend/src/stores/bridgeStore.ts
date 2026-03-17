@@ -4,6 +4,9 @@ import type { BridgeStatus, DeviceInfo, PlayerInfo, BridgeState } from "../types
 export type DotStatus = "connected" | "disconnected" | "degraded";
 
 interface BridgeStoreState {
+  // WebSocket connection state
+  wsConnected: boolean;
+
   // Bridge state (from WebSocket bridge_status messages)
   status: BridgeStatus;
   port: number;
@@ -23,21 +26,29 @@ interface BridgeStoreState {
   // Computed status for TopBar StatusDot
   dotStatus: DotStatus;
 
+  // True while WS is not yet connected OR bridge is still launching.
+  // Clears once the WS has connected and the bridge reaches a stable state.
+  isStartingUp: boolean;
+
   // Actions
+  setWsConnected: (connected: boolean) => void;
   setBridgeState: (state: BridgeState) => void;
   setPioneerStatus: (isReceiving: boolean, ageMs: number) => void;
 }
 
-function computeDotStatus(
-  status: BridgeStatus,
-  isReceiving: boolean,
-): DotStatus {
-  if (status === "running" && isReceiving) return "connected";
-  if (status === "running" || status === "fallback") return "degraded";
+function computeDotStatus(status: BridgeStatus): DotStatus {
+  if (status === "running") return "connected";
+  if (status === "fallback") return "degraded";
   return "disconnected";
 }
 
+/** Startup is in progress until WS is open AND bridge has left "starting". */
+function computeIsStartingUp(wsConnected: boolean, status: BridgeStatus): boolean {
+  return !wsConnected || status === "starting";
+}
+
 export const useBridgeStore = create<BridgeStoreState>((set) => ({
+  wsConnected: false,
   status: "stopped",
   port: 0,
   networkInterface: null,
@@ -51,6 +62,13 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
   isReceiving: false,
   lastMessageAgeMs: -1,
   dotStatus: "disconnected",
+  isStartingUp: true,
+
+  setWsConnected: (connected: boolean) =>
+    set((prev) => ({
+      wsConnected: connected,
+      isStartingUp: computeIsStartingUp(connected, prev.status),
+    })),
 
   setBridgeState: (state: BridgeState) =>
     set((prev) => ({
@@ -64,13 +82,14 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
       routeWarning: state.route_warning,
       devices: state.devices,
       players: state.players,
-      dotStatus: computeDotStatus(state.status, prev.isReceiving),
+      dotStatus: computeDotStatus(state.status),
+      isStartingUp: computeIsStartingUp(prev.wsConnected, state.status),
     })),
 
   setPioneerStatus: (isReceiving: boolean, ageMs: number) =>
     set((prev) => ({
       isReceiving,
       lastMessageAgeMs: ageMs,
-      dotStatus: computeDotStatus(prev.status, isReceiving),
+      dotStatus: computeDotStatus(prev.status),
     })),
 }));

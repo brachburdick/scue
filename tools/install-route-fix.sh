@@ -67,22 +67,26 @@ cat > /usr/local/bin/scue-route-fix << 'SCRIPT'
 # Installed by SCUE. Do not edit manually.
 set -euo pipefail
 
-# Validate interface name (prevent injection)
-INTERFACE="${1:-}"
-if [[ -z "$INTERFACE" ]]; then
+ARG="${1:-}"
+
+if [[ -z "$ARG" ]]; then
     echo "Usage: scue-route-fix <interface>" >&2
     exit 1
 fi
-if ! [[ "$INTERFACE" =~ ^en[0-9]+$ ]]; then
-    echo "Invalid interface: $INTERFACE" >&2
-    exit 1
-fi
 
-# --check flag: dry run, just verify we can run with sudo
-if [[ "$INTERFACE" == "--check" ]]; then
+# --check flag: dry run, just verify passwordless sudo works (must come before regex)
+if [[ "$ARG" == "--check" ]]; then
     echo "OK"
     exit 0
 fi
+
+# Validate interface name (prevent injection)
+if ! [[ "$ARG" =~ ^en[0-9]+$ ]]; then
+    echo "Invalid interface: $ARG (must match en<number>)" >&2
+    exit 1
+fi
+
+INTERFACE="$ARG"
 
 # Fix the route
 route delete 169.254.255.255 2>/dev/null || true
