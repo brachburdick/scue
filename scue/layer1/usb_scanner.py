@@ -186,10 +186,10 @@ def _try_pyrekordbox(track: UsbTrack, dat_path: Path) -> bool:
 
     try:
         anlz = AnlzFile.parse_file(dat_path)
-    except Exception as e:
-        logger.warning(
-            "pyrekordbox failed to parse %s for track %d: %s",
-            dat_path.name, track.rekordbox_id, e,
+    except Exception:
+        logger.exception(
+            "pyrekordbox failed to parse %s for track %d",
+            dat_path.name, track.rekordbox_id,
         )
         return False
 

@@ -24,7 +24,7 @@ export function FolderBrowser({ open, onSelect, onClose }: FolderBrowserProps) {
       setParent(res.parent);
       setEntries(res.entries);
     } catch (e) {
-      setError((e as Error).message);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -39,7 +39,7 @@ export function FolderBrowser({ open, onSelect, onClose }: FolderBrowserProps) {
   const pathSegments = currentPath.split("/").filter(Boolean);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true" aria-label="Browse Filesystem">
       <div className="bg-gray-900 border border-gray-700 rounded-lg w-[560px] max-h-[480px] flex flex-col shadow-xl">
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">

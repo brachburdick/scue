@@ -56,6 +56,19 @@ Root cause: `CdjStatus.getPitch()` returns a raw hardware value even when `track
 Fix: Apply the same `noTrack ? 0.0 : ...` guard to pitch calculation, matching the existing BPM guard.
 File(s): bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java
 
+### [OPEN] Pioneer traffic detected but device never "discovered" by beat-link
+Date: 2026-03-17
+Milestone: M-0
+Symptom: Bridge reports Pioneer traffic on en16 (traffic indicator fires, `isReceiving=true`) but `devices` remains empty — beat-link never emits a device_found event.
+Root cause: Unknown. The bridge WebSocket adapter distinguishes between receiving raw Pro DJ Link UDP packets (`pioneer_status.is_receiving`) and beat-link completing its full device-discovery handshake (`device_found` event). It is not yet clear whether "traffic detected" should be equivalent to "device discovered," or whether there is a separate beat-link announcement handshake that must complete first.
+Fix: Not yet investigated.
+File(s): scue/bridge/adapter.py (suspected), bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java
+
+Open questions:
+- What does "device discovered" actually mean in beat-link's model? At what point does beat-link emit device_found — is it just receipt of a CDJ announcement packet, or does it require a full handshake (VirtualCdj probing, DeviceFinder confirming, etc.)?
+- The device should arguably be considered "discovered" as soon as Pioneer traffic is detected on the correct interface. Is there a way to surface partial device state (e.g. IP, device number from raw packets) before beat-link completes discovery, so the UI is not blank during the handshake window?
+- Is there a way to maintain device state in the UI when we temporarily stop receiving Pioneer traffic (e.g. deck paused, USB unplugged briefly)? Losing all device info on a momentary gap seems fragile for live use.
+
 ### rbox ANLZ parser panics on XDJ-AZ exported files
 Date: 2026-03-16
 Milestone: M-0B

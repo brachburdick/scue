@@ -31,5 +31,97 @@ React 18 + TypeScript (strict) + Vite + Tailwind CSS
 All types in src/types/ must match the Python dataclasses documented in docs/CONTRACTS.md.
 If the backend changes a shape, update the corresponding TS type and fix all TypeScript errors.
 
+## Startup gating pattern
+The bridge WebSocket takes a moment to connect and the backend may still be initialising.
+API calls fired before the backend is ready return HTTP 500.
+
+**Pattern:** Gate TanStack Query hooks with `enabled: !isStartingUp`.
+
+```typescript
+const isStartingUp = useBridgeStore((s) => s.isStartingUp);
+const { data } = useInterfaces({ enabled: !isStartingUp });
+```
+
+`isStartingUp` is a derived boolean in `bridgeStore`:
+- `true`  while the WebSocket is not yet open, OR while `status === "starting"`
+- `false` once the WS is open AND the bridge has reached a stable status
+
+Show a placeholder/skeleton UI while `isStartingUp === true`. Never render error states
+until startup is complete.
+
+## bridgeStore patterns
+`src/stores/bridgeStore.ts` is the source of truth for all bridge/network state.
+
+Key state:
+| Field | Type | Notes |
+|---|---|---|
+| `status` | `BridgeStatus` | Updated from `bridge_status` WS messages |
+| `wsConnected` | `boolean` | `true` once WS `onOpen` fires |
+| `isStartingUp` | `boolean` | Derived: `!wsConnected \|\| status === "starting"` |
+| `isReceiving` | `boolean` | Updated from `pioneer_status` WS messages |
+| `lastMessageAgeMs` | `number \| null` | ms since last Pioneer packet |
+| `routeCorrect` | `boolean \| null` | From `bridge_status` WS message |
+| `devices` | `Record<string, DeviceInfo>` | Discovered Pioneer devices |
+| `players` | `Record<string, PlayerInfo>` | Per-player playback state |
+
+`dotStatus` is a derived value (`"connected" | "degraded" | "disconnected"`) computed
+from `status` only — not from `isReceiving`. The dot reflects bridge status, not traffic:
+- `"connected"` — `status === "running"`
+- `"degraded"` — `status === "fallback"`
+- `"disconnected"` — all other statuses
+
+`setWsConnected(bool)` updates both `wsConnected` and recomputes `isStartingUp`. It is
+called from `api/ws.ts` `onOpen`/`onClose` handlers.
+
+## Network query hooks
+`src/api/network.ts` exports three query hooks, all accepting `{ enabled?: boolean }`:
+
+```typescript
+useInterfaces({ enabled })      // GET /api/network/interfaces
+useRouteStatus({ enabled })     // GET /api/network/route
+useRouteSetupStatus({ enabled }) // GET /api/network/route/setup-status
+```
+
+Always pass `enabled: !isStartingUp` from any component that uses these hooks.
+
+`useRestartBridge` invalidates `["network", "route"]` on success so RouteStatusBanner
+picks up the updated route state after a bridge restart.
+
+## Auto-fix useEffect pattern
+`RouteStatusBanner` auto-fixes a route mismatch once on startup if sudoers is installed.
+Guard pattern using `useRef` to prevent repeated triggers:
+
+```typescript
+const hasAutoFixed = useRef(false);
+useEffect(() => {
+  if (!isStartingUp && route && !route.correct && canFix && !hasAutoFixed.current) {
+    hasAutoFixed.current = true;
+    fixMutation.mutateAsync(route.expected_interface!).then(() => refetchRoute());
+  }
+}, [isStartingUp, route, canFix]);
+```
+
+## TopBar components
+`src/components/layout/TopBar.tsx` contains three status indicators:
+
+- **StatusDot** — reflects `bridgeStore.dotStatus` (green/yellow/red). Driven by bridge
+  status only, not Pioneer traffic — avoids false cycling when no hardware is connected.
+- **TrafficDot** — cyan dot with `animate-ping` ripple when `isReceiving === true`.
+  Only shown when `dotStatus !== "disconnected"`. Tooltip shows last message age.
+- **StartupIndicator** — spinning pill shown while `isStartingUp === true`.
+  Label: "Connecting…" (WS not open) or "Bridge starting…" (WS open, status=starting).
+  Disappears once startup completes.
+
+## Bridge page (src/pages/BridgePage.tsx)
+Route: `/data/bridge` — sidebar label "Bridge".
+
+Layout: two-column grid (lg breakpoint).
+- Left: `BridgeStatusPanel` — StatusBanner, TrafficIndicator, DeviceList, PlayerList
+- Right: `HardwareSelectionPanel` — RouteStatusBanner, ActionBar, InterfaceSelector
+
+RouteStatusBanner and ActionBar are placed **above** InterfaceSelector so route fix
+controls are immediately visible without scrolling.
+
 ## Bug tracking
-When fixing any frontend bug, append an entry to `docs/bugs/frontend.md` with: symptom, root cause, fix, and affected file(s). No fix is too small to record.
+When fixing any frontend bug, append an entry to `docs/bugs/frontend.md` with: symptom,
+root cause, fix, and affected file(s). No fix is too small to record.

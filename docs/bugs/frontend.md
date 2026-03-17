@@ -32,6 +32,22 @@ Root cause: `useRestartBridge` mutation had no `onSuccess` handler, so the `["ne
 Fix: Added `onSuccess: () => queryClient.invalidateQueries({ queryKey: ["network", "route"] })` to `useRestartBridge`.
 File(s): frontend/src/api/network.ts
 
+### DeviceList empty-state message flickers between "traffic detected" and "no devices"
+Date: 2026-03-17
+Milestone: FE-BLT
+Symptom: With the bridge running and Pioneer hardware active, the DeviceList cycled between "Pioneer traffic detected, but no devices discovered yet." and "No Pioneer devices found. Check cable, interface selection, and route status above." even when the route was confirmed correct and the interface was active.
+Root cause: The branch was gated solely on `isReceiving`, which is set by the `pioneer_status` watchdog. Pioneer CDJs send announcement bursts; `isReceiving` goes `true` during a burst then briefly `false` between them. Each false→true transition flipped the message. Additionally, the fallback "No Pioneer devices found" state always showed "Check cable, interface selection..." regardless of whether the route was known to be correct.
+Fix: Introduced `recentTraffic = isReceiving || (lastMessageAgeMs >= 0 && lastMessageAgeMs < 8000)`. The 8-second grace window keeps the "traffic detected" message stable between bursts. Also made the "No Pioneer devices found" sub-text context-aware: shows "Route mismatch detected — fix above..." when `routeCorrect === false`, and "Check cable, interface, route..." only when route state is unknown.
+File(s): frontend/src/components/bridge/DeviceList.tsx
+
+### [OPEN] Pioneer traffic indicator too slow and flickers during active playback
+Date: 2026-03-17
+Milestone: FE-BLT
+Symptom: The TrafficDot indicator in the TopBar and the "Pioneer traffic detected" state in DeviceList flicker on and off even when a track is actively playing on the board. The indicator is also noticeably slow to light up when traffic begins — there is a visible lag before the dot activates.
+Root cause: Not yet investigated. Likely a combination of: (1) the `pioneer_status` watchdog polling interval on the Python side being too coarse for continuous feedback; (2) the `is_receiving` flag being set based on a time-window check that may have a threshold mismatched with the CDJ announcement burst rate; (3) the 8-second `lastMessageAgeMs` grace window in DeviceList partially masks the flicker for the device list message but does not help the TopBar TrafficDot, which reads `isReceiving` directly.
+Fix: Not yet investigated. Possible directions: reduce the watchdog polling interval, change `is_receiving` to use a longer decay window on the Python side, or have the frontend compute `isReceiving` from `lastMessageAgeMs` with a smoother threshold rather than relying on the binary flag from the backend.
+File(s): scue/bridge/adapter.py (watchdog), frontend/src/components/layout/TopBar.tsx (TrafficDot), frontend/src/components/bridge/BridgeStatusPanel.tsx (TrafficIndicator)
+
 ### RouteStatusBanner and ActionBar rendered below interface list instead of above
 Date: 2026-03-17
 Milestone: FE-BLT

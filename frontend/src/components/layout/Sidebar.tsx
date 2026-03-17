@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 const navItems = [
   { label: "Data", header: true },
   { to: "/data/db", label: "Tracks" },
-  { to: "/data/blt", label: "BLT" },
+  { to: "/data/bridge", label: "Bridge" },
   { to: "/data/enrichment", label: "Enrichment" },
   { label: "System", header: true },
   { to: "/logs", label: "Logs" },

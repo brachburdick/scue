@@ -255,7 +255,8 @@ class BridgeManager:
         for attempt in range(10):
             await asyncio.sleep(1.0)
             if self._process.poll() is not None:
-                stderr = self._process.stderr.read().decode() if self._process.stderr else ""
+                stderr_bytes = await asyncio.to_thread(self._process.stderr.read) if self._process.stderr else b""
+                stderr = stderr_bytes.decode() if stderr_bytes else ""
                 raise RuntimeError(f"Bridge subprocess exited (code {self._process.returncode}): {stderr[:500]}")
             # Check if WebSocket port is accepting connections
             try:
@@ -363,10 +364,10 @@ class BridgeManager:
             try:
                 self._process.terminate()
                 try:
-                    self._process.wait(timeout=5)
+                    await asyncio.to_thread(self._process.wait, timeout=5)
                 except subprocess.TimeoutExpired:
                     self._process.kill()
-                    self._process.wait(timeout=2)
+                    await asyncio.to_thread(self._process.wait, timeout=2)
             except Exception:
                 pass
             self._process = None

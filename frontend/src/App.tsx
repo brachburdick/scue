@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Shell } from "./components/layout/Shell.tsx";
 import { TracksPage } from "./pages/TracksPage.tsx";
-import { BLTPage } from "./pages/BLTPage.tsx";
+import { BridgePage } from "./pages/BridgePage.tsx";
 import { EnrichmentPage } from "./pages/EnrichmentPage.tsx";
 import { LogsPage } from "./pages/LogsPage.tsx";
 import { NetworkPage } from "./pages/NetworkPage.tsx";
@@ -19,7 +19,7 @@ function App() {
       <Route element={<Shell />}>
         <Route index element={<Navigate to="/data/db" replace />} />
         <Route path="data/db" element={<TracksPage />} />
-        <Route path="data/blt" element={<BLTPage />} />
+        <Route path="data/bridge" element={<BridgePage />} />
         <Route path="data/enrichment" element={<EnrichmentPage />} />
         <Route path="logs" element={<LogsPage />} />
         <Route path="network" element={<NetworkPage />} />

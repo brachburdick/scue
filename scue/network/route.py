@@ -323,7 +323,6 @@ def enumerate_interfaces() -> list[NetworkInterfaceInfo]:
     for name, addr_list in addrs.items():
         # Skip loopback and virtual
         iface_stats = stats.get(name)
-        is_loopback = iface_stats.isup if iface_stats else False
         if name == "lo" or name == "lo0":
             continue
         if _VIRTUAL_PATTERNS.match(name.lower()):

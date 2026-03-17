@@ -92,12 +92,16 @@ def run_analysis(
 
     # Step 4: Detect change-point boundaries (ruptures)
     logger.info("Step 4/9: Detecting change-point boundaries...")
-    ruptures_boundaries = detect_boundaries(
-        features.stacked_matrix,
-        features.sr,
-        features.hop_length,
-        penalty=ruptures_penalty,
-    )
+    if features.stacked_matrix is None:
+        logger.warning("No feature matrix for %s — skipping boundary detection", audio_path.name)
+        ruptures_boundaries = []
+    else:
+        ruptures_boundaries = detect_boundaries(
+            features.stacked_matrix,
+            features.sr,
+            features.hop_length,
+            penalty=ruptures_penalty,
+        )
 
     # Step 5: Merge boundaries
     logger.info("Step 5/9: Merging boundaries...")

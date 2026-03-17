@@ -47,7 +47,7 @@ export function TopBar() {
 
 function StartupIndicator({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-1.5 rounded-full bg-gray-800 px-2.5 py-1">
+    <div className="flex items-center gap-1.5 rounded-full bg-gray-800 px-2.5 py-1" aria-label={`Startup: ${label}`}>
       <svg
         className="w-3 h-3 animate-spin text-gray-400"
         xmlns="http://www.w3.org/2000/svg"
@@ -75,7 +75,7 @@ function StartupIndicator({ label }: { label: string }) {
 
 function TrafficDot({ active, title }: { active: boolean; title: string }) {
   return (
-    <div className="relative flex items-center" title={title}>
+    <div className="relative flex items-center" title={title} aria-label={`Pioneer traffic: ${active ? "active" : "none"}`}>
       {active && (
         <span className="absolute inline-flex h-2 w-2 rounded-full bg-cyan-400 opacity-75 animate-ping" />
       )}
@@ -103,7 +103,7 @@ function StatusDot({
     degraded: "bg-yellow-500",
   };
   return (
-    <div className="flex items-center gap-1.5" title={title}>
+    <div className="flex items-center gap-1.5" title={title} aria-label={`Bridge status: ${status}`}>
       <div className={`w-2 h-2 rounded-full ${colors[status]}`} />
       <span className="text-xs text-gray-400">{label}</span>
     </div>

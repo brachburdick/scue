@@ -155,7 +155,7 @@ class BridgeAdapter:
 
     def _handle_bridge_status(self, msg: BridgeMessage) -> None:
         payload = parse_typed_payload(msg)
-        if not isinstance(payload, type(None)) and hasattr(payload, "connected"):
+        if payload is not None and hasattr(payload, "connected"):
             self.bridge_connected = payload.connected
             self.bridge_version = payload.version
             logger.info("Bridge status: connected=%s version=%s", payload.connected, payload.version)

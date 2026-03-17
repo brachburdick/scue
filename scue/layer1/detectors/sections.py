@@ -182,7 +182,14 @@ def detect_boundaries(
     )
 
     algo = ruptures.KernelCPD(kernel="rbf", min_size=min_size).fit(downsampled)
-    breakpoints = algo.predict(pen=penalty)
+    try:
+        breakpoints = algo.predict(pen=penalty)
+    except ruptures.exceptions.BadSegmentationParameters:
+        logger.warning(
+            "Audio too short for change-point detection (%d frames) — returning no boundaries",
+            len(downsampled),
+        )
+        return []
 
     # Convert frame indices back to time
     # breakpoints from ruptures are 1-indexed and include the final sample

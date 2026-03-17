@@ -10,7 +10,7 @@ See docs/ARCHITECTURE.md § Layer 0 and docs/CONTRACTS.md for schemas.
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields
 
 logger = logging.getLogger(__name__)
 
@@ -210,9 +210,16 @@ def _build_payload(msg_type: str, raw: dict) -> object | None:
                 memory_points=memory_points,
                 hot_cues=hot_cues,
             )
-        return cls(**raw)
-    except (TypeError, KeyError) as e:
-        logger.warning("Failed to parse %s payload: %s", msg_type, e)
+        # Filter out unexpected fields to maintain forward compatibility
+        # when the bridge adds new fields we don't have in our dataclass yet
+        known_fields = {f.name for f in dataclass_fields(cls)}
+        filtered = {k: v for k, v in raw.items() if k in known_fields}
+        return cls(**filtered)
+    except KeyError as e:
+        logger.warning("Missing required field in %s payload: %s", msg_type, e)
+        return None
+    except TypeError as e:
+        logger.warning("Failed to construct %s payload: %s", msg_type, e)
         return None
 
 

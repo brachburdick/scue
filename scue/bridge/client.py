@@ -41,9 +41,15 @@ class BridgeWebSocket:
         Raises ConnectionError if the connection fails.
         """
         try:
-            self._ws = await websockets.connect(self._url)
+            self._ws = await asyncio.wait_for(
+                websockets.connect(self._url),
+                timeout=10.0,
+            )
             self._connected = True
             logger.info("Connected to bridge at %s", self._url)
+        except asyncio.TimeoutError:
+            self._connected = False
+            raise ConnectionError(f"Bridge WebSocket connect to {self._url} timed out after 10s")
         except (OSError, websockets.exceptions.WebSocketException) as e:
             self._connected = False
             raise ConnectionError(f"Failed to connect to bridge at {self._url}: {e}") from e
