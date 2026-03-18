@@ -75,10 +75,10 @@ Completed: 2026-03-16
 - [x] `scue/api/bridge.py` — `GET /api/bridge/status` endpoint
 - [x] `tools/mock_bridge.py` — WebSocket replay tool for testing without Pioneer hardware
 - [x] 4 JSON fixture files (device discovery, playback session, track metadata, transition)
-- [x] 53 tests passing (messages, adapter, manager)
+- [x] 121 tests passing (messages, adapter, manager, fallback)
 - [x] Java bridge JAR (`lib/beat-link-bridge.jar`) — v1.1.0 built and tested with XDJ-AZ (ADR-012: real-time data only, metadata finders stripped)
-- [ ] **[AUDIT]** Fallback parser not wired into BridgeManager state machine — `fallback` state defined but no transition path. See `specs/audit-2026-03-17/fallback-parser-integration.md`
-- [ ] **[AUDIT]** Fallback parser has no dedicated test file. See `specs/audit-2026-03-17/fallback-parser-integration.md`
+- [x] **[AUDIT]** Fallback parser wired into BridgeManager — triggers on `no_jre`/`no_jar` and after 3 consecutive crashes. Fixed 2026-03-17.
+- [x] **[AUDIT]** Fallback parser test file added (`tests/test_bridge/test_fallback.py`) — 7 tests. Fixed 2026-03-17.
 
 ### ~~Milestone 2 — Live Cursor + Pioneer Enrichment (Layer 1B)~~ → COMPLETE (2026-03-16)
 - [x] `scue/layer1/models.py` — Added TrackCursor, SectionInfo, BeatPosition, PlaybackState, TrackCursorFeatures, DivergenceRecord
@@ -102,7 +102,7 @@ Completed: 2026-03-16
 - [x] Wired into main.py (usb_router + init_usb_api)
 - [x] 21 new tests (scanner: 19, prefix matching, storage), all passing
 - [x] Verified against real XDJ-AZ USB backup: 2022 tracks read, 4/4 analyses matched
-- [x] Full suite: 177 passed, 11 skipped
+- [x] Full suite: 277 passed, 11 skipped (as of 2026-03-17)
 - [ ] ANLZ beatgrid reading deferred: rbox Rust parser panics on some XDJ-AZ ANLZ files (tracked in bugs/layer0-bridge.md)
 
 ### Milestone 3 — Cue Stream (Layer 2, section cues only)

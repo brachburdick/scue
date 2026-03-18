@@ -55,7 +55,7 @@ SCUE's Python side:
 4. Monitors the subprocess health (restart on crash, with backoff)
 5. Receives typed JSON messages and feeds them into Layer 1
 
-### Bridge Message Types (v1.1.0 — ADR-012)
+### Bridge Message Types (v1.2.0 — ADR-012)
 
 The bridge emits **5 message types** (real-time data only). Track metadata, beatgrids, waveforms, phrase analysis, and cue points are resolved by the Python side, not the bridge.
 
@@ -140,7 +140,12 @@ The bridge JAR is stored in `lib/beat-link-bridge.jar` and is NOT compiled from 
 
 ### Fallback Behavior
 
-If the bridge fails to start (no JRE, JAR missing, etc.), SCUE falls back to the direct UDP parser (`bridge/fallback.py`) for basic data. The UI indicates degraded mode: "Beat-Link bridge unavailable: running in basic mode. BPM, beat position, and play state available. Device discovery, on-air status, and rekordbox_id unavailable."
+The `FallbackParser` (`bridge/fallback.py`) provides degraded-mode operation using direct UDP parsing. It is wired into `BridgeManager` and activates automatically in two scenarios:
+
+1. **No JRE or JAR:** If the bridge cannot start at all (`no_jre` or `no_jar` state), the manager transitions directly to `fallback` mode.
+2. **Repeated crashes:** After `max_crash_before_fallback` consecutive bridge crashes (default: 3), the manager gives up on the bridge and falls back to UDP parsing.
+
+In fallback mode, basic data is available (BPM, beat position, play state) but device discovery, on-air status, and rekordbox_id are unavailable. The `mode` field in `to_status_dict()` reflects `"fallback"` vs `"bridge"`, and the frontend displays a degraded-mode indicator.
 
 ### Testing Strategy
 
@@ -152,7 +157,7 @@ If the bridge fails to start (no JRE, JAR missing, etc.), SCUE falls back to the
 
 Pioneer hardware splits into two database formats: **DeviceSQL** (legacy `export.pdb`) used by CDJ-2000NXS2, CDJ-3000, etc., and **Device Library Plus** (encrypted `exportLibrary.db`) used by XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X. The track IDs are different namespaces — beat-link's MetadataFinder returns wrong metadata on DLP hardware.
 
-In v1.1.0, all metadata finders (MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder) are **stripped from the bridge JAR**. The bridge provides real-time playback data only. Metadata is resolved by the Python side:
+In v1.2.0, all metadata finders (MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder) are **stripped from the bridge JAR**. The bridge provides real-time playback data only. Metadata is resolved by the Python side:
 
 ```
 Legacy hardware (CDJ-2000NXS2, CDJ-3000, etc.):

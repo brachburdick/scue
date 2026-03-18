@@ -17,6 +17,10 @@ The Orchestrator tells Brach which file to feed to the next agent. This means:
 
 ---
 
+## Canonical Templates
+
+Fill-in-the-blank templates for all artifact types are in `templates/`. Agents should copy the relevant template and populate every field. The schemas below are the reference; the templates in `templates/` are the working copies.
+
 ## Artifact Registry
 
 Every artifact type has a defined schema. Agents that produce artifacts MUST follow these schemas.

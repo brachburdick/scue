@@ -10,6 +10,9 @@ Requires-Dist: pyyaml>=6.0
 Provides-Extra: analysis
 Requires-Dist: librosa>=0.10.0; extra == "analysis"
 Requires-Dist: ruptures>=1.1.0; extra == "analysis"
+Provides-Extra: usb
+Requires-Dist: rbox>=0.1.7; extra == "usb"
+Requires-Dist: pyrekordbox>=0.4.4; extra == "usb"
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"

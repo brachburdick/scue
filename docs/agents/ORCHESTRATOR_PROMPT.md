@@ -82,14 +82,17 @@ If a task fails ≥3 of these, it MUST be split before dispatch.
 
 ## Preamble Structure
 
-This prompt is the full system prompt for Operator sessions. The multi-agent workflow uses role-specific preambles stored on disk:
+This prompt is the full system prompt for Orchestrator sessions. The multi-agent workflow uses role-specific preambles stored on disk:
 
 - `docs/agents/preambles/COMMON_RULES.md` — Shared behavioral contract (all roles)
-- `docs/agents/preambles/OPERATOR_PREAMBLE.md` — Operator-specific rules (this role)
-- `docs/agents/preambles/ARCHITECT_PREAMBLE.md` — Architect-specific rules
-- `docs/agents/preambles/DEVELOPER_PREAMBLE.md` — Implementation agent rules
+- `docs/agents/preambles/ORCHESTRATOR.md` — Orchestrator-specific rules (this role)
+- `docs/agents/preambles/ARCHITECT.md` — Architect-specific rules
+- `docs/agents/preambles/RESEARCHER.md` — Researcher-specific rules
+- `docs/agents/preambles/DESIGNER.md` — Designer-specific rules (UI/UX)
+- `docs/agents/preambles/DEVELOPER.md` — Implementation agent rules
+- `docs/agents/preambles/VALIDATOR.md` — Validation agent rules (pass/fail verdicts)
 
-When generating handoff packets, reference these on-disk preambles instead of pasting the full preamble content. See the Operator preamble for the exact format.
+When generating handoff packets, reference these on-disk preambles instead of pasting the full preamble content. See the Orchestrator preamble for the exact format.
 
 ---
 
@@ -126,7 +129,8 @@ You do NOT need to read source code, test files, or configuration files. If you 
 | Effects (L3) | Effect engine (new) | Milestone 4 |
 | Output (L4) | DMX/OSC/MIDI output (new) | Milestone 5 |
 | Reviewer | Cross-cutting code review, contract compliance | After any implementation session |
-| UI/UX Designer | Interaction flows, visual design, layout planning | Before FE-UI implementation |
+| Validator | Independent pass/fail verdict after every Developer session | After every Developer session (mandatory) |
+| Designer | Interaction flows, visual design, layout planning, UI specs | Before FE-UI implementation |
 
 ---
 

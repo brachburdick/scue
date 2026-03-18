@@ -1,7 +1,19 @@
 # SCUE Agent Common Rules — Shared Behavioral Contract
 
 > Every agent reads this file at the start of every session, regardless of role.
-> These rules apply to all agents: Operator, Architect, and Developer alike.
+> These rules apply to all agents: Orchestrator, Architect, Researcher, Designer, Developer, and Validator alike.
+
+---
+
+## 0. Session Setup
+
+Every session starts the same way:
+
+1. Read `AGENT_BOOTSTRAP.md` (project root)
+2. Read this file (`docs/agents/preambles/COMMON_RULES.md`)
+3. Read your role-specific preamble from `docs/agents/preambles/[ROLE].md`
+4. Read any skill files referenced in your handoff packet
+5. Read your handoff packet or task-specific context
 
 ---
 
@@ -20,7 +32,7 @@ It is ALWAYS better to ask one question and wait than to implement the wrong thi
 
 Document every judgment call you make during your session. If you chose between two valid approaches, interpreted an edge case, or selected a default value — write it down.
 
-**Format:** "I chose [X] over [Y] because [reason]. If this is wrong, [describe what would need to change]."
+**Format:** "I chose [X] over [Y] because [reason]. Alternative considered: [what was rejected and why]."
 
 Include these in your session summary under "Decisions Made."
 
@@ -34,11 +46,53 @@ Use these tags to surface issues:
 - **[DECISION NEEDED]** — A design or infrastructure choice that could go multiple ways and Brach should weigh in. Present options, tradeoffs, and your recommendation.
 - **[DECISION OPPORTUNITY]** — A non-blocking choice where Brach might want input but you can proceed with a reasonable default.
 
+### [BLOCKED] Protocol
+
+If you encounter a genuine ambiguity not covered by the spec or handoff packet:
+
+1. Do NOT infer. Do NOT guess.
+2. Write a `[BLOCKED: description]` entry in your session summary.
+3. Complete as much of the task as possible without the blocked decision.
+4. Set status to BLOCKED or PARTIAL.
+
 ---
 
-## 4. On-Disk Document References
+## 4. Research Escalation — The 2-Attempt Rule
+
+If you are stuck on a technical question:
+
+1. **Attempt 1:** Try to solve it using available project documentation and your knowledge.
+2. **Attempt 2:** Try an alternative approach or search more broadly.
+3. **If still stuck:** Generate a Research Request using `templates/research-request.md` and include it in your session summary. Set status to BLOCKED.
+
+Do NOT spend more than two genuine attempts before escalating. The Researcher role exists for this purpose.
+
+---
+
+## 5. Artifact Templates
+
+All structured outputs must use the schemas in `templates/`. Copy the relevant template and fill in every field.
+
+| Output Type | Template |
+|---|---|
+| Handoff packet | `templates/handoff-packet.md` |
+| Session summary | `templates/session-summary.md` |
+| Research request | `templates/research-request.md` |
+| Research findings | `templates/research-findings.md` |
+| Feature spec | `templates/spec.md` |
+| Task breakdown | `templates/tasks.md` |
+| Validator verdict | `templates/validator-verdict.md` |
+
+If a required field is missing from your output, the artifact is incomplete. The Operator will send it back.
+
+---
+
+## 6. On-Disk Document References
 
 Agents read docs from disk using exact file paths. **Never ask Brach to paste or upload project documents.** All project knowledge lives at known paths:
+
+### Project entry point
+- `AGENT_BOOTSTRAP.md` — Read this first, every session
 
 ### Project docs
 - `docs/ARCHITECTURE.md` — System architecture and layer descriptions
@@ -57,16 +111,19 @@ Agents read docs from disk using exact file paths. **Never ask Brach to paste or
 - `docs/agents/preambles/` — Role-specific preambles (you're reading one now)
 - `docs/agents/AGENT_ROSTER.md` — Agent role definitions and scope boundaries
 - `docs/agents/HANDOFF_CONTRACTS.md` — Artifact format specifications
-- `docs/agents/ORCHESTRATOR_PROMPT.md` — Orchestrator system prompt
+
+### Templates and knowledge
+- `templates/` — Artifact schema templates (use these for all outputs)
+- `skills/` — Domain skill files (accumulated project knowledge)
 
 ### Artifacts
-- `specs/` — Feature specs, audit specs, task breakdowns
-- `sessions/YYYY-MM-DD/` — Prior session summaries, organized by date
-- `handoffs/YYYY-MM-DD/` — Handoff packets, organized by date
+- `specs/feat-[name]/` — Feature specs, plans, tasks, and session logs
+- `specs/feat-[name]/sessions/` — Session summaries and validator verdicts for a feature
+- `research/` — Research findings (archive)
 
 ---
 
-## 5. Confirm Understanding Gate
+## 7. Confirm Understanding Gate
 
 Every agent confirms understanding before starting work. After reading your handoff packet and preamble files:
 
@@ -77,21 +134,22 @@ Every agent confirms understanding before starting work. After reading your hand
 
 ---
 
-## 6. Session Summary — Write to Disk (Non-Negotiable)
+## 8. Session Summary — Write to Disk (Non-Negotiable)
 
 Session summaries are the ONLY communication channel between agents. If it's not written to a file, it doesn't exist for the next agent.
 
-- **Path:** `sessions/YYYY-MM-DD/[agent]-[task-slug].md`
-- **Create the date directory** if it doesn't exist: `mkdir -p sessions/$(date +%Y-%m-%d)`
-- **Write AFTER** all acceptance criteria are met
-- **Tell Brach:** "Session summary written to `sessions/YYYY-MM-DD/[filename].md`"
-- All date-named files should be organized into date subdirectories, never left at the directory root
+- **Template:** Use `templates/session-summary.md` — every field is required
+- **Path for feature work:** `specs/feat-[name]/sessions/session-NNN-[role].md`
+- **Path for non-feature work:** `sessions/YYYY-MM-DD/[role]-[task-slug].md`
+- **Create the directory** if it doesn't exist
+- **Write AFTER** all acceptance criteria are met (or when stopping if PARTIAL/BLOCKED)
+- **Tell Brach:** "Session summary written to `[path]`"
 
 ---
 
-## 7. LEARNINGS.md — Write to Disk (Non-Negotiable)
+## 9. LEARNINGS.md — Write to Disk (Non-Negotiable)
 
-If your session summary has "LEARNINGS.md Candidates," append them to `LEARNINGS.md` before ending your session. Do not leave them only in the session summary.
+If your session summary has learnings entries, append them to `LEARNINGS.md` before ending your session. Do not leave them only in the session summary.
 
 - Add entries under the appropriate layer section
 - Use the established format: title, date, context, problem, fix/pattern, prevention
@@ -100,14 +158,6 @@ If your session summary has "LEARNINGS.md Candidates," append them to `LEARNINGS
 
 ---
 
-## 8. Iterative Improvement — Flag Preamble Issues
+## 10. Iterative Improvement — Flag Protocol Issues
 
-If you encounter a workflow problem that wasted significant time or would affect other agents, flag it in your session summary under "Preamble Improvement Candidates":
-
-```
-- [Issue]: Describe what went wrong
-- [Fix]: What should be added/changed in the preamble
-- [Scope]: All agents, or specific role?
-```
-
-The Operator reviews these after each session and updates the appropriate preamble file.
+If you encounter a workflow problem that wasted significant time or would affect other agents, flag it in your session summary under "Learnings." The Operator reviews these periodically and updates the appropriate preamble or protocol file.

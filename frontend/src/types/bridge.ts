@@ -82,6 +82,8 @@ export interface BridgeState {
   jar_exists: boolean;
   jre_available: boolean;
   restart_count: number;
+  restart_attempt: number;
+  next_retry_in_s: number | null;
   route_correct: boolean | null;
   route_warning: string | null;
   devices: Record<string, DeviceInfo>;

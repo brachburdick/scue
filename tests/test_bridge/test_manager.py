@@ -3,16 +3,17 @@
 import asyncio
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from scue.bridge.manager import (
-    BridgeManager,
-    RESTART_BASE_DELAY,
-    RESTART_MAX_DELAY,
-)
+from scue.bridge.manager import BridgeManager
 from scue.bridge.messages import BridgeMessage
+
+# Default config values — match BridgeManager constructor defaults
+RESTART_BASE_DELAY = 2.0
+RESTART_MAX_DELAY = 30.0
+MAX_CRASH_BEFORE_FALLBACK = 3
 
 
 class TestManagerStateTransitions:
@@ -24,36 +25,28 @@ class TestManagerStateTransitions:
         assert mgr.status == "stopped"
 
     @pytest.mark.asyncio
-    async def test_no_jre_state(self):
+    async def test_no_jre_transitions_to_fallback(self):
         mgr = BridgeManager()
-        with patch.object(mgr, "_check_jre", return_value=False):
+        with patch.object(mgr, "_check_jre", return_value=False), \
+             patch.object(mgr, "_start_fallback", new_callable=AsyncMock) as mock_fb:
             await mgr.start()
-        assert mgr.status == "no_jre"
+        mock_fb.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_no_jar_state(self):
+    async def test_no_jar_transitions_to_fallback(self):
         mgr = BridgeManager(jar_path=Path("/nonexistent/bridge.jar"))
-        # JRE exists but JAR doesn't
-        with patch.object(mgr, "_check_jre", return_value=True):
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_start_fallback", new_callable=AsyncMock) as mock_fb:
             await mgr.start()
-        assert mgr.status == "no_jar"
+        mock_fb.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_stop_from_no_jre(self):
+    async def test_stop_from_fallback(self):
         mgr = BridgeManager()
-        with patch.object(mgr, "_check_jre", return_value=False):
-            await mgr.start()
-        assert mgr.status == "no_jre"
+        mgr._status = "fallback"
+        mgr._fallback_parser = MagicMock()
         await mgr.stop()
-        assert mgr.status == "stopped"
-
-    @pytest.mark.asyncio
-    async def test_stop_from_no_jar(self):
-        mgr = BridgeManager(jar_path=Path("/nonexistent/bridge.jar"))
-        with patch.object(mgr, "_check_jre", return_value=True):
-            await mgr.start()
-        assert mgr.status == "no_jar"
-        await mgr.stop()
+        mgr._fallback_parser = None  # cleaned up by _stop_fallback
         assert mgr.status == "stopped"
 
     @pytest.mark.asyncio
@@ -279,29 +272,28 @@ class TestRestartLogic:
         assert delay == RESTART_BASE_DELAY  # 2.0s
 
     @pytest.mark.asyncio
-    async def test_third_failure_doubled_backoff(self):
-        """Third consecutive crash should use 2x base delay (4s)."""
+    async def test_third_failure_transitions_to_fallback(self):
+        """Third consecutive crash should switch to fallback (threshold=3)."""
         mgr = self._make_manager()
         mgr._consecutive_failures = 2
 
-        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch.object(mgr, "_start_fallback", new_callable=AsyncMock) as mock_fb:
             await mgr._schedule_restart()
 
         assert mgr._consecutive_failures == 3
-        delay = mock_sleep.call_args[0][0]
-        assert delay == RESTART_BASE_DELAY * 2  # 4.0s
+        mock_fb.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_backoff_caps_at_max(self):
-        """Backoff should cap at RESTART_MAX_DELAY."""
+    async def test_crash_threshold_transitions_to_fallback(self):
+        """After MAX_CRASH_BEFORE_FALLBACK consecutive crashes, switch to fallback."""
         mgr = self._make_manager()
-        mgr._consecutive_failures = 20  # Very high failure count
+        mgr._consecutive_failures = MAX_CRASH_BEFORE_FALLBACK - 1  # One more → threshold
 
-        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch.object(mgr, "_start_fallback", new_callable=AsyncMock) as mock_fb:
             await mgr._schedule_restart()
 
-        delay = mock_sleep.call_args[0][0]
-        assert delay == RESTART_MAX_DELAY  # 30.0s
+        assert mgr._consecutive_failures == MAX_CRASH_BEFORE_FALLBACK
+        mock_fb.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_success_resets_failure_counter(self):
@@ -338,29 +330,30 @@ class TestRestartLogic:
         mock_sleep.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_no_jre_does_not_retry(self):
-        """no_jre state should NOT trigger _schedule_restart."""
+    async def test_no_jre_goes_to_fallback_not_retry(self):
+        """no_jre should transition to fallback, not trigger _schedule_restart."""
         mgr = BridgeManager()
-        with patch.object(mgr, "_check_jre", return_value=False):
+        with patch.object(mgr, "_check_jre", return_value=False), \
+             patch.object(mgr, "_start_fallback", new_callable=AsyncMock):
             await mgr.start()
 
-        assert mgr.status == "no_jre"
         assert mgr._consecutive_failures == 0
 
     @pytest.mark.asyncio
-    async def test_no_jar_does_not_retry(self):
-        """no_jar state should NOT trigger _schedule_restart."""
+    async def test_no_jar_goes_to_fallback_not_retry(self):
+        """no_jar should transition to fallback, not trigger _schedule_restart."""
         mgr = BridgeManager(jar_path=Path("/nonexistent/bridge.jar"))
-        with patch.object(mgr, "_check_jre", return_value=True):
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_start_fallback", new_callable=AsyncMock):
             await mgr.start()
 
-        assert mgr.status == "no_jar"
         assert mgr._consecutive_failures == 0
 
     @pytest.mark.asyncio
     async def test_backoff_progression(self):
-        """Verify full backoff sequence: 0, 2, 4, 8, 16, 30, 30..."""
-        expected_delays = [0.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0]
+        """Verify backoff sequence before fallback threshold: 0, 2."""
+        # With MAX_CRASH_BEFORE_FALLBACK=3, only 2 retries happen before fallback
+        expected_delays = [0.0, 2.0]
         mgr = self._make_manager()
 
         for i, expected in enumerate(expected_delays):
@@ -422,3 +415,106 @@ class TestStatusDictRestartFields:
 
         assert status["restart_count"] == 2
         assert status["restart_attempt"] == 2
+
+
+class TestFallbackIntegration:
+    """Test fallback parser integration in the manager."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_messages_flow_through_adapter(self):
+        """Fallback parser messages should reach both adapter and external callback."""
+        received: list[BridgeMessage] = []
+        mgr = BridgeManager(on_message=lambda msg: received.append(msg))
+
+        msg = BridgeMessage(
+            type="device_found",
+            timestamp=time.time(),
+            player_number=1,
+            payload={
+                "device_name": "XDJ-AZ",
+                "device_number": 1,
+                "device_type": "cdj",
+                "ip_address": "169.254.20.101",
+            },
+        )
+
+        # Simulate what _fallback_on_message does
+        mgr._fallback_on_message(msg)
+
+        assert len(received) == 1
+        assert received[0].type == "device_found"
+        # Adapter should have processed the device
+        assert "169.254.20.101" in mgr.adapter.devices
+
+    @pytest.mark.asyncio
+    async def test_restart_from_fallback_stops_parser(self):
+        """Calling restart() from fallback should stop parser and attempt bridge."""
+        mgr = BridgeManager()
+        mgr._status = "fallback"
+        mock_parser = MagicMock()
+        mgr._fallback_parser = mock_parser
+
+        with patch.object(mgr, "_check_jre", return_value=False), \
+             patch.object(mgr, "_start_fallback", new_callable=AsyncMock):
+            await mgr.restart()
+
+        mock_parser.stop.assert_called_once()
+
+    def test_status_dict_reflects_fallback(self):
+        """to_status_dict() should return status='fallback' and mode='fallback'."""
+        mgr = BridgeManager()
+        mgr._status = "fallback"
+        status = mgr.to_status_dict()
+
+        assert status["status"] == "fallback"
+        assert status["mode"] == "fallback"
+
+    def test_status_dict_mode_bridge_when_running(self):
+        """to_status_dict() should return mode='bridge' when not in fallback."""
+        mgr = BridgeManager()
+        mgr._status = "running"
+        status = mgr.to_status_dict()
+
+        assert status["mode"] == "bridge"
+
+    @pytest.mark.asyncio
+    async def test_stop_from_fallback_stops_parser(self):
+        """stop() should clean up fallback parser."""
+        mgr = BridgeManager()
+        mgr._status = "fallback"
+        mock_parser = MagicMock()
+        mgr._fallback_parser = mock_parser
+
+        await mgr.stop()
+
+        mock_parser.stop.assert_called_once()
+        assert mgr._fallback_parser is None
+        assert mgr.status == "stopped"
+
+    @pytest.mark.asyncio
+    async def test_start_fallback_sets_state(self):
+        """_start_fallback() should set status to 'fallback' and store parser."""
+        mgr = BridgeManager()
+
+        with patch(
+            "scue.bridge.manager.FallbackParser"
+        ) as MockParser:
+            mock_instance = MockParser.return_value
+            mock_instance.start = AsyncMock()
+            await mgr._start_fallback()
+
+        assert mgr.status == "fallback"
+        assert mgr._fallback_parser is mock_instance
+        mock_instance.start.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_consecutive_failures_preserved_after_fallback_transition(self):
+        """After transitioning to fallback via crashes, failure count is preserved."""
+        mgr = BridgeManager()
+        mgr.start = AsyncMock()  # Prevent real start
+        mgr._consecutive_failures = MAX_CRASH_BEFORE_FALLBACK - 1
+
+        with patch.object(mgr, "_start_fallback", new_callable=AsyncMock):
+            await mgr._schedule_restart()
+
+        assert mgr._consecutive_failures == MAX_CRASH_BEFORE_FALLBACK

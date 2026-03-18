@@ -14,6 +14,8 @@ interface BridgeStoreState {
   jarExists: boolean;
   jreAvailable: boolean;
   restartCount: number;
+  restartAttempt: number;
+  nextRetryInS: number | null;
   routeCorrect: boolean | null;
   routeWarning: string | null;
   devices: Record<string, DeviceInfo>;
@@ -22,6 +24,7 @@ interface BridgeStoreState {
   // Pioneer liveness (from WebSocket pioneer_status messages)
   isReceiving: boolean;
   lastMessageAgeMs: number;
+  bridgeConnected: boolean;
 
   // Computed status for TopBar StatusDot
   dotStatus: DotStatus;
@@ -33,7 +36,7 @@ interface BridgeStoreState {
   // Actions
   setWsConnected: (connected: boolean) => void;
   setBridgeState: (state: BridgeState) => void;
-  setPioneerStatus: (isReceiving: boolean, ageMs: number) => void;
+  setPioneerStatus: (isReceiving: boolean, ageMs: number, bridgeConnected: boolean) => void;
 }
 
 function computeDotStatus(status: BridgeStatus): DotStatus {
@@ -55,12 +58,15 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
   jarExists: false,
   jreAvailable: false,
   restartCount: 0,
+  restartAttempt: 0,
+  nextRetryInS: null,
   routeCorrect: null,
   routeWarning: null,
   devices: {},
   players: {},
   isReceiving: false,
   lastMessageAgeMs: -1,
+  bridgeConnected: false,
   dotStatus: "disconnected",
   isStartingUp: true,
 
@@ -78,6 +84,8 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
       jarExists: state.jar_exists,
       jreAvailable: state.jre_available,
       restartCount: state.restart_count,
+      restartAttempt: state.restart_attempt,
+      nextRetryInS: state.next_retry_in_s,
       routeCorrect: state.route_correct,
       routeWarning: state.route_warning,
       devices: state.devices,
@@ -86,10 +94,11 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
       isStartingUp: computeIsStartingUp(prev.wsConnected, state.status),
     })),
 
-  setPioneerStatus: (isReceiving: boolean, ageMs: number) =>
+  setPioneerStatus: (isReceiving: boolean, ageMs: number, bridgeConnected: boolean) =>
     set((prev) => ({
       isReceiving,
       lastMessageAgeMs: ageMs,
+      bridgeConnected,
       dotStatus: computeDotStatus(prev.status),
     })),
 }));

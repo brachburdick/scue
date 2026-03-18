@@ -8,7 +8,15 @@ from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter(prefix="/api/filesystem", tags=["filesystem"])
 
-AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aiff", ".m4a", ".ogg"}
+# Default; overridden by init_filesystem_api() at startup
+_audio_extensions: set[str] = {".mp3", ".wav", ".flac", ".aiff", ".m4a", ".ogg"}
+
+
+def init_filesystem_api(audio_extensions: set[str] | None = None) -> None:
+    """Initialize filesystem API with config-driven audio extensions."""
+    global _audio_extensions
+    if audio_extensions is not None:
+        _audio_extensions = audio_extensions
 
 
 @router.get("/browse")
@@ -36,7 +44,7 @@ async def browse(path: str = Query(default="")) -> dict:
                     "path": str(item),
                     "is_dir": True,
                 })
-            elif item.is_file() and item.suffix.lower() in AUDIO_EXTENSIONS:
+            elif item.is_file() and item.suffix.lower() in _audio_extensions:
                 entries.append({
                     "name": item.name,
                     "path": str(item),

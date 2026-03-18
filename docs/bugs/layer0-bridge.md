@@ -71,6 +71,14 @@ File(s): scue/bridge/manager.py, scue/api/ws.py
 Remaining open questions:
 - Is there a way to maintain device state in the UI when we temporarily stop receiving Pioneer traffic (e.g. deck paused, USB unplugged briefly)? Losing all device info on a momentary gap seems fragile for live use.
 
+### Devices empty despite active player_status messages
+Date: 2026-03-17
+Milestone: M-0
+Symptom: Bridge status shows `devices: {}` even though `player_status` and `beat` messages are actively streaming from hardware. Bridge page shows "DEVICES (0)" but "PLAYERS (2)" with live BPM/pitch data. The `device_found` event was never received by the Python adapter.
+Root cause: The Java bridge emits `device_found` once per device when it first discovers them. These events fire during `initBeatLink()` before the Python WebSocket client connects. The `BridgeWebSocketServer.onOpen()` does not replay current device state to newly connected clients. When the Python side reconnects (or connects after a delay), it misses the initial `device_found` events permanently.
+Fix: Added `_ensure_device_from_player()` to `BridgeAdapter`. When `player_status` messages arrive for a player number that has no corresponding device entry, a synthetic `DeviceInfo` is created and `on_device_change` is fired. This ensures the `devices` dict stays populated even if `device_found` was missed. The XDJ-AZ got a real `device_found` (it was rediscovered after restart) while Player 1 was inferred from `player_status`. Future improvement: add state replay to the Java bridge's `BridgeWebSocketServer.onOpen()` so real device info (name, IP) is sent on connect.
+File(s): scue/bridge/adapter.py
+
 ### rbox ANLZ parser panics on XDJ-AZ exported files
 Date: 2026-03-16
 Milestone: M-0B

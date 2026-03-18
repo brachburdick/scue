@@ -3,14 +3,15 @@
 Automated lighting/laser/visual cue generation for live DJ sets.
 
 ## Agent Workflow
+-   Entry point for all agents: `AGENT_BOOTSTRAP.md`
 -   Multi-agent workflow index: `docs/agents/README.md`
--   Role-specific preambles: `docs/agents/preambles/` (COMMON_RULES, OPERATOR, ARCHITECT, DEVELOPER)
+-   Role preambles: `docs/agents/preambles/` (COMMON_RULES, ORCHESTRATOR, ARCHITECT, RESEARCHER, DESIGNER, DEVELOPER, VALIDATOR)
 -   Agent roster & scope definitions: `docs/agents/AGENT_ROSTER.md`
 -   Handoff format contracts: `docs/agents/HANDOFF_CONTRACTS.md`
--   Orchestrator system prompt: `docs/agents/ORCHESTRATOR_PROMPT.md`
--   Session summaries: `sessions/YYYY-MM-DD/`
--   Handoff packets: `handoffs/YYYY-MM-DD/`
--   Feature specs & task breakdowns: `specs/`
+-   Artifact templates: `templates/` (handoff-packet, session-summary, spec, tasks, research-request, research-findings, validator-verdict)
+-   Domain skill files: `skills/`
+-   Feature specs, plans, tasks, sessions: `specs/feat-[name]/`
+-   Research findings: `research/`
 
 
 ## Stack

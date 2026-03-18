@@ -3,28 +3,29 @@
 import logging
 from pathlib import Path
 
-import yaml
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.bridge import init_bridge_api, router as bridge_router
-from .api.filesystem import router as filesystem_router
+from .api.filesystem import init_filesystem_api, router as filesystem_router
 from .api.network import router as network_router
 from .api.tracks import init_tracks_api, router as tracks_router
 from .api.usb import init_usb_api, router as usb_router
 from .api.ws import init_ws, router as ws_router
 from .api.ws_manager import WSManager
 from .bridge import BridgeAdapter, BridgeManager
-from .bridge.manager import DEFAULT_PORT
+from .config import load_config
 from .layer1 import PlaybackTracker, TrackCache, TrackStore
 
 logger = logging.getLogger(__name__)
+
+config = load_config()
 
 app = FastAPI(title="SCUE", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=config.server.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,24 +39,6 @@ app.include_router(usb_router)
 app.include_router(network_router)
 app.include_router(ws_router)
 
-# Default project paths (can be overridden via env or config)
-DEFAULT_TRACKS_DIR = Path("tracks")
-DEFAULT_CACHE_PATH = Path("cache/scue.db")
-BRIDGE_CONFIG_PATH = Path("config/bridge.yaml")
-
-
-def _load_bridge_config() -> dict:
-    """Load bridge configuration from config/bridge.yaml."""
-    if not BRIDGE_CONFIG_PATH.exists():
-        return {}
-    try:
-        with open(BRIDGE_CONFIG_PATH) as f:
-            data = yaml.safe_load(f) or {}
-        return data.get("bridge", {})
-    except Exception as e:
-        logger.warning("Failed to load bridge config: %s", e)
-        return {}
-
 
 _bridge_manager: BridgeManager | None = None
 _tracker: PlaybackTracker | None = None
@@ -66,27 +49,37 @@ _ws_manager: WSManager | None = None
 async def startup() -> None:
     """Initialize storage, bridge, and playback tracker on app startup."""
     global _bridge_manager, _tracker, _ws_manager
-    init_tracks_api(DEFAULT_TRACKS_DIR, DEFAULT_CACHE_PATH)
+
+    tracks_dir = Path(config.server.tracks_dir)
+    cache_path = Path(config.server.cache_path)
+
+    init_tracks_api(
+        tracks_dir, cache_path,
+        audio_extensions=set(config.server.audio_extensions),
+    )
+    init_filesystem_api(audio_extensions=set(config.server.audio_extensions))
 
     # Initialize Layer 1B: playback tracker
-    store = TrackStore(DEFAULT_TRACKS_DIR)
-    cache = TrackCache(DEFAULT_CACHE_PATH)
+    store = TrackStore(tracks_dir)
+    cache = TrackCache(cache_path)
     _tracker = PlaybackTracker(store, cache)
 
     # Initialize bridge manager (graceful — won't crash if JAR/JRE missing)
-    bridge_cfg = _load_bridge_config()
-    route_cfg = bridge_cfg.get("route", {}) if isinstance(bridge_cfg.get("route"), dict) else {}
     _bridge_manager = BridgeManager(
-        port=bridge_cfg.get("port", DEFAULT_PORT) or DEFAULT_PORT,
-        network_interface=bridge_cfg.get("network_interface"),
-        auto_fix_route=route_cfg.get("auto_fix", True),
+        port=config.bridge.port,
+        network_interface=config.bridge.network_interface,
+        auto_fix_route=config.bridge.route.auto_fix,
+        health_check_interval=config.bridge.health.check_interval_s,
+        restart_base_delay=config.bridge.restart.base_delay_s,
+        restart_max_delay=config.bridge.restart.max_delay_s,
+        max_crash_before_fallback=config.bridge.restart.max_crash_before_fallback,
     )
     init_bridge_api(_bridge_manager)
-    init_usb_api(store, cache)
+    init_usb_api(store, cache, usb_config=config.usb)
 
     # Initialize WebSocket manager and wire to bridge state changes
     _ws_manager = WSManager()
-    init_ws(_ws_manager, _bridge_manager)
+    init_ws(_ws_manager, _bridge_manager, watchdog_config=config.bridge.watchdog)
 
     async def _on_bridge_state_change() -> None:
         """Broadcast bridge state to all WebSocket clients."""

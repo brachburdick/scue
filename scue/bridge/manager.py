@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .adapter import BridgeAdapter
 from .client import BridgeWebSocket, DEFAULT_BRIDGE_URL
+from .fallback import FallbackParser
 from .messages import BRIDGE_STATUS, BridgeMessage
 from ..network.models import RouteFixResult
 from ..network.route import check_route as network_check_route
@@ -24,11 +25,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_JAR_PATH = Path("lib/beat-link-bridge.jar")
 DEFAULT_PORT = 17400
-HEALTH_CHECK_INTERVAL = 10.0  # seconds between health checks
-
-# TODO: move to config/bridge.yaml
-RESTART_BASE_DELAY = 2.0  # seconds — base for exponential backoff
-RESTART_MAX_DELAY = 30.0  # seconds — backoff cap
 
 
 class BridgeManager:
@@ -51,12 +47,20 @@ class BridgeManager:
         network_interface: str | None = None,
         on_message: Callable[[BridgeMessage], None] | None = None,
         auto_fix_route: bool = True,
+        health_check_interval: float = 10.0,
+        restart_base_delay: float = 2.0,
+        restart_max_delay: float = 30.0,
+        max_crash_before_fallback: int = 3,
     ) -> None:
         self._jar_path = jar_path
         self._port = port
         self._network_interface = network_interface
         self._external_on_message = on_message
         self._auto_fix_route = auto_fix_route
+        self._health_check_interval = health_check_interval
+        self._restart_base_delay = restart_base_delay
+        self._restart_max_delay = restart_max_delay
+        self._max_crash_before_fallback = max_crash_before_fallback
 
         self._status = "stopped"
         self._process: subprocess.Popen | None = None
@@ -70,6 +74,7 @@ class BridgeManager:
         self._last_pioneer_message_time: float = 0.0
         self._route_correct: bool | None = None
         self._route_warning: str | None = None
+        self._fallback_parser: FallbackParser | None = None
 
         # Callback for state change notifications (used by WebSocket broadcaster)
         self.on_state_change: Callable[[], None] | None = None
@@ -128,15 +133,17 @@ class BridgeManager:
         self._notify_state_change()
 
         if not self._check_jre():
-            logger.warning("Java not found — bridge unavailable")
-            self._status = "no_jre"
-            self._notify_state_change()
+            logger.warning(
+                "Bridge unavailable (no_jre), starting UDP fallback parser (degraded mode)"
+            )
+            await self._start_fallback()
             return
 
         if not self._check_jar():
-            logger.warning("Bridge JAR not found at %s — bridge unavailable", self._jar_path)
-            self._status = "no_jar"
-            self._notify_state_change()
+            logger.warning(
+                "Bridge unavailable (no_jar), starting UDP fallback parser (degraded mode)"
+            )
+            await self._start_fallback()
             return
 
         try:
@@ -158,13 +165,15 @@ class BridgeManager:
     async def stop(self) -> None:
         """Stop the bridge and clean up."""
         logger.info("Stopping bridge")
+        self._stop_fallback()
         await self._cleanup()
         self._status = "stopped"
         self._notify_state_change()
 
     async def restart(self) -> None:
         """Stop and restart the bridge (e.g. after config change)."""
-        logger.info("Restarting bridge (config change)")
+        logger.info("Restarting bridge")
+        self._stop_fallback()
         await self.stop()
         self._consecutive_failures = 0
         self._next_retry_at = None
@@ -328,7 +337,7 @@ class BridgeManager:
     async def _health_check_loop(self) -> None:
         """Periodically check bridge health and restart if needed."""
         while self._status in ("running", "starting"):
-            await asyncio.sleep(HEALTH_CHECK_INTERVAL)
+            await asyncio.sleep(self._health_check_interval)
 
             if self._status != "running":
                 break
@@ -344,7 +353,7 @@ class BridgeManager:
             # Check message freshness
             if self._last_message_time > 0:
                 silence = time.time() - self._last_message_time
-                if silence > HEALTH_CHECK_INTERVAL * 2:
+                if silence > self._health_check_interval * 2:
                     logger.warning("Bridge silent for %.1fs — restarting", silence)
                     self._status = "crashed"
                     self._notify_state_change()
@@ -356,9 +365,18 @@ class BridgeManager:
 
         First retry after a crash: immediate (0 delay).
         Subsequent consecutive failures: base_delay * 2^(failures-1), capped.
+        After MAX_CRASH_BEFORE_FALLBACK consecutive failures: switch to fallback.
         """
         self._consecutive_failures += 1
         await self._cleanup()
+
+        if self._consecutive_failures >= self._max_crash_before_fallback:
+            logger.warning(
+                "Bridge crashed %d times, switching to fallback mode",
+                self._consecutive_failures,
+            )
+            await self._start_fallback()
+            return
 
         if self._consecutive_failures == 1:
             # First failure — retry immediately
@@ -367,8 +385,8 @@ class BridgeManager:
         else:
             # Subsequent failures — exponential backoff
             delay = min(
-                RESTART_BASE_DELAY * (2 ** (self._consecutive_failures - 2)),
-                RESTART_MAX_DELAY,
+                self._restart_base_delay * (2 ** (self._consecutive_failures - 2)),
+                self._restart_max_delay,
             )
             logger.info(
                 "Restarting bridge in %.1fs (attempt %d)",
@@ -381,6 +399,34 @@ class BridgeManager:
             await asyncio.sleep(delay)
         self._next_retry_at = None
         await self.start()
+
+    async def _start_fallback(self) -> None:
+        """Instantiate and start the fallback UDP parser (degraded mode)."""
+        self._fallback_parser = FallbackParser(
+            on_message=self._fallback_on_message,
+            interface=self._network_interface,
+        )
+        await self._fallback_parser.start()
+        self._status = "fallback"
+        self._notify_state_change()
+        logger.info("Fallback UDP parser active (degraded mode)")
+
+    def _stop_fallback(self) -> None:
+        """Stop the fallback parser if running."""
+        if self._fallback_parser is not None:
+            self._fallback_parser.stop()
+            self._fallback_parser = None
+
+    def _fallback_on_message(self, msg: BridgeMessage) -> None:
+        """Route fallback parser messages through the same pipeline as bridge messages."""
+        now = time.time()
+        self._last_message_time = now
+        if msg.type != BRIDGE_STATUS:
+            self._last_pioneer_message_time = now
+        self._adapter.handle_message(msg)
+        if self._external_on_message is not None:
+            self._external_on_message(msg)
+        self._notify_state_change()
 
     async def _cleanup(self) -> None:
         """Clean up subprocess, WebSocket, and tasks."""
@@ -425,6 +471,7 @@ class BridgeManager:
 
         return {
             "status": self._status,
+            "mode": "fallback" if self._status == "fallback" else "bridge",
             "port": self._port,
             "network_interface": self._network_interface,
             "jar_path": str(self._jar_path),

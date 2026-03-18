@@ -5,3 +5,12 @@ bridge:
   route:
     auto_fix: true
     launchd_installed: false
+  watchdog:
+    is_receiving_threshold_ms: 5000
+    poll_interval_s: 2.0
+  health:
+    check_interval_s: 10.0
+  restart:
+    base_delay_s: 2.0
+    max_delay_s: 30.0
+    max_crash_before_fallback: 3

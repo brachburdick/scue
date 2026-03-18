@@ -118,6 +118,9 @@ Managed by `scue/api/ws.py` + `scue/api/ws_manager.py`. Frontend dispatch in `fr
     "jar_exists": true,
     "jre_available": true,
     "restart_count": 0,
+    "restart_attempt": 0,
+    "next_retry_in_s": null,
+    "mode": "bridge",
     "route_correct": true,
     "route_warning": null,
     "devices": { "<ip>": { "device_name": "XDJ-AZ", "device_number": 1, "device_type": "cdj", "uses_dlp": true } },
@@ -126,6 +129,10 @@ Managed by `scue/api/ws.py` + `scue/api/ws_manager.py`. Frontend dispatch in `fr
 }
 ```
 
+- `restart_attempt`: current attempt number during restart backoff (0 when stable)
+- `next_retry_in_s`: seconds until next restart attempt (null when not retrying)
+- `mode`: `"bridge"` (full beat-link), `"fallback"` (UDP-only degraded mode), or `"bridge"` with status indicating availability
+
 ### pioneer_status (every 2 seconds)
 
 ```json
@@ -133,10 +140,15 @@ Managed by `scue/api/ws.py` + `scue/api/ws_manager.py`. Frontend dispatch in `fr
   "type": "pioneer_status",
   "payload": {
     "is_receiving": true,
+    "bridge_connected": true,
     "last_message_age_ms": 450
   }
 }
 ```
+
+- `is_receiving`: true when Pioneer hardware data (device/player/beat messages) arrived within threshold. Derived from `_last_pioneer_message_time`, NOT general bridge heartbeats.
+- `bridge_connected`: true when the bridge subprocess is alive and sending any messages (including heartbeats).
+- `last_message_age_ms`: milliseconds since last Pioneer hardware message.
 
 Frontend types: `frontend/src/types/ws.ts` (`WSMessage` union), `frontend/src/types/bridge.ts` (payload shapes).
 Store: `frontend/src/stores/bridgeStore.ts` (independent Zustand store).

@@ -198,8 +198,13 @@ class FallbackParser:
     Degraded mode: only device_found, player_status, and beat messages.
     """
 
-    def __init__(self, on_message: Callable[[BridgeMessage], None] | None = None):
+    def __init__(
+        self,
+        on_message: Callable[[BridgeMessage], None] | None = None,
+        interface: str | None = None,
+    ):
         self._on_message = on_message
+        self._interface = interface
         self._devices: dict[str, _DeviceInfo] = {}
         self._last_beat: dict[int, int] = {}  # player → last beat_within_bar
         self._transports: list[asyncio.BaseTransport] = []
@@ -220,7 +225,13 @@ class FallbackParser:
     async def start(self) -> None:
         """Bind sockets on all suitable interfaces and start listening."""
         all_ifaces = get_local_interfaces()
-        ifaces = pioneer_interfaces(all_ifaces)
+
+        # If a specific interface was configured, prefer it
+        if self._interface:
+            matching = [i for i in all_ifaces if i["interface"] == self._interface]
+            ifaces = matching if matching else pioneer_interfaces(all_ifaces)
+        else:
+            ifaces = pioneer_interfaces(all_ifaces)
 
         logger.info(
             "Fallback UDP parser starting — interfaces: %s",

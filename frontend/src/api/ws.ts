@@ -25,6 +25,7 @@ function dispatch(msg: WSMessage): void {
         .setPioneerStatus(
           msg.payload.is_receiving,
           msg.payload.last_message_age_ms,
+          msg.payload.bridge_connected,
         );
       break;
   }

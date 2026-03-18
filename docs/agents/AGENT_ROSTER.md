@@ -236,9 +236,10 @@ SCUE's architecture already has clean layer boundaries. The subdivision below fo
 
 ---
 
-### 10. UI/UX Designer
+### 10. Designer
 
-**Purpose:** Interaction design, layout planning, visual hierarchy, user flow mapping. Produces design specs that the FE-UI agent implements.
+**Purpose:** Interaction design, layout planning, visual hierarchy, user flow mapping. Produces UI specs that the FE-UI agent implements.
+**Preamble:** `docs/agents/preambles/DESIGNER.md`
 
 **Scope:**
 - Reads: Current page screenshots or descriptions, user flow requirements, `docs/ARCHITECTURE.md` (to understand data available)
@@ -267,7 +268,34 @@ SCUE's architecture already has clean layer boundaries. The subdivision below fo
 
 ---
 
-### 11. Reviewer
+### 11. Validator
+
+**Purpose:** Independent pass/fail verdict after every Developer session. Checks that acceptance criteria are met, tests pass, and no regressions were introduced.
+**Preamble:** `docs/agents/preambles/VALIDATOR.md`
+
+**Scope:**
+- Reads: Everything (full codebase access, all docs, session summaries, diffs)
+- Writes: Validator verdict only (`templates/validator-verdict.md` schema)
+- Never modifies: Source code, configuration, tests, docs
+
+**Context Injection:**
+- The Developer's session summary
+- The handoff packet that was dispatched
+- `docs/CONTRACTS.md` — for contract compliance check
+- `CLAUDE.md` — coding standards
+- The code diff from the Developer session
+
+**Output Artifact:**
+Uses `templates/validator-verdict.md` — produces PASS or FAIL with specific evidence.
+
+**Critical Behavior:**
+- The Validator is mandatory after every Developer session — no exceptions.
+- FAIL verdicts include specific file:line references and the exact acceptance criterion that was not met.
+- PASS verdicts confirm each acceptance criterion individually.
+
+---
+
+### 12. Reviewer
 
 **Purpose:** Cross-cutting code review. Checks implementation against specs, contract compliance, layer boundary violations, and coding standards.
 
@@ -315,5 +343,6 @@ SCUE's architecture already has clean layer boundaries. The subdivision below fo
 | API | Handoff, CONTRACTS.md §all-api, FE types (read) | Bug reports | Layer internals, FE components |
 | FE-State | Handoff, CONTRACTS.md §fe, FE types, API schemas | Store-specific tests | FE components, backend internals |
 | FE-UI | Handoff, UI design spec, component patterns, FE types | Store shapes (read) | Stores code, API code, backend |
-| UI/UX | Handoff, data shapes, current screenshots | Architecture overview | Source code |
+| Designer | Handoff, data shapes, current screenshots | Architecture overview | Source code |
+| Validator | Session summary, handoff packet, CONTRACTS.md, CLAUDE.md, diff | Full source as needed | — |
 | Reviewer | Spec, CONTRACTS.md, CLAUDE.md, LEARNINGS.md, diff | Full source as needed | — |

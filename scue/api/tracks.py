@@ -26,25 +26,30 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tracks", tags=["tracks"])
 
-AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aiff", ".m4a", ".ogg"}
-
 # These will be initialized by the app startup
 _store: TrackStore | None = None
 _cache: TrackCache | None = None
 _tracks_dir: Path | None = None
 _cache_path: Path | None = None
+_audio_extensions: set[str] = {".mp3", ".wav", ".flac", ".aiff", ".m4a", ".ogg"}
 
 
-def init_tracks_api(tracks_dir: Path, cache_path: Path) -> None:
+def init_tracks_api(
+    tracks_dir: Path,
+    cache_path: Path,
+    audio_extensions: set[str] | None = None,
+) -> None:
     """Initialize the tracks API with storage paths.
 
     Called during app startup.
     """
-    global _store, _cache, _tracks_dir, _cache_path
+    global _store, _cache, _tracks_dir, _cache_path, _audio_extensions
     _tracks_dir = tracks_dir
     _cache_path = cache_path
     _store = TrackStore(tracks_dir)
     _cache = TrackCache(cache_path)
+    if audio_extensions is not None:
+        _audio_extensions = audio_extensions
     logger.info("Tracks API initialized: tracks=%s, cache=%s", tracks_dir, cache_path)
 
 
@@ -194,13 +199,13 @@ async def scan_directory(req: ScanRequest) -> dict:
 
     # Collect audio files
     if target.is_file():
-        if target.suffix.lower() not in AUDIO_EXTENSIONS:
+        if target.suffix.lower() not in _audio_extensions:
             raise HTTPException(400, f"Not an audio file: {target.name}")
         audio_files = [target]
     else:
         audio_files = sorted(
             f for f in target.iterdir()
-            if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS
+            if f.is_file() and f.suffix.lower() in _audio_extensions
         )
 
     store = _get_store()
