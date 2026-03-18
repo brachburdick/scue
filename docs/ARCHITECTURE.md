@@ -132,6 +132,20 @@ BridgeMessage {
 - `phrase_analysis` — via pyrekordbox ANLZ parser (DLP) or future extensions (legacy)
 - `cue_points` — via pyrekordbox ANLZ parser (DLP) or future extensions (legacy)
 
+### Synthetic Device Recovery
+
+The Java bridge emits `device_found` once per device during `initBeatLink()`, before the Python WebSocket client may be connected. If the Python side misses these events (late connect, reconnect after crash), `devices` stays empty even though `player_status` data is streaming.
+
+The adapter handles this with `_ensure_device_from_player()`: when a `player_status` message arrives for an unknown player number, a synthetic `DeviceInfo` is created from available data and `on_device_change` is fired. This ensures the devices dict stays populated regardless of `device_found` timing. Future improvement: add state replay to the Java bridge's `BridgeWebSocketServer.onOpen()`.
+
+### Pioneer Traffic vs Bridge Liveness
+
+The bridge manager tracks two separate timestamps:
+- `_last_message_time` — updated by ALL WebSocket messages (including `bridge_status` heartbeats). Used for bridge liveness detection.
+- `_last_pioneer_message_time` — updated only by Pioneer hardware messages (`device_found`, `player_status`, `beat`, etc.). Used for `is_receiving` in the `pioneer_status` WebSocket message.
+
+This split prevents bridge heartbeats from inflating `is_receiving` when no Pioneer hardware data is actually arriving.
+
 ### Decoupling Strategy
 
 The bridge is treated as a replaceable data source. Layer 1 does not import from the bridge directly — it consumes `BridgeMessage` objects through an adapter in `scue/bridge/adapter.py` that normalizes bridge data into Layer 1's internal types. If beat-link is ever replaced, only the adapter changes.

@@ -23,6 +23,12 @@
 - Files modified: [FILL: list]
 - Out-of-scope modifications: [FILL: list or "none"]
 
+## What Went Well
+- [FILL: Specific, evidence-based praise. "None" is valid but rare. Vague praise ("good work") is not valid — cite what was done well and why it matters.]
+
+<!-- GUIDANCE: Complete this section before Issues Found. It helps Developers understand -->
+<!-- what to repeat. Cite file, behavior, or pattern that was handled correctly. -->
+
 ## Issues Found
 - **[FILL: SEVERITY: CRITICAL | WARNING]**: [FILL: Description with evidence. File and line if applicable.]
 

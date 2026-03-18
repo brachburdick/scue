@@ -79,6 +79,7 @@ Completed: 2026-03-16
 - [x] Java bridge JAR (`lib/beat-link-bridge.jar`) — v1.1.0 built and tested with XDJ-AZ (ADR-012: real-time data only, metadata finders stripped)
 - [x] **[AUDIT]** Fallback parser wired into BridgeManager — triggers on `no_jre`/`no_jar` and after 3 consecutive crashes. Fixed 2026-03-17.
 - [x] **[AUDIT]** Fallback parser test file added (`tests/test_bridge/test_fallback.py`) — 7 tests. Fixed 2026-03-17.
+- [x] **[FIX]** Synthetic device creation from `player_status` — adapter now infers `DeviceInfo` when `device_found` was missed (e.g., Python connects after bridge init). Fixed 2026-03-17.
 
 ### ~~Milestone 2 — Live Cursor + Pioneer Enrichment (Layer 1B)~~ → COMPLETE (2026-03-16)
 - [x] `scue/layer1/models.py` — Added TrackCursor, SectionInfo, BeatPosition, PlaybackState, TrackCursorFeatures, DivergenceRecord
@@ -103,7 +104,7 @@ Completed: 2026-03-16
 - [x] 21 new tests (scanner: 19, prefix matching, storage), all passing
 - [x] Verified against real XDJ-AZ USB backup: 2022 tracks read, 4/4 analyses matched
 - [x] Full suite: 277 passed, 11 skipped (as of 2026-03-17)
-- [ ] ANLZ beatgrid reading deferred: rbox Rust parser panics on some XDJ-AZ ANLZ files (tracked in bugs/layer0-bridge.md)
+- [x] ANLZ beatgrid reading: rbox Rust parser panicked on XDJ-AZ files; replaced with two-tier pure-Python strategy (ADR-013: pyrekordbox primary + custom anlz_parser.py fallback). Fixed 2026-03-16.
 
 ### Milestone 3 — Cue Stream (Layer 2, section cues only)
 ### Milestone 4 — Basic Effect Engine (Layer 3A + 3B, minimal)

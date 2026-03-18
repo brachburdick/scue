@@ -161,3 +161,21 @@ If your session summary has learnings entries, append them to `LEARNINGS.md` bef
 ## 10. Iterative Improvement — Flag Protocol Issues
 
 If you encounter a workflow problem that wasted significant time or would affect other agents, flag it in your session summary under "Learnings." The Operator reviews these periodically and updates the appropriate preamble or protocol file.
+
+---
+
+## 11. Inline-Fix Role Accountability
+
+Any agent that resolves a bug directly (without delegating to a Developer agent) must:
+
+1. Write a session summary using `templates/session-summary.md`. Set the Role field to `[ROLE]-inline` (e.g., `Orchestrator-inline`).
+2. Update the relevant bug log entry (`docs/bugs/[layer].md`) with `[ROLE: [ROLE]-inline]`.
+3. If the fix closes a `[BLOCKER]` item, update the milestone tracker before ending the session.
+
+Do not end the session until all three are complete.
+
+---
+
+## 12. Milestone Maintenance
+
+Any session that closes a `[BLOCKER]` item must update `docs/MILESTONES.md` before ending. This applies regardless of role.

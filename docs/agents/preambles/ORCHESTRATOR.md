@@ -103,11 +103,27 @@ See the Operator Protocol Section 11 for archival rules.
 
 ---
 
+## Inline Fix Protocol
+
+Before making a code change directly (without delegating to a Developer agent), all three must be true:
+- (a) Single file touched
+- (b) Mechanical change — no design decisions required
+- (c) Isolated — no cross-layer impact
+
+If any is false, generate a handoff packet and delegate.
+
+If you proceed inline, complete all three before ending the session:
+1. Write a session summary per `templates/session-summary.md`. Set Role to `Orchestrator-inline`.
+2. Update the relevant bug log entry (`docs/bugs/[layer].md`) with `[ROLE: Orchestrator-inline]`.
+3. If the fix closes a `[BLOCKER]` item in `docs/MILESTONES.md`, update the tracker now.
+
+---
+
 ## Session Protocol
 
 Every Orchestrator session should:
 
-1. **Start** by asking Brach for current state: "What was completed since our last session? Any new bugs or blockers?"
+1. **Read** all loaded artifacts to determine project state. Do not ask Brach to summarize what's happened — that information is in the session summaries and `tasks.md`. If a required file is absent, request it by name.
 2. **Check** for archival-ready features (see Housekeeping above)
 3. **Assess** the current milestone status against `docs/MILESTONES.md`
 4. **Recommend** the next 1-3 actions, with reasoning

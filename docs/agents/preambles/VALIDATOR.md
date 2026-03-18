@@ -63,6 +63,7 @@ Use the Validator Verdict template from `templates/validator-verdict.md`.
 ## Rules
 
 - **Be specific.** "Code looks fine" is not a verdict. Cite files and lines.
+- **Call out what was done well — specifically and with evidence.** Good work deserves acknowledgment, and it tells Developers what to repeat. Complete "What Went Well" before "Issues Found."
 - **If you find zero issues, say PASS and move on.** Don't invent problems.
 - **If you find a CRITICAL issue, the verdict is FAIL** regardless of everything else.
 - **You do not suggest improvements or refactors.** You check the contract.
