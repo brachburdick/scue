@@ -8,6 +8,7 @@ import asyncio
 import logging
 import platform
 import shutil
+import socket
 import subprocess
 import time
 from collections.abc import Callable
@@ -121,6 +122,25 @@ class BridgeManager:
         self._consecutive_failures = value
 
     @property
+    def pioneer_traffic_active(self) -> bool:
+        """Whether Pioneer hardware traffic has been received recently (within 5s).
+
+        Uses _last_pioneer_message_time which only updates on device/player/beat
+        messages — not bridge heartbeats.
+        """
+        if self._last_pioneer_message_time <= 0:
+            return False
+        return (time.time() - self._last_pioneer_message_time) < 5.0
+
+    @property
+    def route_correct(self) -> bool | None:
+        """Whether the macOS broadcast route points to the configured interface.
+
+        Returns None if not checked yet or not applicable (non-macOS / no interface).
+        """
+        return self._route_correct
+
+    @property
     def adapter(self) -> BridgeAdapter:
         return self._adapter
 
@@ -158,6 +178,8 @@ class BridgeManager:
             return
 
         self._last_message_time = 0.0
+        self._last_pioneer_message_time = 0.0
+        self._adapter.clear()
         self._status = "starting"
         self._notify_state_change()
 
@@ -531,6 +553,18 @@ class BridgeManager:
             if self._status != "waiting_for_hardware":
                 return
             self._next_retry_at = None
+            # Pre-check: if a specific interface is configured, verify it exists
+            # before launching a subprocess. When interface is None (auto-detect
+            # mode), skip the check — auto-detect doesn't target a single iface.
+            if self._network_interface is not None:
+                try:
+                    socket.if_nametoindex(self._network_interface)
+                except OSError:
+                    logger.debug(
+                        "Interface %s not available — skipping restart attempt",
+                        self._network_interface,
+                    )
+                    continue
             logger.info(
                 "Hardware poll — attempting bridge restart "
                 "(consecutive_failures=%d)",
@@ -610,6 +644,10 @@ class BridgeManager:
             except Exception:
                 pass
             self._process = None
+
+        # Clear accumulated adapter state so to_status_dict() returns empty
+        # devices/players until fresh data arrives from the new bridge session.
+        self._adapter.clear()
 
     def to_status_dict(self) -> dict:
         """Return a JSON-serializable status summary."""

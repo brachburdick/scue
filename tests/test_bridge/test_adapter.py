@@ -247,3 +247,66 @@ class TestTransition:
         p1_states = [(pn, oa) for pn, oa in on_air_history if pn == 1]
         assert any(oa for _, oa in p1_states)       # was on
         assert any(not oa for _, oa in p1_states)   # then off
+
+
+class TestClear:
+    """BridgeAdapter.clear() resets devices/players but preserves callbacks."""
+
+    def test_clear_resets_devices_and_players(self):
+        adapter = BridgeAdapter()
+        messages = load_fixture("device_discovery.json")
+        for msg in messages:
+            adapter.handle_message(msg)
+        assert len(adapter.devices) > 0
+
+        adapter.clear()
+        assert adapter.devices == {}
+        assert adapter.players == {}
+
+    def test_clear_preserves_callbacks(self):
+        adapter = BridgeAdapter()
+        cb_device = lambda d, a: None
+        cb_player = lambda p: None
+        cb_beat = lambda pn, bwb, bpm: None
+        cb_track = lambda pn, t, a: None
+        adapter.on_device_change = cb_device
+        adapter.on_player_update = cb_player
+        adapter.on_beat = cb_beat
+        adapter.on_track_loaded = cb_track
+
+        # Populate some state then clear
+        messages = load_fixture("device_discovery.json")
+        for msg in messages:
+            adapter.handle_message(msg)
+        adapter.clear()
+
+        assert adapter.on_device_change is cb_device
+        assert adapter.on_player_update is cb_player
+        assert adapter.on_beat is cb_beat
+        assert adapter.on_track_loaded is cb_track
+
+    def test_clear_preserves_bridge_status(self):
+        adapter = BridgeAdapter()
+        adapter.bridge_connected = True
+        adapter.bridge_version = "1.2.0"
+
+        adapter.clear()
+
+        assert adapter.bridge_connected is True
+        assert adapter.bridge_version == "1.2.0"
+
+    def test_clear_allows_fresh_data_accumulation(self):
+        """After clear(), new messages populate state from scratch."""
+        adapter = BridgeAdapter()
+        messages = load_fixture("device_discovery.json")
+        for msg in messages:
+            adapter.handle_message(msg)
+        assert len(adapter.devices) == 3
+
+        adapter.clear()
+        assert len(adapter.devices) == 0
+
+        # Re-feed messages — state rebuilds
+        for msg in messages:
+            adapter.handle_message(msg)
+        assert len(adapter.devices) == 3

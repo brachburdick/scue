@@ -150,6 +150,8 @@ This split prevents bridge heartbeats from inflating `is_receiving` when no Pion
 
 The bridge is treated as a replaceable data source. Layer 1 does not import from the bridge directly — it consumes `BridgeMessage` objects through an adapter in `scue/bridge/adapter.py` that normalizes bridge data into Layer 1's internal types. If beat-link is ever replaced, only the adapter changes.
 
+**Current implementation note (2026-03-19):** The intended boundary above is not fully realized yet. `scue/layer1/tracking.py` and `scue/layer1/cursor.py` currently import `PlayerState` from `scue.bridge.adapter`, which means a Layer 0 adapter type has leaked into Layer 1's runtime contract. Treat this as known architectural drift, not the target design. The desired end state is a Layer 1-owned ingress type (or port interface) that the bridge adapts into, so a future bridge replacement remains isolated to Layer 0.
+
 The bridge JAR is stored in `lib/beat-link-bridge.jar` and is NOT compiled from source as part of SCUE's build. It is a pre-built artifact. The bridge's Java source lives in a separate directory (`bridge-java/`) with its own build process (Gradle or Maven). This separation is intentional — the Java side has a different toolchain, different release cadence, and should be updatable by dropping in a new JAR.
 
 ### Fallback Behavior

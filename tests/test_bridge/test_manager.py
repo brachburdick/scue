@@ -919,3 +919,220 @@ class TestLastMessageTimeReset:
             "start() must reset _last_message_time to 0.0 so the health check "
             "silence guard (if _last_message_time > 0) is False on fresh starts"
         )
+
+    @pytest.mark.asyncio
+    async def test_start_resets_last_pioneer_message_time(self):
+        """start() must reset _last_pioneer_message_time to 0.0.
+
+        Without this reset, pioneer_status.is_receiving would report true
+        based on stale timestamps from a previous bridge session.
+        """
+        mgr = BridgeManager()
+        mgr._last_pioneer_message_time = 1742300000.0  # stale from prior run
+
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_check_jar", return_value=True), \
+             patch.object(mgr, "_launch_subprocess", new_callable=AsyncMock), \
+             patch.object(mgr, "_connect_websocket", new_callable=AsyncMock), \
+             patch.object(mgr, "_start_listen_loop"), \
+             patch.object(mgr, "_start_health_check"):
+            await mgr.start()
+
+        assert mgr._last_pioneer_message_time == 0.0
+
+    @pytest.mark.asyncio
+    async def test_start_clears_adapter_state(self):
+        """start() must clear adapter devices/players before launching."""
+        mgr = BridgeManager()
+        # Simulate stale adapter state from previous run
+        from scue.bridge.adapter import DeviceInfo, PlayerState
+        mgr._adapter._devices["169.254.1.1"] = DeviceInfo(
+            device_name="CDJ-1", device_number=1, device_type="cdj",
+            ip_address="169.254.1.1",
+        )
+        mgr._adapter._players[1] = PlayerState(player_number=1, bpm=128.0)
+
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_check_jar", return_value=True), \
+             patch.object(mgr, "_launch_subprocess", new_callable=AsyncMock), \
+             patch.object(mgr, "_connect_websocket", new_callable=AsyncMock), \
+             patch.object(mgr, "_start_listen_loop"), \
+             patch.object(mgr, "_start_health_check"):
+            await mgr.start()
+
+        assert mgr.adapter.devices == {}
+        assert mgr.adapter.players == {}
+
+
+class TestCleanupClearsAdapter:
+    """_cleanup() must clear adapter state so stale data doesn't persist."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_clears_adapter_devices_and_players(self):
+        mgr = BridgeManager()
+        from scue.bridge.adapter import DeviceInfo, PlayerState
+        mgr._adapter._devices["169.254.1.1"] = DeviceInfo(
+            device_name="CDJ-1", device_number=1, device_type="cdj",
+            ip_address="169.254.1.1",
+        )
+        mgr._adapter._players[1] = PlayerState(player_number=1, bpm=128.0)
+
+        await mgr._cleanup()
+
+        assert mgr.adapter.devices == {}
+        assert mgr.adapter.players == {}
+
+    @pytest.mark.asyncio
+    async def test_status_dict_empty_after_cleanup(self):
+        """to_status_dict() must return empty devices/players after cleanup."""
+        mgr = BridgeManager()
+        from scue.bridge.adapter import DeviceInfo, PlayerState
+        mgr._adapter._devices["169.254.1.1"] = DeviceInfo(
+            device_name="CDJ-1", device_number=1, device_type="cdj",
+            ip_address="169.254.1.1",
+        )
+        mgr._adapter._players[1] = PlayerState(player_number=1, bpm=128.0)
+
+        await mgr._cleanup()
+
+        status = mgr.to_status_dict()
+        assert status["devices"] == {}
+        assert status["players"] == {}
+
+
+class TestInterfacePreCheckInHardwareLoop:
+    """_wait_for_hardware_loop() must check interface existence before calling start().
+
+    When a specific network interface is configured, the loop uses
+    socket.if_nametoindex() to verify it exists before launching a subprocess.
+    If the interface is missing, the poll cycle is skipped (no subprocess launch).
+    When _network_interface is None (auto-detect), the check is skipped entirely.
+    """
+
+    @pytest.mark.asyncio
+    async def test_interface_unavailable_skips_start(self):
+        """When the configured interface doesn't exist, start() must NOT be called."""
+        mgr = BridgeManager(network_interface="en99")
+        mgr._status = "waiting_for_hardware"
+
+        start_called = False
+        original_start = mgr.start
+
+        async def mock_start():
+            nonlocal start_called
+            start_called = True
+            # Transition to running to exit the loop
+            mgr._status = "running"
+
+        mgr.start = mock_start  # type: ignore[assignment]
+
+        poll_count = 0
+
+        async def fast_sleep(duration: float) -> None:
+            nonlocal poll_count
+            poll_count += 1
+            if poll_count >= 3:
+                # Stop the loop after 3 polls
+                mgr._status = "stopped"
+
+        with patch("asyncio.sleep", side_effect=fast_sleep), \
+             patch("socket.if_nametoindex", side_effect=OSError("No such device")):
+            await mgr._wait_for_hardware_loop()
+
+        assert not start_called, (
+            "start() must NOT be called when interface is unavailable"
+        )
+        assert poll_count >= 2, "Loop should have polled multiple times"
+
+    @pytest.mark.asyncio
+    async def test_interface_available_calls_start(self):
+        """When the configured interface exists, start() must be called."""
+        mgr = BridgeManager(network_interface="en0")
+        mgr._status = "waiting_for_hardware"
+
+        start_called = False
+
+        async def mock_start():
+            nonlocal start_called
+            start_called = True
+            mgr._status = "running"  # exit the loop
+
+        mgr.start = mock_start  # type: ignore[assignment]
+
+        poll_count = 0
+
+        async def fast_sleep(duration: float) -> None:
+            nonlocal poll_count
+            poll_count += 1
+
+        with patch("asyncio.sleep", side_effect=fast_sleep), \
+             patch("socket.if_nametoindex", return_value=7):
+            await mgr._wait_for_hardware_loop()
+
+        assert start_called, "start() must be called when interface is available"
+
+    @pytest.mark.asyncio
+    async def test_none_interface_skips_check_calls_start(self):
+        """When _network_interface is None (auto-detect), skip the check and call start()."""
+        mgr = BridgeManager(network_interface=None)
+        mgr._status = "waiting_for_hardware"
+
+        start_called = False
+
+        async def mock_start():
+            nonlocal start_called
+            start_called = True
+            mgr._status = "running"
+
+        mgr.start = mock_start  # type: ignore[assignment]
+
+        async def fast_sleep(duration: float) -> None:
+            pass
+
+        with patch("asyncio.sleep", side_effect=fast_sleep), \
+             patch("socket.if_nametoindex") as mock_ifcheck:
+            await mgr._wait_for_hardware_loop()
+
+        assert start_called, "start() must be called in auto-detect mode"
+        mock_ifcheck.assert_not_called(), (
+            "socket.if_nametoindex must NOT be called when interface is None"
+        )
+
+    @pytest.mark.asyncio
+    async def test_interface_reappears_triggers_start(self):
+        """When interface is absent then reappears, start() is called on recovery poll."""
+        mgr = BridgeManager(network_interface="en16")
+        mgr._status = "waiting_for_hardware"
+
+        start_called = False
+
+        async def mock_start():
+            nonlocal start_called
+            start_called = True
+            mgr._status = "running"
+
+        mgr.start = mock_start  # type: ignore[assignment]
+
+        poll_count = 0
+
+        async def fast_sleep(duration: float) -> None:
+            nonlocal poll_count
+            poll_count += 1
+
+        # First 2 polls: interface missing. Third poll: interface appears.
+        side_effects = [
+            OSError("No such device"),
+            OSError("No such device"),
+            7,  # success — interface index returned
+        ]
+
+        with patch("asyncio.sleep", side_effect=fast_sleep), \
+             patch("socket.if_nametoindex", side_effect=side_effects):
+            await mgr._wait_for_hardware_loop()
+
+        assert start_called, (
+            "start() must be called once the interface reappears"
+        )
+        assert poll_count == 3, (
+            f"Expected 3 polls (2 skipped + 1 successful), got {poll_count}"
+        )

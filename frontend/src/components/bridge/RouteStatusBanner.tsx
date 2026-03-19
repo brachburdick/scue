@@ -4,6 +4,8 @@ import { useBridgeStore } from "../../stores/bridgeStore";
 
 export function RouteStatusBanner() {
   const isStartingUp = useBridgeStore((s) => s.isStartingUp);
+  const status = useBridgeStore((s) => s.status);
+  const wsConnected = useBridgeStore((s) => s.wsConnected);
   const { data: route, refetch: refetchRoute } = useRouteStatus({
     enabled: !isStartingUp,
   });
@@ -37,13 +39,53 @@ export function RouteStatusBanner() {
     }
   }, [isStartingUp, route, canFix]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // During startup, show a muted placeholder that matches the banner's layout weight
+  // S7: WS disconnected — override startup placeholder with specific message
+  if (!wsConnected) {
+    return (
+      <div className="rounded-lg bg-gray-800/40 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-gray-700" />
+          <span className="text-sm text-gray-600">Route status — backend unreachable</span>
+        </div>
+      </div>
+    );
+  }
+
+  // S4: During startup, show a muted placeholder that matches the banner's layout weight
   if (isStartingUp) {
     return (
       <div className="rounded-lg bg-gray-800/40 px-4 py-3">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-gray-700" />
           <span className="text-sm text-gray-600">Route status — waiting for startup…</span>
+        </div>
+      </div>
+    );
+  }
+
+  // S3: crashed — dimmed banner with explanation, no Fix Now button
+  if (status === "crashed") {
+    return (
+      <div className="rounded-lg bg-gray-800/40 px-4 py-3 opacity-60">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-gray-600" />
+          <span className="text-sm text-gray-500">
+            Route status paused — bridge restarting…
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // S5: waiting_for_hardware — dimmed banner with explanation
+  if (status === "waiting_for_hardware") {
+    return (
+      <div className="rounded-lg bg-gray-800/40 px-4 py-3 opacity-60">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-gray-600" />
+          <span className="text-sm text-gray-500">
+            Route status unavailable — waiting for hardware
+          </span>
         </div>
       </div>
     );

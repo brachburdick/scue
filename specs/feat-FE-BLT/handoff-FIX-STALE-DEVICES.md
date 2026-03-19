@@ -1,5 +1,11 @@
 # Handoff Packet: FIX-STALE-DEVICES
 
+## Status: SUPERSEDED
+
+> This handoff is superseded by `specs/feat-FE-BLT/handoff-TASK-001.md` (and the broader 6-task breakdown in `tasks-disconnect-reconnect.md`). The frontend-only fix produced by this handoff (session-001-developer) passed Validator but failed QA — the backend adapter root cause was out of scope. The Architect audit (session-004-architect) addresses the full data flow. Do not dispatch this handoff.
+
+---
+
 ## Preamble
 Read these files before proceeding:
 1. `AGENT_BOOTSTRAP.md`

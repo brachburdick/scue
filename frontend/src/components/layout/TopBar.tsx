@@ -8,22 +8,59 @@ export function TopBar() {
   const lastMessageAgeMs = useBridgeStore((s) => s.lastMessageAgeMs);
   const isStartingUp = useBridgeStore((s) => s.isStartingUp);
   const wsConnected = useBridgeStore((s) => s.wsConnected);
+  const isRecovering = useBridgeStore((s) => s.isRecovering);
+  const countdownSecondsRemaining = useBridgeStore((s) => s.countdownSecondsRemaining);
 
-  // Build tooltip text
-  const tooltip = routeWarning
-    ? `Bridge: ${bridgeStatus} | ${routeWarning}`
-    : `Bridge: ${bridgeStatus}`;
+  // Build StatusDot tooltip — state-aware per UI State Behavior spec.
+  let tooltip: string;
+  if (!wsConnected) {
+    // S7
+    tooltip = "Bridge: backend unreachable";
+  } else if (bridgeStatus === "crashed") {
+    // S3
+    const countdown =
+      countdownSecondsRemaining !== null && countdownSecondsRemaining > 0
+        ? ` — restarting in ${countdownSecondsRemaining}s...`
+        : " — restarting...";
+    tooltip = `Bridge: crashed${countdown}`;
+  } else if (bridgeStatus === "waiting_for_hardware") {
+    // S5
+    const countdown =
+      countdownSecondsRemaining !== null && countdownSecondsRemaining > 0
+        ? ` — checking in ${countdownSecondsRemaining}s...`
+        : "";
+    tooltip = `Bridge: waiting for hardware${countdown}`;
+  } else if (bridgeStatus === "running" && isRecovering) {
+    // S6
+    tooltip = "Bridge: running — discovering devices...";
+  } else {
+    tooltip = routeWarning
+      ? `Bridge: ${bridgeStatus} | ${routeWarning}`
+      : `Bridge: ${bridgeStatus}`;
+  }
 
-  const trafficTooltip =
-    isReceiving && lastMessageAgeMs >= 0
-      ? `Pioneer traffic: active · ${lastMessageAgeMs < 1000 ? `${lastMessageAgeMs}ms ago` : `${(lastMessageAgeMs / 1000).toFixed(1)}s ago`}`
-      : "Pioneer traffic: none";
+  // Build TrafficDot tooltip — state-aware.
+  let trafficTooltip: string;
+  if (bridgeStatus === "waiting_for_hardware") {
+    // S5
+    trafficTooltip = "Pioneer traffic: none — waiting for hardware";
+  } else if (isRecovering && !isReceiving) {
+    // S6 (pre-traffic)
+    trafficTooltip = "Pioneer traffic: waiting for data...";
+  } else if (isReceiving && lastMessageAgeMs >= 0) {
+    trafficTooltip = `Pioneer traffic: active · ${lastMessageAgeMs < 1000 ? `${lastMessageAgeMs}ms ago` : `${(lastMessageAgeMs / 1000).toFixed(1)}s ago`}`;
+  } else {
+    trafficTooltip = "Pioneer traffic: none";
+  }
 
   const startupLabel = !wsConnected
     ? "Connecting..."
     : bridgeStatus === "starting"
       ? "Bridge starting..."
       : null;
+
+  // S6: TrafficDot shows pulsing opacity animation during recovery.
+  const trafficRecoveryPulse = isRecovering && !isReceiving;
 
   return (
     <header className="h-12 shrink-0 border-b border-gray-800 bg-gray-950 flex items-center justify-between px-4">
@@ -37,7 +74,11 @@ export function TopBar() {
         )}
         <span className="text-xs text-gray-500">No project loaded</span>
         {dotStatus !== "disconnected" && (
-          <TrafficDot active={isReceiving} title={trafficTooltip} />
+          <TrafficDot
+            active={isReceiving}
+            recoveryPulse={trafficRecoveryPulse}
+            title={trafficTooltip}
+          />
         )}
         <StatusDot label="Bridge" status={dotStatus} title={tooltip} />
       </div>
@@ -73,7 +114,15 @@ function StartupIndicator({ label }: { label: string }) {
   );
 }
 
-function TrafficDot({ active, title }: { active: boolean; title: string }) {
+function TrafficDot({
+  active,
+  recoveryPulse,
+  title,
+}: {
+  active: boolean;
+  recoveryPulse: boolean;
+  title: string;
+}) {
   return (
     <div className="relative flex items-center" title={title} aria-label={`Pioneer traffic: ${active ? "active" : "none"}`}>
       {active && (
@@ -81,7 +130,11 @@ function TrafficDot({ active, title }: { active: boolean; title: string }) {
       )}
       <span
         className={`relative inline-flex h-2 w-2 rounded-full transition-colors duration-300 ${
-          active ? "bg-cyan-400" : "bg-gray-700"
+          active
+            ? "bg-cyan-400"
+            : recoveryPulse
+              ? "bg-gray-500 animate-[pulse_1.5s_ease-in-out_infinite]"
+              : "bg-gray-700"
         }`}
       />
     </div>

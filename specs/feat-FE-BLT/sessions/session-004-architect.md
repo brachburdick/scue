@@ -64,6 +64,7 @@ None.
 
 ## Missteps
 - Initially declared session COMPLETE without writing handoff packets or test scenarios. The Architect preamble (lines 169-175) explicitly lists both as required session artifacts. Operator caught the omission. Fixed by writing all 6 handoff packets and 6 new test scenarios before finalizing. Root cause: focused on the spec + tasks deliverables from the handoff packet's ACs and missed the broader artifact requirements in the role preamble.
+- Failed to mark `handoff-FIX-STALE-DEVICES.md` as superseded. My 6 tasks replace the work that handoff was dispatching. The Orchestrator caught the stale artifact. Fixed by adding `## Status: SUPERSEDED` header with pointer to the replacement. Root cause: when producing new tasks that replace prior work, must explicitly mark prior artifacts as superseded.
 
 ## Learnings
 - The BridgeAdapter is a long-lived singleton (created once in BridgeManager.__init__) that accumulates state across the entire server lifetime. There is no mechanism to reset it. Any state-clearing fix for crash/restart must account for this — you can't rely on the adapter being re-instantiated.

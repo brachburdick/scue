@@ -132,6 +132,16 @@ class BridgeAdapter:
         self.bridge_connected: bool = False
         self.bridge_version: str = ""
 
+    def clear(self) -> None:
+        """Reset accumulated device and player state.
+
+        Called on bridge crash/restart to prevent stale data from persisting
+        across sessions.  Does NOT reset callbacks (wired once at startup)
+        or bridge_connected / bridge_version (managed by bridge_status messages).
+        """
+        self._devices.clear()
+        self._players.clear()
+
     @property
     def devices(self) -> dict[str, DeviceInfo]:
         return dict(self._devices)

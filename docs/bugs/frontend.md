@@ -60,31 +60,32 @@ File(s): frontend/src/components/bridge/HardwareSelectionPanel.tsx
 
 ---
 
-### [OPEN] Route mismatch warning does not auto-clear on reconnect
+### [FIXED] Route mismatch warning does not auto-clear on reconnect
 Date: 2026-03-18
+Fixed: 2026-03-19
 Milestone: FE-BLT
 Symptom: After USB-Ethernet adapter is unplugged and replugged, or after board power cycle, the RouteStatusBanner continues to show "Route mismatch: 169.254.255.255 → none (should be en7)" even after the bridge successfully reconnects on en7. The warning only clears if the user manually clicks "Fix Now."
-Root cause: Not yet investigated. Likely the route status query cache is not invalidated on bridge reconnect events. The `["network", "route"]` query may only refetch on mount or manual invalidation, not on bridge state transitions.
-Fix: None yet. Non-blocker. Investigate: add `queryClient.invalidateQueries(["network", "route"])` on bridge `connected` WebSocket event in bridgeStore or route query hook.
-File(s): TBD — likely frontend/src/stores/bridgeStore.ts or frontend/src/api/network.ts
+Root cause: The `["network", "route"]` and `["network", "interfaces"]` TanStack Query caches were never invalidated on bridge state transitions. They only refetched on window focus, mount, or manual mutation `onSuccess` handlers. When the bridge reconnected via WebSocket, stale query data persisted.
+Fix: Added bridge status transition tracking in `ws.ts` using a module-level `prevBridgeStatus` variable. When `bridge_status.status` transitions to `"running"` from any non-running state (including `null` initial), both `["network", "route"]` and `["network", "interfaces"]` queries are invalidated. Also extracted `QueryClient` to a shared module (`api/queryClient.ts`) so `ws.ts` can import it without React context.
+File(s): frontend/src/api/ws.ts, frontend/src/api/queryClient.ts, frontend/src/main.tsx
 
-### [OPEN] Interface score stays at 5 for active en7 interface
+### [FIXED] Interface score stays at 5 for active en7 interface
 Date: 2026-03-18
+Fixed: 2026-03-19
 Milestone: FE-BLT
 Symptom: The hardware interface selector shows en7 with a score of 5 regardless of connection state. When the board is connected and traffic is flowing on en7, the score should reflect the healthy state (higher or marked as active). "Fix Now" updates the route status box but the score remains 5.
-Root cause: Not yet investigated. Score calculation may not account for active Pioneer traffic or verified route state.
-Fix: None yet. Non-blocker. Needs investigation into interface scoring logic.
-File(s): TBD — likely frontend/src/components/bridge/InterfaceRow.tsx or InterfaceSelector.tsx
+Root cause: `_score_interface()` in `scue/network/route.py` only considered static interface properties (link-local address, interface type, private IP). It had no awareness of live bridge context -- whether Pioneer traffic was actively flowing on the interface or whether the macOS broadcast route pointed to it.
+Fix: Added two optional live-context parameters to `_score_interface()` and `enumerate_interfaces()`: `active_traffic_interface` (+10 when Pioneer traffic is flowing) and `route_correct_interface` (+5 when macOS route is correct). The API endpoint reads bridge state via `init_network_api()` injection and passes context as plain values -- no direct coupling between network and bridge modules.
+File(s): scue/network/route.py, scue/api/network.py, scue/bridge/manager.py, scue/main.py
 
-### [PARTIAL] Devices and players show stale data after hardware disconnect
+### Devices and players show stale data after hardware disconnect (fixed)
 Date: 2026-03-18
-Partially fixed: 2026-03-19
+Fixed: 2026-03-19
 Milestone: FE-BLT
 Symptom: When Pioneer hardware disconnects (adapter unplugged, board powered off), the DeviceList and PlayerList continue to show the last-known device and player data. They do not clear or show a "disconnected" state. Stale BPM and pitch values remain visible.
 Root cause: Two issues: (1) The backend bridge adapter (`_devices`/`_players` dicts) is never cleared on disconnect, so `to_status_dict()` continues to include stale device/player data in `bridge_status` payloads even in non-running states. (2) The frontend `bridgeStore.setBridgeState()` blindly accepted devices/players from every `bridge_status` message regardless of bridge status. (3) `setWsConnected(false)` did not clear devices/players, so a WebSocket disconnect left stale data in place. (4) `PlayerList` returned `null` on empty state instead of showing an empty-state message.
-Partial fix: Frontend-only fix in bridgeStore: `setBridgeState()` now force-clears devices/players to `{}` when `status !== "running"`, ignoring stale backend data. `setWsConnected(false)` also clears devices/players. PlayerList now renders "No active players." empty state instead of returning null.
-QA result (2026-03-19): FAIL. Fix works during non-running states (crashed, starting, waiting_for_hardware). Fails on reconnect: when bridge restarts and returns to `running`, backend adapter still holds stale `_devices`/`_players` and sends them in the now-trusted `bridge_status` message. Stale devices/players reappear. Needs backend fix in `scue/bridge/adapter.py` to clear adapter state on crash/disconnect.
-File(s): frontend/src/stores/bridgeStore.ts, frontend/src/components/bridge/PlayerList.tsx, scue/bridge/adapter.py (unfixed)
+Fix: Backend: Added `BridgeAdapter.clear()` method that resets `_devices` and `_players` (preserves callbacks). Called in `BridgeManager._cleanup()` (primary path on every crash/stop) and `BridgeManager.start()` (belt-and-suspenders). Also reset `_last_pioneer_message_time = 0.0` in `start()` so `pioneer_status.is_receiving` is false until fresh traffic arrives. Frontend (prior session): `setBridgeState()` force-clears devices/players when `status !== "running"`. `setWsConnected(false)` clears devices/players. PlayerList renders empty-state message.
+File(s): scue/bridge/adapter.py, scue/bridge/manager.py, frontend/src/stores/bridgeStore.ts, frontend/src/components/bridge/PlayerList.tsx
 
 ### [OPEN] Hardware disconnect/reconnect flow is too slow with poor visual feedback
 Date: 2026-03-19
@@ -102,13 +103,14 @@ Root cause: Not yet investigated. Bridge state transitions during restart may em
 Fix: None yet. Non-blocker.
 File(s): TBD
 
-### [OPEN] Console logs disappear when bridge connection is reestablished
+### [FIXED] Console logs disappear when bridge connection is reestablished
 Date: 2026-03-18
+Fixed: 2026-03-19
 Milestone: FE-2
 Symptom: When the bridge reconnects after a disconnect, previously displayed console log entries disappear from the console panel. The console effectively clears on reconnect.
-Root cause: Not yet investigated. Possibly the console store is reset on bridge reconnect, or the WebSocket reconnect triggers a store flush.
-Fix: None yet. Non-blocker.
-File(s): TBD — likely frontend/src/stores/consoleStore.ts
+Root cause: No explicit clearing of entries was found in any reconnect path. The most likely cause was the module-level mapper state in `consoleMapper.ts` — on WS reconnect, stale `prev*` variables caused incorrect diff detection, producing malformed or missing console entries that could make the console appear to have lost its history. Resolved by TASK-003 (TR-6), which added `resetMapperState()` in `ws.ts` `onOpen()` handler. Investigation confirmed: (1) no `clearEntries()` call in any reconnect/WS lifecycle path, (2) Console component is unconditionally mounted in Shell.tsx — no unmount/remount on bridge state change, (3) Zustand store entries persist across ConsolePanel collapse/expand. A secondary contributing factor is ring buffer capacity (200 entries) — during crash-restart loops, rapid `bridge_status` messages can push older entries out, but this is a capacity concern, not a disappearance bug.
+Fix: Resolved by TASK-003 (`resetMapperState()` in WS `onOpen()`). No additional code changes needed.
+File(s): frontend/src/api/ws.ts, frontend/src/utils/consoleMapper.ts, frontend/src/stores/consoleStore.ts
 
 ---
 
