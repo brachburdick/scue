@@ -40,13 +40,15 @@ Root cause: The branch was gated solely on `isReceiving`, which is set by the `p
 Fix: Introduced `recentTraffic = isReceiving || (lastMessageAgeMs >= 0 && lastMessageAgeMs < 8000)`. The 8-second grace window keeps the "traffic detected" message stable between bursts. Also made the "No Pioneer devices found" sub-text context-aware: shows "Route mismatch detected — fix above..." when `routeCorrect === false`, and "Check cable, interface, route..." only when route state is unknown.
 File(s): frontend/src/components/bridge/DeviceList.tsx
 
-### [OPEN] Pioneer traffic indicator too slow and flickers during active playback
+### [PRESUMED RESOLVED] Pioneer traffic indicator too slow and flickers during active playback
 Date: 2026-03-17
-Milestone: FE-BLT
+Resolved: 2026-03-18 (presumed — see note)
+Milestone: FE-BLT (originally; page/component renamed from BLT → Bridge)
 Symptom: The TrafficDot indicator in the TopBar and the "Pioneer traffic detected" state in DeviceList flicker on and off even when a track is actively playing on the board. The indicator is also noticeably slow to light up when traffic begins — there is a visible lag before the dot activates.
-Root cause: Not yet investigated. Likely a combination of: (1) the `pioneer_status` watchdog polling interval on the Python side being too coarse for continuous feedback; (2) the `is_receiving` flag being set based on a time-window check that may have a threshold mismatched with the CDJ announcement burst rate; (3) the 8-second `lastMessageAgeMs` grace window in DeviceList partially masks the flicker for the device list message but does not help the TopBar TrafficDot, which reads `isReceiving` directly.
-Fix: Not yet investigated. Possible directions: reduce the watchdog polling interval, change `is_receiving` to use a longer decay window on the Python side, or have the frontend compute `isReceiving` from `lastMessageAgeMs` with a smoother threshold rather than relying on the binary flag from the backend.
+Root cause: Not formally investigated. Brach notes this is presumed resolved — likely as a side effect of infrastructure changes made during the BLT→Bridge page rename and related multi-agent architecture work (2026-03-17/18). Possible root causes at the time: (1) watchdog polling interval too coarse; (2) `is_receiving` threshold mismatched with CDJ burst rate; (3) 8-second grace window in DeviceList not propagated to TopBar TrafficDot.
+Fix: Not explicitly fixed — presumed resolved by associated refactors. If flicker re-emerges, investigate: watchdog interval in `scue/api/ws.py`, `is_receiving` decay logic in `scue/bridge/adapter.py`, and whether TrafficDot in TopBar reads `isReceiving` directly vs. using the grace-window computed value.
 File(s): scue/bridge/adapter.py (watchdog), frontend/src/components/layout/TopBar.tsx (TrafficDot), frontend/src/components/bridge/BridgeStatusPanel.tsx (TrafficIndicator)
+Note: Bug log was not updated when resolved — flagged by Orchestrator on 2026-03-18. The [OPEN] status was discovered during first Orchestrator session. Brach attributed the oversight to the BLT→Bridge rename happening concurrently with the fix.
 
 ### RouteStatusBanner and ActionBar rendered below interface list instead of above
 Date: 2026-03-17
@@ -55,6 +57,48 @@ Symptom: In the Hardware Selection panel, the route status banner and Apply & Re
 Root cause: Component render order in `HardwareSelectionPanel` placed `InterfaceSelector` first, then `RouteStatusBanner` and `ActionBar`. No logic error — just wrong visual priority.
 Fix: Reordered so `RouteStatusBanner` and `ActionBar` render before `InterfaceSelector`.
 File(s): frontend/src/components/bridge/HardwareSelectionPanel.tsx
+
+---
+
+### [OPEN] Route mismatch warning does not auto-clear on reconnect
+Date: 2026-03-18
+Milestone: FE-BLT
+Symptom: After USB-Ethernet adapter is unplugged and replugged, or after board power cycle, the RouteStatusBanner continues to show "Route mismatch: 169.254.255.255 → none (should be en7)" even after the bridge successfully reconnects on en7. The warning only clears if the user manually clicks "Fix Now."
+Root cause: Not yet investigated. Likely the route status query cache is not invalidated on bridge reconnect events. The `["network", "route"]` query may only refetch on mount or manual invalidation, not on bridge state transitions.
+Fix: None yet. Non-blocker. Investigate: add `queryClient.invalidateQueries(["network", "route"])` on bridge `connected` WebSocket event in bridgeStore or route query hook.
+File(s): TBD — likely frontend/src/stores/bridgeStore.ts or frontend/src/api/network.ts
+
+### [OPEN] Interface score stays at 5 for active en7 interface
+Date: 2026-03-18
+Milestone: FE-BLT
+Symptom: The hardware interface selector shows en7 with a score of 5 regardless of connection state. When the board is connected and traffic is flowing on en7, the score should reflect the healthy state (higher or marked as active). "Fix Now" updates the route status box but the score remains 5.
+Root cause: Not yet investigated. Score calculation may not account for active Pioneer traffic or verified route state.
+Fix: None yet. Non-blocker. Needs investigation into interface scoring logic.
+File(s): TBD — likely frontend/src/components/bridge/InterfaceRow.tsx or InterfaceSelector.tsx
+
+### [OPEN] Devices and players show stale data after hardware disconnect
+Date: 2026-03-18
+Milestone: FE-BLT
+Symptom: When Pioneer hardware disconnects (adapter unplugged, board powered off), the DeviceList and PlayerList continue to show the last-known device and player data. They do not clear or show a "disconnected" state. Stale BPM and pitch values remain visible.
+Root cause: Not yet investigated. The bridge adapter likely does not emit a clear/reset event on disconnect; the FE store retains the last-known state until a new `device_found` or `player_status` message arrives.
+Fix: None yet. Non-blocker but visually misleading — operator sees a connected-looking UI while hardware is gone. Noted repeatedly by Brach across multiple sessions; not yet addressed. Requires defining expected display state for each disconnect scenario before implementing (see PROTOCOL_IMPROVEMENT.md — UI state matrix gap).
+File(s): TBD — likely scue/api/ws.py (emit clear event on disconnect) + frontend/src/stores/bridgeStore.ts
+
+### [OPEN] Route status and bridge connection show false-positive during restart
+Date: 2026-03-18
+Milestone: FE-BLT
+Symptom: During a crash-restart cycle, the route status banner and bridge connection status briefly show a valid/connected state for a moment during the restart sequence, then flicker back to the correct state. Observed in console: "Route warning: route: bad address: en7" appears after "Bridge crashed → starting", suggesting the UI momentarily registers the new subprocess attempt as a healthy state before it fails.
+Root cause: Not yet investigated. Bridge state transitions during restart may emit intermediate events that the FE interprets as connected.
+Fix: None yet. Non-blocker.
+File(s): TBD
+
+### [OPEN] Console logs disappear when bridge connection is reestablished
+Date: 2026-03-18
+Milestone: FE-2
+Symptom: When the bridge reconnects after a disconnect, previously displayed console log entries disappear from the console panel. The console effectively clears on reconnect.
+Root cause: Not yet investigated. Possibly the console store is reset on bridge reconnect, or the WebSocket reconnect triggers a store flush.
+Fix: None yet. Non-blocker.
+File(s): TBD — likely frontend/src/stores/consoleStore.ts
 
 ---
 

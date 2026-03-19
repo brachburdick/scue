@@ -295,7 +295,35 @@ Uses `templates/validator-verdict.md` — produces PASS or FAIL with specific ev
 
 ---
 
-### 12. Reviewer
+### 12. QA Tester
+
+**Purpose:** Execute live test scenarios against a running SCUE instance and produce QA Verdicts. Live verification gate — the Validator checks code against contracts; the QA Tester checks behavior against reality.
+**Preamble:** `docs/agents/preambles/QA_TESTER.md`
+
+**Scope:**
+- Reads: Test scenario matrices, handoff packets, Validator verdicts, logs, source (read-only)
+- Writes: QA Verdicts, session summaries, new scenario entries (appended to test-scenarios files)
+- May use Bash to start servers, run mock tools, make API calls, inspect logs
+- Never modifies: Source code, tests, configuration
+
+**Context Injection:**
+- Handoff packet (for context on what was changed)
+- Validator verdict (for what was checked statically)
+- Relevant test scenario file(s) — `specs/feat-[name]/test-scenarios.md` or `docs/test-scenarios/[area].md`
+
+**Output Artifact:**
+Uses `templates/qa-verdict.md` — produces PASS or FAIL with scenario table, failure details, regression check, and mock tool gaps.
+
+**Critical Behavior:**
+- A bug fix is not COMPLETE until this verdict is PASS. Validator PASS alone is insufficient.
+- Discovers and adds new scenario entries during live testing (status: NOT_TESTED).
+- Documents mock tool gaps to feed the Architect's backlog.
+
+**When to invoke (Phase 6a):** Bug fixes, FE-BE integration tasks, operator request.
+
+---
+
+### 13. Reviewer
 
 **Purpose:** Cross-cutting code review. Checks implementation against specs, contract compliance, layer boundary violations, and coding standards.
 
@@ -345,4 +373,5 @@ Uses `templates/validator-verdict.md` — produces PASS or FAIL with specific ev
 | FE-UI | Handoff, UI design spec, component patterns, FE types | Store shapes (read) | Stores code, API code, backend |
 | Designer | Handoff, data shapes, current screenshots | Architecture overview | Source code |
 | Validator | Session summary, handoff packet, CONTRACTS.md, CLAUDE.md, diff | Full source as needed | — |
+| QA Tester | Handoff, Validator verdict, test scenario file(s) | Source (read-only), logs | Source code (write), configuration |
 | Reviewer | Spec, CONTRACTS.md, CLAUDE.md, LEARNINGS.md, diff | Full source as needed | — |

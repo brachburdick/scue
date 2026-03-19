@@ -78,6 +78,7 @@ Completed: 2026-03-16
 - [x] 121 tests passing (messages, adapter, manager, fallback)
 - [x] Java bridge JAR (`lib/beat-link-bridge.jar`) — v1.1.0 built and tested with XDJ-AZ (ADR-012: real-time data only, metadata finders stripped)
 - [x] **[AUDIT]** Fallback parser wired into BridgeManager — triggers on `no_jre`/`no_jar` and after 3 consecutive crashes. Fixed 2026-03-17.
+- [x] **[BUG-BRIDGE-CYCLE]** Crash-restart cycle on hardware disconnect/reconnect — 6 root causes identified and fixed (2026-03-18). QA verified with live XDJ-AZ hardware. Remaining FE display issues (stale devices/players, route mismatch persistence, console log clearing) logged as non-blockers in docs/bugs/frontend.md.
 - [x] **[AUDIT]** Fallback parser test file added (`tests/test_bridge/test_fallback.py`) — 7 tests. Fixed 2026-03-17.
 - [x] **[FIX]** Synthetic device creation from `player_status` — adapter now infers `DeviceInfo` when `device_found` was missed (e.g., Python connects after bridge init). Fixed 2026-03-17.
 
@@ -106,6 +107,14 @@ Completed: 2026-03-16
 - [x] Full suite: 277 passed, 11 skipped (as of 2026-03-17)
 - [x] ANLZ beatgrid reading: rbox Rust parser panicked on XDJ-AZ files; replaced with two-tier pure-Python strategy (ADR-013: pyrekordbox primary + custom anlz_parser.py fallback). Fixed 2026-03-16.
 
+### ~~Audit Backlog — 2026-03-17 findings~~ → COMPLETE (2026-03-18)
+- [x] **[AUDIT-01]** Traffic detected but device never discovered — fixed 2026-03-17 (synthetic device creation from `player_status`)
+- [x] **[AUDIT-02]** Fallback parser not wired into BridgeManager — fixed 2026-03-17
+- [x] **[AUDIT-03]** API-level test coverage — `tests/test_api/` added (20 tests: batch jobs, scan dedup, WS broadcasting, bridge settings). Fixed 2026-03-18.
+- [x] **[AUDIT-04]** YAML config consolidation — `scue/config/loader.py` + `config/server.yaml` + bridge/usb.yaml extensions. Pre-existing (confirmed complete 2026-03-18).
+- [x] **[AUDIT-05]** Doc drift (React version, FE-BLT milestone, FE-2 status) — fixed 2026-03-17/18
+- Full suite: 304 passed, 11 skipped (2026-03-18); 6 `test_analysis_edge_cases` skipped due to librosa not installed in test env — pre-existing, not a regression
+
 ### Milestone 3 — Cue Stream (Layer 2, section cues only)
 ### Milestone 4 — Basic Effect Engine (Layer 3A + 3B, minimal)
 ### Milestone 5 — DMX Output (Layer 4A + 4B)
@@ -125,7 +134,7 @@ Completed: 2026-03-16
 - [x] Startup gating pattern: all queries gated with `enabled: !isStartingUp`
 - [x] TopBar: StatusDot (bridge status only), TrafficDot (Pioneer liveness), StartupIndicator
 - [x] 6 bugs found and fixed (see `docs/bugs/frontend.md`)
-- [ ] **[OPEN BUG]** Pioneer traffic indicator flickers during active playback
+- [x] **[RESOLVED]** Pioneer traffic indicator flickers during active playback — presumed resolved by BLT→Bridge refactor 2026-03-18; see docs/bugs/frontend.md
 
 ### ~~Milestone FE-4 — Upload & Analyze Flow~~ → COMPLETE (2026-03-16)
 - [x] Path-based scan → batch analyze → progress tracking flow

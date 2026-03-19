@@ -114,6 +114,25 @@ async def fix_route_endpoint(body: RouteFixRequest) -> dict:
     result = fix_route(body.interface)
 
     if not result.success:
+        # Wrap raw kernel errors with a user-friendly message.
+        # "route: bad address: <iface>" means the interface doesn't exist
+        # (adapter unplugged / hardware off). Mirrors manager.py:296–308.
+        if result.error and (
+            "bad address" in result.error
+            or "no such interface" in result.error.lower()
+        ):
+            friendly = (
+                f"Network interface '{body.interface}' is not available. "
+                f"Make sure your USB-Ethernet adapter is connected and the "
+                f"interface is up before fixing the route. "
+                f"(kernel error: {result.error})"
+            )
+            result = type(result)(
+                success=False,
+                error=friendly,
+                previous_interface=result.previous_interface,
+                new_interface=result.new_interface,
+            )
         logger.warning("Route fix failed for %s: %s", body.interface, result.error)
         raise HTTPException(
             status_code=500,

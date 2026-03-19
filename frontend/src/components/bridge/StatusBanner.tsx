@@ -11,6 +11,7 @@ const STATUS_CONFIG: Record<
   no_jre: { bg: "bg-red-900/50", text: "text-red-400", label: "Java Not Found" },
   no_jar: { bg: "bg-red-900/50", text: "text-red-400", label: "Bridge JAR Missing" },
   fallback: { bg: "bg-yellow-900/50", text: "text-yellow-400", label: "Fallback Mode" },
+  waiting_for_hardware: { bg: "bg-blue-900/50", text: "text-blue-400", label: "Waiting for hardware..." },
   not_initialized: { bg: "bg-gray-800", text: "text-gray-400", label: "Not Initialized" },
 };
 
@@ -26,9 +27,11 @@ export function StatusBanner({ status }: { status: BridgeStatus }) {
               ? "bg-green-500"
               : status === "crashed" || status === "no_jre" || status === "no_jar"
                 ? "bg-red-500"
-                : status === "starting" || status === "fallback"
-                  ? "bg-yellow-500"
-                  : "bg-gray-500"
+                : status === "waiting_for_hardware"
+                  ? "bg-blue-500"
+                  : status === "starting" || status === "fallback"
+                    ? "bg-yellow-500"
+                    : "bg-gray-500"
           }`}
         />
         <span className={`text-sm font-medium ${config.text}`}>

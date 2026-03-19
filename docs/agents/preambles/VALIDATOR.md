@@ -46,7 +46,14 @@ For each acceptance criterion in the handoff packet, determine: **MET**, **NOT M
 - Check that new tests were added if the task required them.
 - Check that new tests pass.
 
-### Step 4: Issue Identification
+### Step 4: Misstep Check
+
+Read the session summary's `## Missteps` section. If any reported misstep is already covered by an existing skill file, hook, or preamble rule, flag it:
+> "Misstep [X] is already addressed by [source]. Agent may not have read the relevant guidance."
+
+This is a WARNING, not a CRITICAL, unless it caused a scope violation or incorrect output.
+
+### Step 5: Issue Identification
 
 Identify any issues with severity:
 - **CRITICAL** — Must fix before proceeding. Any CRITICAL issue = FAIL verdict.

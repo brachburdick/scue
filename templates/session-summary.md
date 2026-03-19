@@ -42,5 +42,12 @@
 - [FILL: If status is BLOCKED — what specific question or dependency is unresolved]
 - [FILL: Include a draft Research Request if applicable]
 
+## Missteps
+- [FILL: Tool failures, wrong commands, retries, or environment surprises encountered during this session. Be specific: what was tried, what failed, what worked instead. "None" is valid.]
+- [FILL: E.g., "Ran `python app.py` — failed, needed `.venv/bin/python`. Ran `pip install` — failed, needed venv activation first."]
+
+<!-- GUIDANCE: This section feeds the Orchestrator's pattern detection. -->
+<!-- If the same misstep appears across 2+ sessions, the Orchestrator proposes a fix. -->
+
 ## Learnings
 - [FILL: Gotchas, surprises, or domain knowledge worth capturing in a skill file]

@@ -2,6 +2,12 @@
 
 ## Verdict: [FILL: PASS | FAIL]
 
+## Verification Scope: [FILL: STATIC | STATIC+TESTS]
+
+<!-- STATIC = code review and artifact check only. -->
+<!-- STATIC+TESTS = also confirmed unit/integration tests pass. -->
+<!-- Neither implies live system verification — that is the QA Tester's scope (Phase 6a). -->
+
 ## Pre-Check: Session Summary
 <!-- GUIDANCE: This is Step 0. If the session summary is missing or incomplete, -->
 <!-- the verdict is FAIL immediately. Do not evaluate code without a summary. -->

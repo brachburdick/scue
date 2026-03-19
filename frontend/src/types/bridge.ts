@@ -8,6 +8,7 @@ export type BridgeStatus =
   | "no_jre"
   | "no_jar"
   | "fallback"
+  | "waiting_for_hardware"
   | "not_initialized";
 
 export interface InterfaceAddress {

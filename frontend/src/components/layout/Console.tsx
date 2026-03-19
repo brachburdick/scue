@@ -1,22 +1,29 @@
-import { useUIStore } from "../../stores/uiStore.ts";
+import { useState, useCallback } from "react";
+import { useUIStore } from "../../stores/uiStore";
+import { useConsoleStore } from "../../stores/consoleStore";
+import { ConsoleHeader } from "./ConsoleHeader";
+import { ConsolePanel } from "./ConsolePanel";
+import { exportConsoleLog } from "../../utils/consoleExport";
 
 export function Console() {
-  const { consoleOpen, toggleConsole } = useUIStore();
+  const consoleOpen = useUIStore((s) => s.consoleOpen);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleStopRecording = useCallback(() => {
+    const buffer = useConsoleStore.getState().stopRecording();
+    setIsSaving(true);
+    // Brief saving state, then trigger export
+    try {
+      exportConsoleLog(buffer);
+    } finally {
+      setIsSaving(false);
+    }
+  }, []);
 
   return (
     <div className="border-t border-gray-800 bg-gray-950">
-      <button
-        onClick={toggleConsole}
-        className="w-full px-4 py-1.5 text-xs text-gray-500 hover:text-gray-300 flex items-center gap-2 transition-colors"
-      >
-        <span>{consoleOpen ? "\u25BC" : "\u25B6"}</span>
-        <span>Console</span>
-      </button>
-      {consoleOpen && (
-        <div className="h-48 overflow-y-auto px-4 py-2 font-mono text-xs text-gray-500">
-          <p>Console output will appear here.</p>
-        </div>
-      )}
+      <ConsoleHeader onStopRecording={handleStopRecording} isSaving={isSaving} />
+      {consoleOpen && <ConsolePanel />}
     </div>
   );
 }

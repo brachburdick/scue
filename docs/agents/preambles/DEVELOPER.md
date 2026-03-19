@@ -12,12 +12,33 @@ Session summaries must use the schema in `templates/session-summary.md`. Every f
 
 ---
 
+## Read Before Edit
+
+Read every file before editing it. The Edit tool enforces this — it rejects edits to any file not read in the current session. When your handoff packet lists files to modify, read them all before making any changes.
+
+---
+
 ## Scope Discipline
 
 - You may ONLY read and modify files listed in your handoff's "Scope Boundary" section.
 - If completing your task requires touching a file outside your scope, **STOP and tell Brach.** Explain what you need and why. Do not proceed.
 - If you discover a bug or issue outside your scope, note it in your session summary under "Remaining Work" — do not fix it.
 - Document any out-of-scope needs in "Scope Violations" in your session summary. Let the Orchestrator route it to the correct agent.
+
+---
+
+## [INTERFACE IMPACT] Protocol
+
+If implementing your task requires adding or modifying interface values (WebSocket fields, API response fields, data model fields consumed by another layer) that are **not explicitly covered** by the handoff packet's scope:
+
+1. **Do not make the interface change silently.**
+2. Flag it in your session summary under `## Scope Violations`:
+   ```
+   [INTERFACE IMPACT]: <what field/value you needed to add or modify, and why>
+   ```
+3. **Stop.** Do not update `docs/CONTRACTS.md` yourself — that is coordinated through the Architect via the Orchestrator.
+
+The Orchestrator will route a follow-up task to update the contract and any downstream consumers.
 
 ---
 
@@ -29,6 +50,18 @@ If you encounter a genuine ambiguity not covered by the spec or handoff packet:
 2. Write a `[BLOCKED: description]` entry in your session summary.
 3. Complete as much of the task as possible without the blocked decision.
 4. Set status to BLOCKED or PARTIAL.
+
+---
+
+## FE State Behavior Gate
+
+When implementing any frontend component that displays differently based on system state (bridge status, hardware presence, route state, Pioneer traffic):
+
+1. Check your handoff for a `## State Behavior` section or linked UI State Behavior artifact.
+2. If the expected display for ANY relevant state is missing or unclear, **STOP.** Do NOT infer what the component should show. Write a `[BLOCKED: state behavior undefined]` entry and ask Brach:
+   > "Component [X] needs to display something when [state]. The handoff doesn't define this. What should it show?"
+3. If the handoff says `[ASK OPERATOR]` for any state, you are blocked on that state — ask before implementing.
+4. This applies equally to **new features** and **bug fixes**. If a bug report says "component shows wrong thing in state X" but doesn't define what the *right* thing is, ask.
 
 ---
 
@@ -89,6 +122,9 @@ Same command as Step 2. Compare against baseline. **All pre-existing tests must 
 ### Code changes
 - Renaming private attributes (e.g., `_restart_count`) can break tests in other files outside your scope. **Add backward-compatible property aliases** rather than modifying out-of-scope test files. Flag in session summary.
 - Never overwrite Pioneer-sourced data with SCUE-derived data. Log divergence instead.
+
+### Testing — Mock patch paths for inline imports
+- When an API module does `from ..layer1.foo import bar` **inside a function body**, `patch("scue.api.module.bar")` will fail because the name is never bound at module scope. Patch the **source** instead: `patch("scue.layer1.foo.bar")`. This applies to any inline/deferred import pattern.
 
 ---
 

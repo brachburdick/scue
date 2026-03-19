@@ -115,6 +115,14 @@ Before proposing interface changes:
 
 ---
 
+## Test Scenario Authoring
+
+When a spec includes hardware interaction, network connectivity, or FE-BE integration, write initial test scenarios in `specs/feat-[name]/test-scenarios.md` using `templates/test-scenarios.md`. Focus on edge cases from the spec's "Edge Cases" section. The QA Tester will expand these during live testing.
+
+For concerns that span multiple features (e.g., bridge lifecycle), write to `docs/test-scenarios/[area].md` instead.
+
+---
+
 ## Session Artifacts
 
 At the end of every session, produce these artifacts on disk:
@@ -123,5 +131,6 @@ At the end of every session, produce these artifacts on disk:
 2. **LEARNINGS entries** → Append to `LEARNINGS.md` under the appropriate section
 3. **Handoff packets** → using `templates/handoff-packet.md`
 4. **Specs** → `specs/feat-[name]/spec.md`, `plan.md`, `tasks.md`
+5. **Test scenarios** → `specs/feat-[name]/test-scenarios.md` (if spec includes hardware/network/FE-BE integration)
 
 Tell Brach the path of each artifact you write.

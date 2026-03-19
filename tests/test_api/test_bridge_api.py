@@ -1,6 +1,6 @@
-"""Tests for bridge API endpoints — status, settings, restart."""
+"""Tests for bridge API endpoints — status, settings, restart, and WebSocket broadcasting."""
 
-import asyncio
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -9,6 +9,8 @@ import yaml
 from fastapi.testclient import TestClient
 
 from scue.api.bridge import router, init_bridge_api, BRIDGE_CONFIG_PATH, BridgeSettingsUpdate
+from scue.api.ws import router as ws_router, init_ws
+from scue.api.ws_manager import WSManager
 
 
 @pytest.fixture
@@ -133,3 +135,161 @@ class TestBridgeRestartEndpoint:
         init_bridge_api(None)
         resp = client.post("/api/bridge/restart")
         assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# WebSocket Broadcasting Pipeline
+# ---------------------------------------------------------------------------
+
+
+def _make_ws_app(mock_manager: MagicMock) -> tuple:
+    """Create a FastAPI app with bridge + WebSocket routers, returning (app, ws_manager)."""
+    from fastapi import FastAPI
+    app = FastAPI()
+    app.include_router(router)
+    app.include_router(ws_router)
+    ws_manager = WSManager()
+    init_bridge_api(mock_manager)
+    init_ws(ws_manager, mock_manager)
+    return app, ws_manager
+
+
+class TestWebSocketBroadcasting:
+    """Tests for the WebSocket broadcasting pipeline.
+
+    Uses TestClient (synchronous) for connect/initial-message tests,
+    and a dedicated WSManager unit test for the broadcast path.
+
+    Covers:
+    - Connect → receive initial bridge_status message
+    - Broadcast → all connected clients receive the message (WSManager unit test)
+    - Disconnect → client removed from broadcast set, next broadcast is safe
+    """
+
+    def test_connect_receives_initial_bridge_status(self, mock_manager: MagicMock) -> None:
+        """On connect, client receives an immediate bridge_status message."""
+        app, _ws_manager = _make_ws_app(mock_manager)
+        client = TestClient(app)
+
+        with client.websocket_connect("/ws") as ws:
+            msg_text = ws.receive_text()
+            msg = json.loads(msg_text)
+
+        assert msg["type"] == "bridge_status"
+        assert "payload" in msg
+        assert msg["payload"]["status"] == "running"
+
+    async def test_broadcast_delivers_to_connected_clients(self) -> None:
+        """WSManager.broadcast() sends a message to all connected clients.
+
+        Uses async WSManager directly — tests the broadcast primitive itself,
+        which is the core of the bridge-state-change → client pipeline.
+        """
+        # Simulate a connected WebSocket client
+        mock_ws = MagicMock()
+        mock_ws.send_text = AsyncMock()
+
+        ws_manager = WSManager()
+        # Bypass accept() by injecting directly
+        ws_manager._clients.add(mock_ws)
+
+        payload = {"type": "bridge_status", "payload": {"status": "restarting"}}
+        await ws_manager.broadcast(payload)
+
+        mock_ws.send_text.assert_called_once()
+        sent_data = mock_ws.send_text.call_args[0][0]
+        assert json.loads(sent_data) == payload
+
+    async def test_disconnect_removes_client_no_error_on_broadcast(self) -> None:
+        """After disconnect, broadcast completes without errors and set is empty."""
+        mock_ws = MagicMock()
+        mock_ws.send_text = AsyncMock(side_effect=Exception("connection closed"))
+
+        ws_manager = WSManager()
+        ws_manager._clients.add(mock_ws)
+        assert ws_manager.client_count == 1
+
+        # Broadcast to a client that raises on send — it should be removed silently
+        await ws_manager.broadcast({"type": "bridge_status", "payload": {}})
+
+        # Dead client pruned
+        assert ws_manager.client_count == 0
+
+        # Second broadcast to empty set is safe
+        await ws_manager.broadcast({"type": "bridge_status", "payload": {}})
+
+
+# ---------------------------------------------------------------------------
+# Route Fix — Friendly Error Wrapping (SC-007)
+# ---------------------------------------------------------------------------
+
+
+class TestRouteFixFriendlyError:
+    """Regression: POST /api/network/route/fix must return user-friendly errors
+    when the interface doesn't exist, not raw kernel output like
+    'route: bad address: en16'.
+    """
+
+    @pytest.fixture
+    def network_client(self):
+        from fastapi import FastAPI
+        from scue.api.network import router as network_router
+        app = FastAPI()
+        app.include_router(network_router)
+        return TestClient(app)
+
+    @patch("scue.api.network.fix_route")
+    def test_bad_address_returns_friendly_message(self, mock_fix, network_client):
+        """A 'bad address' kernel error is wrapped with a user-readable message."""
+        from scue.network.models import RouteFixResult
+        mock_fix.return_value = RouteFixResult(
+            success=False,
+            error="route: bad address: en16",
+            previous_interface="en0",
+            new_interface="en16",
+        )
+
+        resp = network_client.post("/api/network/route/fix", json={"interface": "en16"})
+
+        assert resp.status_code == 500
+        detail = resp.json()["detail"]
+        assert detail["success"] is False
+        assert "not available" in detail["error"]
+        assert "USB-Ethernet" in detail["error"]
+        # Raw kernel output preserved in parenthetical
+        assert "route: bad address: en16" in detail["error"]
+
+    @patch("scue.api.network.fix_route")
+    def test_no_such_interface_returns_friendly_message(self, mock_fix, network_client):
+        """A 'no such interface' kernel error is also wrapped."""
+        from scue.network.models import RouteFixResult
+        mock_fix.return_value = RouteFixResult(
+            success=False,
+            error="No such interface: en99",
+            previous_interface=None,
+            new_interface="en99",
+        )
+
+        resp = network_client.post("/api/network/route/fix", json={"interface": "en99"})
+
+        assert resp.status_code == 500
+        detail = resp.json()["detail"]
+        assert "not available" in detail["error"]
+
+    @patch("scue.api.network.fix_route")
+    def test_successful_fix_unchanged(self, mock_fix, network_client):
+        """A successful route fix still returns normally (no regression)."""
+        from scue.network.models import RouteFixResult
+        mock_fix.return_value = RouteFixResult(
+            success=True,
+            error=None,
+            previous_interface="en0",
+            new_interface="en5",
+        )
+
+        resp = network_client.post("/api/network/route/fix", json={"interface": "en5"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["new_interface"] == "en5"

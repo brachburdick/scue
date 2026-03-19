@@ -87,7 +87,22 @@ For each screen or view, produce a **UI Spec Document** covering:
 
 ---
 
+## UI State Behavior Artifacts
+
+When invoked for state-behavior definition (either standalone or as part of a broader UI spec), produce a UI State Behavior artifact using `templates/ui-state-behavior.md`.
+
+This maps **(component x system state) -> expected display**.
+
+- Include ALL states relevant to the component (bridge status, hardware presence, route state, Pioneer traffic — as applicable).
+- For each cell, describe the expected display in enough detail for a Developer to implement without guessing.
+- If the correct behavior for a state is unknown, mark it `[ASK OPERATOR]` and flag it immediately to Brach — do not defer.
+- This artifact is the source of truth for Developers and Validators on FE state behavior.
+- For standalone state-behavior work, write to `specs/feat-[name]/ui-state-behavior.md`.
+
+---
+
 ## Artifact Output
 
 - UI spec documents go in the feature's spec directory: `specs/feat-[name]/ui-spec.md`
+- UI State Behavior artifacts: `specs/feat-[name]/ui-state-behavior.md`
 - Session summary using `templates/session-summary.md` schema

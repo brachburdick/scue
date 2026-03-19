@@ -26,18 +26,44 @@ logger = logging.getLogger(__name__)
 DEFAULT_JAR_PATH = Path("lib/beat-link-bridge.jar")
 DEFAULT_PORT = 17400
 
+# Minimum uptime (seconds) for a "running" bridge to be considered a stable start.
+# If the bridge crashes faster than this, it counts as a consecutive failure even
+# if it briefly reached "running" state — preventing _consecutive_failures from
+# resetting and blocking fallback from ever triggering.
+_MIN_STABLE_UPTIME_S = 30.0
+
+# Polling interval (seconds) when waiting for hardware to reappear after the
+# bridge has reached its crash threshold. Chosen to be infrequent enough to
+# avoid OS focus-steal nuisance while still recovering reasonably quickly.
+_HARDWARE_POLL_INTERVAL_S = 30.0
+
+# JVM flags that suppress macOS AWT/Dock behaviour for headless subprocesses.
+# -Djava.awt.headless=true  — prevents AWT from opening a display connection,
+#   which is what causes the "beat link trigger" name to flash in the menu bar.
+# -Dapple.awt.UIElement=true — (belt-and-suspenders) marks the process as a
+#   background UI element so it never gets a Dock icon or Cmd-Tab entry even if
+#   AWT does initialise.
+# -Xdock:name=SCUE Bridge   — sets the app name shown in any AWT menu bar entry.
+_JVM_FLAGS = [
+    "-Djava.awt.headless=true",
+    "-Dapple.awt.UIElement=true",
+    "-Xdock:name=SCUE Bridge",
+]
+
 
 class BridgeManager:
     """Manages the beat-link bridge subprocess and adapter pipeline.
 
     States:
-        stopped   — not running, no subprocess
-        starting  — subprocess launching / WebSocket connecting
-        running   — subprocess + WebSocket connected, receiving messages
-        crashed   — subprocess died unexpectedly, will restart with backoff
-        no_jre    — Java not found on system
-        no_jar    — Bridge JAR not found at expected path
-        fallback  — running UDP fallback parser (degraded mode)
+        stopped              — not running, no subprocess
+        starting             — subprocess launching / WebSocket connecting
+        running              — subprocess + WebSocket connected, receiving messages
+        crashed              — subprocess died unexpectedly, will restart with backoff
+        no_jre               — Java not found on system
+        no_jar               — Bridge JAR not found at expected path
+        fallback             — running UDP fallback parser (degraded mode)
+        waiting_for_hardware — bridge reached crash threshold with no hardware present;
+                               polling every 30 s for hardware to reappear
     """
 
     def __init__(
@@ -68,10 +94,12 @@ class BridgeManager:
         self._adapter = BridgeAdapter()
         self._listen_task: asyncio.Task | None = None
         self._health_task: asyncio.Task | None = None
+        self._wait_task: asyncio.Task | None = None  # hardware-wait polling task
         self._consecutive_failures = 0
         self._next_retry_at: float | None = None  # time.time() when next retry fires
         self._last_message_time: float = 0.0
         self._last_pioneer_message_time: float = 0.0
+        self._last_stable_start_time: float = 0.0  # time.time() when last "running" began
         self._route_correct: bool | None = None
         self._route_warning: str | None = None
         self._fallback_parser: FallbackParser | None = None
@@ -129,6 +157,7 @@ class BridgeManager:
         if self._status == "running":
             return
 
+        self._last_message_time = 0.0
         self._status = "starting"
         self._notify_state_change()
 
@@ -150,7 +179,15 @@ class BridgeManager:
             await self._launch_subprocess()
             await self._connect_websocket()
             self._status = "running"
-            self._consecutive_failures = 0
+            # Only reset the consecutive failure counter if the bridge was stable
+            # for at least _MIN_STABLE_UPTIME_S on its previous run.  A quick
+            # start-then-crash cycle (hardware absent / no route) would otherwise
+            # reset the counter before it accumulates enough failures to reach the
+            # waiting_for_hardware threshold.
+            uptime = time.time() - self._last_stable_start_time
+            if self._last_stable_start_time == 0.0 or uptime >= _MIN_STABLE_UPTIME_S:
+                self._consecutive_failures = 0
+            self._last_stable_start_time = time.time()
             self._next_retry_at = None
             self._start_listen_loop()
             self._start_health_check()
@@ -166,6 +203,7 @@ class BridgeManager:
         """Stop the bridge and clean up."""
         logger.info("Stopping bridge")
         self._stop_fallback()
+        self._cancel_wait_task()
         await self._cleanup()
         self._status = "stopped"
         self._notify_state_change()
@@ -174,8 +212,10 @@ class BridgeManager:
         """Stop and restart the bridge (e.g. after config change)."""
         logger.info("Restarting bridge")
         self._stop_fallback()
+        self._cancel_wait_task()
         await self.stop()
         self._consecutive_failures = 0
+        self._last_stable_start_time = 0.0
         self._next_retry_at = None
         await self.start()
 
@@ -250,6 +290,23 @@ class BridgeManager:
             self._route_correct = True
             self._route_warning = None
             self._notify_state_change()
+        elif result.error:
+            # Wrap raw kernel errors with a user-friendly message.
+            # "route: bad address: <iface>" is the macOS error when the
+            # interface doesn't exist (adapter unplugged / hardware off).
+            if "bad address" in result.error or "no such interface" in result.error.lower():
+                friendly = (
+                    f"Network interface '{self._network_interface}' is not available. "
+                    f"Make sure your USB-Ethernet adapter is connected and the interface "
+                    f"is up before fixing the route. "
+                    f"(kernel error: {result.error})"
+                )
+                result = RouteFixResult(
+                    success=False,
+                    error=friendly,
+                    previous_interface=result.previous_interface,
+                    new_interface=result.new_interface,
+                )
         return result
 
     def _check_macos_route(self) -> None:
@@ -265,8 +322,14 @@ class BridgeManager:
     async def _launch_subprocess(self) -> None:
         """Launch the bridge JAR as a subprocess."""
         self._check_and_fix_route()
+        # JVM flags are inserted between "java" and "-jar" so they are processed
+        # by the JVM itself, not forwarded to the application's main() args.
+        # _JVM_FLAGS suppress AWT/Dock initialisation to prevent macOS window
+        # focus-stealing and the "beat link trigger" menu-bar flash.
         cmd = [
-            "java", "-jar", str(self._jar_path),
+            "java",
+            *_JVM_FLAGS,
+            "-jar", str(self._jar_path),
             "--port", str(self._port),
         ]
         if self._network_interface:
@@ -335,7 +398,20 @@ class BridgeManager:
                 await self._schedule_restart()
 
     async def _health_check_loop(self) -> None:
-        """Periodically check bridge health and restart if needed."""
+        """Periodically check bridge health and restart if needed.
+
+        Restart triggers:
+          1. The Java subprocess has exited (process poll() is not None).
+          2. The WebSocket connection has gone silent — no bridge heartbeats
+             (bridge_status messages) for 2 × health_check_interval.
+
+        NOT a restart trigger:
+          - Pioneer hardware silence (_last_pioneer_message_time is stale).
+            Hardware being off or disconnected is normal; the bridge is still
+            healthy and should stay "running" waiting for hardware to return.
+            Restarting on Pioneer silence caused the crash-restart cycle when
+            hardware was absent.
+        """
         while self._status in ("running", "starting"):
             await asyncio.sleep(self._health_check_interval)
 
@@ -350,11 +426,20 @@ class BridgeManager:
                 await self._schedule_restart()
                 break
 
-            # Check message freshness
+            # Check bridge WebSocket heartbeat freshness (all messages, including
+            # bridge_status heartbeats). If the bridge process is alive but the
+            # WebSocket has gone silent for 2× the health check interval, the
+            # connection is dead and a restart is warranted.
+            #
+            # NOTE: Pioneer traffic silence (_last_pioneer_message_time) is NOT
+            # checked here. Hardware being off is normal; do not restart for it.
             if self._last_message_time > 0:
-                silence = time.time() - self._last_message_time
-                if silence > self._health_check_interval * 2:
-                    logger.warning("Bridge silent for %.1fs — restarting", silence)
+                bridge_silence = time.time() - self._last_message_time
+                if bridge_silence > self._health_check_interval * 2:
+                    logger.warning(
+                        "Bridge WebSocket silent for %.1fs (no heartbeats) — restarting",
+                        bridge_silence,
+                    )
                     self._status = "crashed"
                     self._notify_state_change()
                     await self._schedule_restart()
@@ -365,17 +450,22 @@ class BridgeManager:
 
         First retry after a crash: immediate (0 delay).
         Subsequent consecutive failures: base_delay * 2^(failures-1), capped.
-        After MAX_CRASH_BEFORE_FALLBACK consecutive failures: switch to fallback.
+        After MAX_CRASH_BEFORE_FALLBACK consecutive failures: enter
+        waiting_for_hardware state (slow polling every 30 s) rather than the
+        UDP fallback parser. The fallback parser is only entered when JRE or
+        JAR is absent — not when hardware is temporarily disconnected.
         """
         self._consecutive_failures += 1
         await self._cleanup()
 
         if self._consecutive_failures >= self._max_crash_before_fallback:
             logger.warning(
-                "Bridge crashed %d times, switching to fallback mode",
+                "Bridge crashed %d times — entering waiting_for_hardware state "
+                "(will retry every %.0fs)",
                 self._consecutive_failures,
+                _HARDWARE_POLL_INTERVAL_S,
             )
-            await self._start_fallback()
+            await self._enter_waiting_for_hardware()
             return
 
         if self._consecutive_failures == 1:
@@ -400,8 +490,67 @@ class BridgeManager:
         self._next_retry_at = None
         await self.start()
 
+    async def _enter_waiting_for_hardware(self) -> None:
+        """Enter the waiting_for_hardware state and start a slow-poll task.
+
+        In this state the bridge is NOT restarting aggressively.  It polls
+        every _HARDWARE_POLL_INTERVAL_S seconds to check whether the network
+        interface has reappeared, then attempts a full bridge restart.
+
+        This state is separate from "fallback" (which runs the UDP parser).
+        It is entered when the bridge has crashed max_crash_before_fallback
+        times in a row, most likely due to absent or disconnected hardware.
+        """
+        self._status = "waiting_for_hardware"
+        self._consecutive_failures = 0  # reset so next real crash starts fresh
+        self._last_stable_start_time = 0.0
+        self._next_retry_at = None
+        self._notify_state_change()
+        logger.info(
+            "Bridge waiting for hardware — will poll every %.0fs",
+            _HARDWARE_POLL_INTERVAL_S,
+        )
+        self._wait_task = asyncio.create_task(self._wait_for_hardware_loop())
+
+    async def _wait_for_hardware_loop(self) -> None:
+        """Slow-poll loop that attempts bridge restart when hardware reappears.
+
+        Runs while status == "waiting_for_hardware". Attempts a restart every
+        _HARDWARE_POLL_INTERVAL_S seconds. If start() succeeds the status
+        transitions to "running" and the loop exits naturally. If start() fails
+        again, _schedule_restart() will be called, which either backs off and
+        retries within the normal cycle or re-enters waiting_for_hardware.
+        """
+        while self._status == "waiting_for_hardware":
+            self._next_retry_at = time.time() + _HARDWARE_POLL_INTERVAL_S
+            self._notify_state_change()
+            try:
+                await asyncio.sleep(_HARDWARE_POLL_INTERVAL_S)
+            except asyncio.CancelledError:
+                return
+            if self._status != "waiting_for_hardware":
+                return
+            self._next_retry_at = None
+            logger.info(
+                "Hardware poll — attempting bridge restart "
+                "(consecutive_failures=%d)",
+                self._consecutive_failures,
+            )
+            await self.start()
+
+    def _cancel_wait_task(self) -> None:
+        """Cancel the hardware-wait polling task if it is running."""
+        if self._wait_task is not None and not self._wait_task.done():
+            self._wait_task.cancel()
+        self._wait_task = None
+
     async def _start_fallback(self) -> None:
-        """Instantiate and start the fallback UDP parser (degraded mode)."""
+        """Instantiate and start the fallback UDP parser (degraded mode).
+
+        Only entered when JRE or JAR is absent — not when hardware is
+        temporarily disconnected. For the hardware-absent case, use
+        _enter_waiting_for_hardware() instead.
+        """
         self._fallback_parser = FallbackParser(
             on_message=self._fallback_on_message,
             interface=self._network_interface,
@@ -469,9 +618,16 @@ class BridgeManager:
         if self._next_retry_at is not None:
             next_retry_in_s = max(0.0, self._next_retry_at - time.time())
 
+        if self._status == "fallback":
+            mode = "fallback"
+        elif self._status == "waiting_for_hardware":
+            mode = "waiting_for_hardware"
+        else:
+            mode = "bridge"
+
         return {
             "status": self._status,
-            "mode": "fallback" if self._status == "fallback" else "bridge",
+            "mode": mode,
             "port": self._port,
             "network_interface": self._network_interface,
             "jar_path": str(self._jar_path),

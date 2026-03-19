@@ -6,6 +6,8 @@
 
 import type { WSMessage } from "../types";
 import { useBridgeStore } from "../stores/bridgeStore";
+import { useConsoleStore } from "../stores/consoleStore";
+import { mapWSMessageToEntries } from "../utils/consoleMapper";
 
 const WS_URL = `ws://${window.location.hostname}:8000/ws`;
 
@@ -13,6 +15,14 @@ let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let backoff = 1000; // ms, doubles on each failure up to 30s
 const MAX_BACKOFF = 30000;
+
+function dispatchToConsole(msg: WSMessage): void {
+  const entries = mapWSMessageToEntries(msg);
+  const { addEntry } = useConsoleStore.getState();
+  for (const entry of entries) {
+    addEntry(entry);
+  }
+}
 
 function dispatch(msg: WSMessage): void {
   switch (msg.type) {
@@ -29,11 +39,18 @@ function dispatch(msg: WSMessage): void {
         );
       break;
   }
+  dispatchToConsole(msg);
 }
 
 function onOpen(): void {
   backoff = 1000;
   useBridgeStore.getState().setWsConnected(true);
+  useConsoleStore.getState().addEntry({
+    source: "system",
+    severity: "info",
+    message: "Connected to backend",
+    verbose: false,
+  });
 }
 
 function onMessage(event: MessageEvent): void {
@@ -48,6 +65,12 @@ function onMessage(event: MessageEvent): void {
 function onClose(): void {
   ws = null;
   useBridgeStore.getState().setWsConnected(false);
+  useConsoleStore.getState().addEntry({
+    source: "system",
+    severity: "error",
+    message: "Backend connection lost",
+    verbose: false,
+  });
   scheduleReconnect();
 }
 

@@ -41,7 +41,7 @@ interface BridgeStoreState {
 
 function computeDotStatus(status: BridgeStatus): DotStatus {
   if (status === "running") return "connected";
-  if (status === "fallback") return "degraded";
+  if (status === "fallback" || status === "waiting_for_hardware") return "degraded";
   return "disconnected";
 }
 

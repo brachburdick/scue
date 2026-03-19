@@ -26,6 +26,8 @@ Frame your question as:
 
 It is ALWAYS better to ask one question and wait than to implement the wrong thing and need to redo it.
 
+**FE state behavior is always a product decision.** When a bug report or feature task describes UI behavior and the *correct* display for a given system state is not defined in a spec or UI State Behavior artifact, ask Brach before implementing. Do not infer correct FE display behavior from a bug description alone — the operator is the authority on what the UI should show in each state.
+
 ---
 
 ## 2. Decision Transparency
@@ -179,3 +181,15 @@ Do not end the session until all three are complete.
 ## 12. Milestone Maintenance
 
 Any session that closes a `[BLOCKER]` item must update `docs/MILESTONES.md` before ending. This applies regardless of role.
+
+---
+
+## 13. Read Before Edit
+
+Read every file before editing it. The Edit tool enforces this — it will reject any edit to a file not read in the current session. When in doubt, read first.
+
+---
+
+## 14. Misstep Reporting
+
+Record all tool failures, wrong commands, retries, and environment surprises in the `## Missteps` section of your session summary. Be specific: what was tried, what failed, what worked instead. This data feeds the Orchestrator's pattern detection and hook proposals.

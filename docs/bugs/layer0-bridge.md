@@ -79,6 +79,122 @@ Root cause: The Java bridge emits `device_found` once per device when it first d
 Fix: Added `_ensure_device_from_player()` to `BridgeAdapter`. When `player_status` messages arrive for a player number that has no corresponding device entry, a synthetic `DeviceInfo` is created and `on_device_change` is fired. This ensures the `devices` dict stays populated even if `device_found` was missed. The XDJ-AZ got a real `device_found` (it was rediscovered after restart) while Player 1 was inferred from `player_status`. Future improvement: add state replay to the Java bridge's `BridgeWebSocketServer.onOpen()` so real device info (name, IP) is sent on connect.
 File(s): scue/bridge/adapter.py
 
+### [FIXED] Bridge crash-restart cycle after hardware disconnect/reconnect
+Date: 2026-03-18
+Fixed: 2026-03-18
+Milestone: M-0
+Priority: HIGH
+Status: FIXED — see fix details at bottom of this entry.
+
+**Summary:**
+When Pioneer hardware connectivity is disrupted (USB-Ethernet adapter yanked, board powered off) and then restored, the bridge enters an unrecoverable crash-restart cycle. The Java subprocess repeatedly starts, fails, and restarts — each restart steals macOS window focus briefly (app name "beat link trigger" flashes in menu bar). Only a full server restart resolves the cycle.
+
+**Reproduction scenarios (all tested manually 2026-03-18):**
+
+**Scenario 1 — Yank USB-Ethernet adapter while connected:**
+- Observed: Pioneer traffic ceases immediately (correct). Hardware selection panel stays "connected" initially (stale — should update). Eventually bridge crashes. When crash happens: XDJ disappears from device list but Player 2 remains; Players 1 & 2 retain last statuses (stale). Crash-restart cycle begins.
+- After plugging adapter back in: Hardware selection fixes itself, but Pioneer traffic indicator does NOT update to reflect restored traffic. Crash-restart cycle continues. Each cycle shows "bridge starting..." indicator and steals OS focus. Page reload + "Apply and Restart Bridge" does NOT break the cycle. Only full server restart resolves.
+
+**Scenario 2 — Restart server with USB-Ethernet unplugged:**
+- Observed: Shows "Route mismatch: 169.254.255.255 → none (should be en16)" with "Fix Now" button. Fix fails: `API 500: {"detail":{"success":false,"error":"route: bad address: en16","previous_interface":null,"new_interface":"en16"}}`. Initially no crash cycle (good), but after some time the bridge crashes and the cycle starts again.
+
+**Scenario 3 — Power off board while connection is good:**
+- Observed: Pioneer traffic ceases (correct). No other changes in devices, players, or hardware selection (all stale — should update). Clicking "Apply and Restart Bridge" while board is off triggers the crash-restart cycle.
+- Recovery: Powering board back on eventually restores connection and breaks the cycle, but takes noticeably long. When it does reconnect, Player 1 appeared under devices (first time — previously only Player 2 was shown).
+
+**Scenario 4 — Apply and Restart Bridge while fully connected:**
+- Observed: Works perfectly — no issues.
+
+**Additional observations:**
+- "beat link trigger" app name flashes in macOS menu bar during each restart cycle. The bridge JAR's Main-Class is `com.scue.bridge.BeatLinkBridge` — the name likely comes from beat-link library's internal AWT/Swing initialization. Each Java subprocess launch briefly steals OS focus.
+- Player 1 is intermittently missing from device list on initial load. Player 2 shows as "inferred" (from `_ensure_device_from_player()`). This may be a timing issue with `device_found` event delivery — see existing bug "Devices empty despite active player_status messages" above.
+- Route fix API returns 500 with "route: bad address: en16" when the interface doesn't exist (adapter unplugged). Error message should be user-friendly.
+
+---
+
+**Expected behavior per scenario (acceptance criteria for fix):**
+
+**AC-1: Graceful hardware disconnect (adapter yank or board power-off):**
+- Pioneer traffic indicator → off within 2-3 seconds
+- Device list → clears or shows "disconnected" state (not stale data)
+- Player list → shows "offline" or clears (not stale last-known data)
+- Hardware selection → updates to reflect lost interface
+- Bridge status → "degraded" or "waiting for hardware", NOT crash-restart cycle
+- No OS focus stealing
+
+**AC-2: Hardware reconnect after disconnect:**
+- Bridge should detect restored connectivity and recover WITHOUT crash-restart cycle
+- Pioneer traffic indicator → on within 5 seconds of traffic resuming
+- Devices and players → repopulate within 5 seconds
+- NO user intervention required (no page reload, no "Apply and Restart")
+
+**AC-3: Bridge restart without hardware present:**
+- Bridge starts, detects no hardware, enters a stable "waiting" state
+- Route fix API returns a clear user-facing error when interface doesn't exist (not raw "route: bad address")
+- No crash-restart cycle — bridge waits patiently for hardware to appear
+- When hardware appears later, bridge picks it up automatically
+
+**AC-4: OS focus behavior:**
+- Java subprocess launch MUST NOT steal macOS window focus
+- Investigate: can `-Djava.awt.headless=true` be passed to suppress AWT initialization?
+- If beat-link requires AWT, investigate `-Dapple.awt.UIElement=true` (hides from Dock/Cmd-Tab)
+
+**AC-5: "beat link trigger" app name:**
+- The Java process should identify as "SCUE Bridge" or similar, not "beat link trigger"
+- Investigate: `-Xdock:name="SCUE Bridge"` JVM flag or setting `apple.laf.useScreenMenuBar`
+
+---
+
+**Root cause hypotheses (for investigation):**
+1. **No circuit breaker on restart when hardware is absent:** `_schedule_restart()` has exponential backoff and a `max_crash_before_fallback` (3 crashes → fallback mode). But if the bridge KEEPS crashing after fallback, or if fallback itself crashes, there's no stable terminal state. The bridge may be oscillating between "try to start" → "no interface/route" → "crash" → "restart" indefinitely.
+2. **Health check triggers restart on silence:** Lines 354-361 of `manager.py` restart the bridge if it's been silent for `2 × health_check_interval`. When hardware is disconnected, the bridge may go silent (no Pioneer traffic) → health check fires → restart → still no hardware → silent again → loop.
+3. **`_consecutive_failures` may reset on partial success:** If the bridge process starts successfully (WebSocket connects) but then crashes shortly after, `_consecutive_failures` might reset — preventing fallback mode from ever triggering.
+4. **Java AWT thread keeps process alive in bad state:** beat-link creates AWT threads for virtual CDJ. If VirtualCdj.start() fails (no route/no interface), the AWT thread may linger, causing the process to not exit cleanly, confusing the Python-side lifecycle management.
+
+**Fix (2026-03-18, updated after QA live hardware session):**
+
+Six root causes confirmed and fixed:
+
+**1. Health check silenced Pioneer traffic as restart trigger.**
+`_health_check_loop` was restarting the bridge when `_last_message_time` was silent for `2 × health_check_interval`. Since `_last_message_time` is updated by ALL bridge messages (including heartbeats), the bridge would only go silent if the Java process itself died or the WebSocket dropped — not when hardware was disconnected. However, the silence check was semantically wrong: it was designed to catch "bridge went quiet" but would fire if the Java bridge itself crashed and stopped heartbeating, then the health check would restart while `_schedule_restart()` was also running, leading to duplicate restarts. Fixed by clarifying the comment and rename to "bridge WebSocket heartbeat silence" check. Pioneer silence (`_last_pioneer_message_time`) is explicitly NOT a restart trigger.
+
+**2. `_consecutive_failures` reset on brief start-then-crash cycles.**
+When the bridge briefly reached "running" state (Java started, WS connected) but then crashed quickly (VirtualCdj.start() fails because no hardware/route), `start()` reset `_consecutive_failures = 0`. This prevented fallback from triggering even if the bridge crashed every few seconds. Fixed by tracking `_last_stable_start_time` and only resetting `_consecutive_failures` when the previous run lasted ≥ `_MIN_STABLE_UPTIME_S` (30 seconds).
+
+**3. No stable terminal state after crash threshold.**
+After `max_crash_before_fallback` crashes, the bridge entered "fallback" (UDP parser) mode. But the "fallback" state is for when JRE/JAR is absent — it's wrong for hardware-absent scenarios. The UDP fallback has no retry path back to full bridge mode. Fixed by adding a new `"waiting_for_hardware"` state: instead of starting the UDP fallback parser, the bridge enters a slow-poll loop (every 30 s) that calls `start()` to check if hardware has returned. `_consecutive_failures` is reset to 0 on entry so the next cycle starts fresh. Fallback (UDP parser) is now only entered when JRE or JAR is absent.
+
+**4. JVM flags missing — AWT caused focus stealing and "beat link trigger" app name.**
+The Java subprocess was launched without headless/UIElement JVM flags, causing macOS AWT to initialize and steal window focus on every launch. Fixed by adding `_JVM_FLAGS` constant to `manager.py` containing:
+- `-Djava.awt.headless=true` — prevents AWT display connection
+- `-Dapple.awt.UIElement=true` — hides process from Dock/Cmd-Tab
+- `-Xdock:name=SCUE Bridge` — sets app name in any residual AWT menu entry
+
+**5. Route fix error message was raw kernel output.**
+`fix_route()` in `manager.py` returned the raw kernel error "route: bad address: en16" when the interface doesn't exist (adapter unplugged). Fixed by wrapping "bad address" errors with a user-readable message explaining that the USB-Ethernet adapter must be connected.
+Note: QA live testing (2026-03-18) confirmed this wrapping was applied to `manager.py` only.
+`scue/api/network.py:fix_route_endpoint()` bypassed the manager and returned the raw error.
+**Fixed (2026-03-18):** Applied the same "bad address" / "no such interface" wrapping in
+`fix_route_endpoint()` (`scue/api/network.py:116–135`). Regression tests added in
+`tests/test_api/test_bridge_api.py::TestRouteFixFriendlyError`.
+
+**6. `_last_message_time` not reset in `start()` — drives crash cycle on all restarts. [FIXED]**
+Identified by QA live hardware testing (2026-03-18). `start()` did not reset `_last_message_time`
+to `0.0` before launching the subprocess. After any crash, `_last_message_time` held the
+timestamp from the previous run. The health check guard (`if self._last_message_time > 0`)
+evaluated True, and the health check fired within 10s of restart — before beat-link had time
+to connect — driving another crash. This is why SC-001/SC-003/SC-004/SC-010 failed with
+crash-restart cycles despite fixes 1–5. SC-005 (cold start) passed because at process start
+`_last_message_time = 0.0` (class default), so the guard evaluated False and health check
+never fired.
+Fixed (2026-03-18): added `self._last_message_time = 0.0` at line 160 of `start()`, before
+status transition and `_launch_subprocess()`. Regression test added:
+`tests/test_bridge/test_manager.py::TestLastMessageTimeReset`.
+
+File(s): scue/bridge/manager.py, tests/test_bridge/test_manager.py
+
+---
+
 ### rbox ANLZ parser panics on XDJ-AZ exported files
 Date: 2026-03-16
 Milestone: M-0B

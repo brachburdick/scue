@@ -131,7 +131,10 @@ Managed by `scue/api/ws.py` + `scue/api/ws_manager.py`. Frontend dispatch in `fr
 
 - `restart_attempt`: current attempt number during restart backoff (0 when stable)
 - `next_retry_in_s`: seconds until next restart attempt (null when not retrying)
-- `mode`: `"bridge"` (full beat-link), `"fallback"` (UDP-only degraded mode), or `"bridge"` with status indicating availability
+- `mode`: one of three values:
+  - `"bridge"` — full beat-link running (normal operation)
+  - `"fallback"` — UDP-only degraded mode (JRE or JAR unavailable)
+  - `"waiting_for_hardware"` — bridge reached crash threshold with no hardware detected; polling every 30s for hardware to reappear
 
 ### pioneer_status (every 2 seconds)
 

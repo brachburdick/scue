@@ -22,6 +22,13 @@
 - `docs/agents/preambles/[FILL: ROLE].md`
 - [FILL: additional paths the agent should read before starting]
 
+## State Behavior (Required for FE tasks)
+<!-- For tasks involving UI components that display differently based on system state: -->
+<!-- Fill from existing specs or UI State Behavior artifacts, OR mark [ASK OPERATOR] for unknowns. -->
+<!-- If this section has ANY [ASK OPERATOR] entries, resolve them with Brach BEFORE dispatching to a Developer. -->
+<!-- For non-FE tasks or FE tasks with no state-dependent display, write "N/A". -->
+[FILL: Link to ui-state-behavior artifact, inline table, or "N/A — no state-dependent display"]
+
 ## Constraints
 - [FILL: Non-negotiable rules for this task]
 - [FILL: E.g., "Do not modify any existing API endpoints"]
