@@ -3,8 +3,8 @@
 Read these files in order before doing anything:
 
 1. `AGENT_BOOTSTRAP.md`
-2. `docs/agents/preambles/COMMON_RULES.md`
-3. `docs/agents/preambles/RESEARCHER.md`
+2. `preambles/COMMON_RULES.md`
+3. `preambles/RESEARCHER.md`
 4. Any skill files relevant to the research domain (provide paths)
 5. The Research Request (provided below)
 

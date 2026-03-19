@@ -1,53 +1,70 @@
 # Session Summary: [FILL: TASK_ID]
 
+> Status: [FILL: COMPLETE | PARTIAL | BLOCKED]
+> Project Root: [FILL: /absolute/path/to/project]
+> Revision Of: [FILL: artifact path or "none"]
+> Supersedes: [FILL: artifact path(s) or "none"]
+> Superseded By: [FILL: artifact path(s) or "none"]
+
 ## Role
-[FILL: Which role performed this session]
+[FILL: role name. Use "Orchestrator-inline" for approved inline fixes.]
 
 ## Objective
-[FILL: Restate from handoff packet]
+[FILL: restate the handoff objective]
 
 ## Status
 [FILL: COMPLETE | PARTIAL | BLOCKED]
 
 ## Work Performed
-- [FILL: Bullet list of what was actually done]
+- [FILL: what was actually done]
 
 ## Files Changed
 - `[FILL: path/to/file]` — [FILL: what changed and why]
+- [FILL: or "None"]
 
-<!-- GUIDANCE: Every file modified must be listed here. The Validator checks this -->
-<!-- against the handoff packet's Scope Boundary. Omissions will cause a FAIL verdict. -->
+## Artifacts Produced
+- `[FILL: path/to/artifact]` — [FILL: what it is and why it exists]
+- [FILL: or "None"]
+
+## Artifacts Superseded
+- `[FILL: path/to/old-artifact]` — [FILL: what replaced it]
+- [FILL: or "None"]
 
 ## Interfaces Added or Modified
-- [FILL: Any new or changed function signatures, API endpoints, type definitions]
-- [FILL: Include the exact signature, not prose description]
-- [FILL: Or "None" if no interface changes]
-
-<!-- GUIDANCE: If you added or modified types that appear in docs/CONTRACTS.md, -->
-<!-- flag them here. The Architect will coordinate the contract update. -->
+- [FILL: exact signatures, payload fields, endpoint shapes, or "None"]
 
 ## Decisions Made
-- [FILL: Decision]: [Rationale]. Alternative considered: [what was rejected and why].
-
-<!-- GUIDANCE: Every judgment call must be documented. "I chose X over Y because Z." -->
-<!-- This is how the Orchestrator and Validator understand your intent. -->
+- [FILL: decision]: [FILL: rationale]. Alternative considered: [FILL: rejected option and why].
+- [FILL: or "None"]
 
 ## Scope Violations
-- [FILL: Any moment the agent needed to touch out-of-scope files. "None" is a valid answer.]
+- [FILL: needed out-of-scope change or "None"]
 
 ## Remaining Work
-- [FILL: What's left undone, if status is PARTIAL or BLOCKED]
+- [FILL: what is left undone, or "None"]
 
 ## Blocked On
-- [FILL: If status is BLOCKED — what specific question or dependency is unresolved]
-- [FILL: Include a draft Research Request if applicable]
+- [FILL: unresolved dependency, decision, or "None"]
+
+## Routing Recommendation
+- Dispatch owner: [FILL: ORCHESTRATOR DISPATCH | DIRECT DISPATCH | NONE]
+- Recommended next artifact or input: [FILL: path, question, or "none"]
+
+## Exit Checklist
+- [ ] Required artifacts written to disk
+- [ ] Superseded artifacts marked
+- [ ] Follow-up items captured
+- [ ] Routing recommendation declared
 
 ## Missteps
-- [FILL: Tool failures, wrong commands, retries, or environment surprises encountered during this session. Be specific: what was tried, what failed, what worked instead. "None" is valid.]
-- [FILL: E.g., "Ran `python app.py` — failed, needed `.venv/bin/python`. Ran `pip install` — failed, needed venv activation first."]
-
-<!-- GUIDANCE: This section feeds the Orchestrator's pattern detection. -->
-<!-- If the same misstep appears across 2+ sessions, the Orchestrator proposes a fix. -->
+- [FILL: command/tool failure, retry, or environment surprise with specifics, or "None"]
 
 ## Learnings
-- [FILL: Gotchas, surprises, or domain knowledge worth capturing in a skill file]
+- [FILL: durable lesson or skill-file candidate, or "None"]
+
+## Follow-Up Items
+- [FILL: backlog-worthy out-of-scope item, or "None"]
+
+## Self-Assessment
+- Confidence: [FILL: HIGH | MEDIUM | LOW]
+- Biggest risk if accepted as-is: [FILL: one line or "none"]

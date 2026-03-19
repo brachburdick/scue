@@ -3,8 +3,8 @@
 Read these files in order before doing anything:
 
 1. `AGENT_BOOTSTRAP.md`
-2. `docs/agents/preambles/COMMON_RULES.md`
-3. `docs/agents/preambles/QA_TESTER.md`
+2. `preambles/COMMON_RULES.md`
+3. `preambles/QA_TESTER.md`
 4. Relevant test scenario file(s) (provide paths — e.g., `specs/feat-[name]/test-scenarios.md` or `docs/test-scenarios/[area].md`)
 5. The handoff packet (for context on what was changed)
 6. The Validator verdict (for what was already checked statically)

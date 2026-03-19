@@ -3,9 +3,9 @@
 Read these files in order before doing anything:
 
 1. `AGENT_BOOTSTRAP.md`
-2. `docs/agents/preambles/COMMON_RULES.md`
-3. `docs/agents/preambles/DEVELOPER.md`
-4. `docs/CONTRACTS.md`
+2. `preambles/COMMON_RULES.md`
+3. `preambles/DEVELOPER.md`
+4. `docs/interfaces.md`
 5. `LEARNINGS.md`
 6. Any skill files referenced in your handoff packet (provide paths)
 7. Your handoff packet (provided below)

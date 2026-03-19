@@ -3,8 +3,8 @@
 Read these files in order before doing anything:
 
 1. `AGENT_BOOTSTRAP.md`
-2. `docs/agents/preambles/COMMON_RULES.md`
-3. `docs/agents/preambles/VALIDATOR.md`
+2. `preambles/COMMON_RULES.md`
+3. `preambles/VALIDATOR.md`
 4. The handoff packet for this task (provided below)
 5. The Developer's session summary (provided below)
 6. The code diff or changed files (provided below)

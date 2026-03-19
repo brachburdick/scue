@@ -1,42 +1,40 @@
 # Orchestrator State Snapshot
 
-**Last updated:** [FILL: YYYY-MM-DD] — [FILL: session file path, e.g., specs/feat-name/sessions/session-003-orchestrator.md]
-
-<!-- GUIDANCE: Overwrite this file at the end of every Orchestrator session. -->
-<!-- Read it at the start of every Orchestrator session — before anything else. -->
-<!-- This file replaces verbal status updates and git log archaeology. -->
+**Last updated:** [FILL: date] — [FILL: session summary path]
 
 ## Active Milestone
-[FILL: Milestone name]: [FILL: one-line status, e.g., "3 of 7 tasks complete, 1 blocked"]
+[FILL: milestone name]: [FILL: one-line status]
 
 ## Task Status
 | Task ID | Status | Notes |
 |---------|--------|-------|
-| [FILL: ID] | [FILL: COMPLETE \| IN_PROGRESS \| BLOCKED \| PENDING] | [FILL: one line] |
+| [FILL: TASK-ID] | [FILL: COMPLETE \| IN_PROGRESS \| BLOCKED \| PENDING] | [FILL: one line] |
 
-<!-- GUIDANCE: List every task in the active milestone. -->
-<!-- Use BLOCKED for tasks waiting on a decision or dependency. -->
-<!-- Use PENDING for tasks not yet started. -->
+## Active Sessions
+| Session | Role | Task ID | Dispatch Mode | Owner | Expected Output |
+|---------|------|---------|---------------|-------|-----------------|
+| [FILL: session-012] | [FILL: Developer] | [FILL: TASK-006a] | [FILL: ORCHESTRATOR DISPATCH] | [FILL: Orchestrator \| Operator] | [FILL: artifact path] |
+
+## Dispatch Reconciliation
+- [FILL: direct-dispatched work now reflected in state, or "None"]
 
 ## Open Blockers
-- [FILL: None] or [FILL: description — what's needed to unblock and who decides]
+- [FILL: "None" or blocker with owner]
 
 ## Pending Decisions
-- `[DECISION NEEDED]`: [FILL: question — what's blocking and who needs to decide]
-
-<!-- GUIDANCE: Copy unresolved [DECISION NEEDED] tags here from specs and handoff packets. -->
-<!-- Remove entries once resolved. -->
+- `[DECISION NEEDED]`: [FILL: question, why it matters, and who decides]
+- [FILL: or "None"]
 
 ## Recent Context
-[FILL: 2–3 sentences: what happened last session, any surprises or key decisions made]
+[FILL: 2-3 sentences on what changed last session]
 
 ## Recurring Missteps
-- [FILL: Missteps seen across 2+ sessions. Include: pattern, frequency, proposed fix (skill file entry, hook, or preamble rule). Remove once fixed.]
+- [FILL: repeated pattern, frequency, and proposed fix, or "None"]
 
-<!-- GUIDANCE: Populate from ## Missteps sections of recent session summaries. -->
-<!-- Propose a fix type: skill file (soft guidance), hook (deterministic), preamble rule (process). -->
+## Follow-Up Backlog
+- [FILL: promoted follow-up item, or "None"]
 
 ## Next Session Priorities
-1. [FILL: Highest priority action]
-2. [FILL: Second priority]
-3. [FILL: Third priority]
+1. [FILL: highest priority action]
+2. [FILL: second priority action]
+3. [FILL: third priority action]

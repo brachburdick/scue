@@ -1,16 +1,17 @@
 # Validator Verdict: [FILL: TASK_ID]
 
+> Status: [FILL: COMPLETE]
+> Project Root: [FILL: /absolute/path/to/project]
+> Revision Of: [FILL: artifact path or "none"]
+> Supersedes: [FILL: artifact path(s) or "none"]
+> Superseded By: [FILL: artifact path(s) or "none"]
+
 ## Verdict: [FILL: PASS | FAIL]
 
 ## Verification Scope: [FILL: STATIC | STATIC+TESTS]
-
-<!-- STATIC = code review and artifact check only. -->
-<!-- STATIC+TESTS = also confirmed unit/integration tests pass. -->
-<!-- Neither implies live system verification — that is the QA Tester's scope (Phase 6a). -->
+[FILL: what was checked]
 
 ## Pre-Check: Session Summary
-<!-- GUIDANCE: This is Step 0. If the session summary is missing or incomplete, -->
-<!-- the verdict is FAIL immediately. Do not evaluate code without a summary. -->
 - Session summary exists: [FILL: YES | NO]
 - All required fields present: [FILL: YES | NO — list missing fields]
 
@@ -20,27 +21,22 @@
 - New tests pass: [FILL: YES | NO]
 
 ## Acceptance Criteria Check
-- [ ] [FILL: Criterion from handoff] — [FILL: MET | NOT MET | PARTIAL — evidence]
-
-<!-- GUIDANCE: For each criterion, cite specific evidence: file path, line number, -->
-<!-- test output, or behavioral observation. "Looks correct" is not evidence. -->
+- [ ] [FILL: criterion from handoff] — [FILL: MET | NOT MET | PARTIAL — evidence]
 
 ## Scope Check
 - Files modified: [FILL: list]
 - Out-of-scope modifications: [FILL: list or "none"]
 
 ## What Went Well
-- [FILL: Specific, evidence-based praise. "None" is valid but rare. Vague praise ("good work") is not valid — cite what was done well and why it matters.]
-
-<!-- GUIDANCE: Complete this section before Issues Found. It helps Developers understand -->
-<!-- what to repeat. Cite file, behavior, or pattern that was handled correctly. -->
+- [FILL: specific, evidence-based praise]
 
 ## Issues Found
-- **[FILL: SEVERITY: CRITICAL | WARNING]**: [FILL: Description with evidence. File and line if applicable.]
+- **[FILL: CRITICAL | WARNING]**: [FILL: description with evidence]
+- [FILL: or "None"]
 
-<!-- GUIDANCE: CRITICAL = must fix before proceeding. Any CRITICAL issue = FAIL verdict. -->
-<!-- WARNING = should fix, but not blocking. -->
+## Recommended Next Step
+- [FILL: NEXT TASK | QA DISPATCH | DEVELOPER RETRY | OPERATOR DECISION]
+- [FILL: why]
 
 ## Recommendation
-[FILL: If FAIL — specific remediation steps for the Developer's next session.]
-[FILL: If PASS — "Proceed to next task." or note any WARNINGs to address later.]
+[FILL: remediation steps if FAIL, or "None"]

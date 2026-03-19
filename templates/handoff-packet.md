@@ -1,10 +1,25 @@
-# Handoff Packet: [FILL: TASK_ID, e.g., TASK-003]
+# Handoff Packet: [FILL: TASK_ID]
+
+> Status: [FILL: APPROVED]
+> Project Root: [FILL: /absolute/path/to/project]
+> Revision Of: [FILL: artifact path or "none"]
+> Supersedes: [FILL: artifact path(s) or "none"]
+> Superseded By: [FILL: artifact path(s) or "none"]
+
+## Dispatch
+- Mode: [FILL: ORCHESTRATOR DISPATCH | DIRECT DISPATCH]
+- Output path: [FILL: exact artifact path this agent must write before ending the session]
+- Parallel wave: [FILL: wave ID or "none"]
 
 ## Objective
 [FILL: One sentence — what must be true when this task is done.]
 
 ## Role
-[FILL: Which role should execute this: Architect | Researcher | Designer | Developer]
+[FILL: Architect | Researcher | Designer | Developer | Validator | QA Tester]
+
+## Working Directory
+- Run from: [FILL: exact working directory]
+- Related feature/milestone: [FILL: feature or milestone name]
 
 ## Scope Boundary
 - Files this agent MAY read/modify:
@@ -12,42 +27,40 @@
 - Files this agent must NOT touch:
   - [FILL: explicit exclusions]
 
-<!-- GUIDANCE: Be specific. "scue/layer1/" is better than "Layer 1 files." -->
-<!-- If in doubt, list more exclusions rather than fewer. -->
-
 ## Context Files
-<!-- GUIDANCE: Paths only — do not paste file contents into the handoff. -->
 - `AGENT_BOOTSTRAP.md`
-- `docs/agents/preambles/COMMON_RULES.md`
-- `docs/agents/preambles/[FILL: ROLE].md`
-- [FILL: additional paths the agent should read before starting]
+- `preambles/COMMON_RULES.md`
+- `preambles/[FILL: ROLE].md`
+- [FILL: relevant spec, plan, tasks, interfaces, findings, or skill files]
 
-## State Behavior (Required for FE tasks)
-<!-- For tasks involving UI components that display differently based on system state: -->
-<!-- Fill from existing specs or UI State Behavior artifacts, OR mark [ASK OPERATOR] for unknowns. -->
-<!-- If this section has ANY [ASK OPERATOR] entries, resolve them with Brach BEFORE dispatching to a Developer. -->
-<!-- For non-FE tasks or FE tasks with no state-dependent display, write "N/A". -->
-[FILL: Link to ui-state-behavior artifact, inline table, or "N/A — no state-dependent display"]
+## Interface Contracts
+- [FILL: exact contract file(s), payloads, signatures, or "none"]
+- [FILL: if parallel work exists, state ownership split and shared boundary]
+
+## State Behavior
+- [FILL: link to UI state behavior artifact, explicit mapping, or "N/A"]
+- [FILL: if any `[ASK OPERATOR]` remains here, resolve it before Developer dispatch]
+
+## Required Output
+- Write: `[FILL: same exact path from Dispatch > Output path]`
+- If you supersede an existing artifact, mark it `SUPERSEDED` before session end.
+- If you discover backlog-worthy out-of-scope improvements, capture them in `## Follow-Up Items` of the session summary.
 
 ## Constraints
-- [FILL: Non-negotiable rules for this task]
-- [FILL: E.g., "Do not modify any existing API endpoints"]
-- [FILL: E.g., "All new functions must have type hints"]
+- [FILL: non-negotiable rule]
+- [FILL: non-negotiable rule]
 - All pre-existing tests must continue to pass.
 
 ## Acceptance Criteria
-- [ ] [FILL: Specific, testable condition]
-- [ ] [FILL: Specific, testable condition]
+- [ ] [FILL: specific, testable condition]
+- [ ] [FILL: specific, testable condition]
 - [ ] All pre-existing tests pass
-
-<!-- GUIDANCE: Each criterion must be verifiable by the Validator agent. -->
-<!-- Avoid subjective criteria like "code is clean" — use "no type errors reported by mypy." -->
 
 ## Dependencies
 - Requires completion of: [FILL: TASK_ID(s) or "none"]
 - Blocks: [FILL: TASK_ID(s) or "none"]
 
 ## Open Questions
-<!-- CRITICAL: If this section is non-empty for a Developer handoff, STOP. -->
-<!-- Resolve all open questions before dispatching to a Developer. -->
-[FILL: Any unresolved items, or "None"]
+- [FILL: unresolved item or "none"]
+
+> If this is a Developer handoff and `## Open Questions` is non-empty, do not dispatch yet.
