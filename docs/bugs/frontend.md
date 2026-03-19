@@ -76,14 +76,23 @@ Root cause: Not yet investigated. Score calculation may not account for active P
 Fix: None yet. Non-blocker. Needs investigation into interface scoring logic.
 File(s): TBD — likely frontend/src/components/bridge/InterfaceRow.tsx or InterfaceSelector.tsx
 
-### Devices and players show stale data after hardware disconnect
+### [PARTIAL] Devices and players show stale data after hardware disconnect
 Date: 2026-03-18
-Resolved: 2026-03-19
+Partially fixed: 2026-03-19
 Milestone: FE-BLT
 Symptom: When Pioneer hardware disconnects (adapter unplugged, board powered off), the DeviceList and PlayerList continue to show the last-known device and player data. They do not clear or show a "disconnected" state. Stale BPM and pitch values remain visible.
 Root cause: Two issues: (1) The backend bridge adapter (`_devices`/`_players` dicts) is never cleared on disconnect, so `to_status_dict()` continues to include stale device/player data in `bridge_status` payloads even in non-running states. (2) The frontend `bridgeStore.setBridgeState()` blindly accepted devices/players from every `bridge_status` message regardless of bridge status. (3) `setWsConnected(false)` did not clear devices/players, so a WebSocket disconnect left stale data in place. (4) `PlayerList` returned `null` on empty state instead of showing an empty-state message.
-Fix: Frontend-only fix in bridgeStore: `setBridgeState()` now force-clears devices/players to `{}` when `status !== "running"`, ignoring stale backend data. `setWsConnected(false)` also clears devices/players. PlayerList now renders "No active players." empty state instead of returning null.
-File(s): frontend/src/stores/bridgeStore.ts, frontend/src/components/bridge/PlayerList.tsx
+Partial fix: Frontend-only fix in bridgeStore: `setBridgeState()` now force-clears devices/players to `{}` when `status !== "running"`, ignoring stale backend data. `setWsConnected(false)` also clears devices/players. PlayerList now renders "No active players." empty state instead of returning null.
+QA result (2026-03-19): FAIL. Fix works during non-running states (crashed, starting, waiting_for_hardware). Fails on reconnect: when bridge restarts and returns to `running`, backend adapter still holds stale `_devices`/`_players` and sends them in the now-trusted `bridge_status` message. Stale devices/players reappear. Needs backend fix in `scue/bridge/adapter.py` to clear adapter state on crash/disconnect.
+File(s): frontend/src/stores/bridgeStore.ts, frontend/src/components/bridge/PlayerList.tsx, scue/bridge/adapter.py (unfixed)
+
+### [OPEN] Hardware disconnect/reconnect flow is too slow with poor visual feedback
+Date: 2026-03-19
+Milestone: FE-BLT
+Symptom: When Pioneer hardware is powered off, the UI takes too long to reflect the change and provides poor visual indication of what's actually happening. The full sequence (traffic lost → device lost → traffic briefly resumes → traffic lost again → bridge crashes → restarts → reconnects) takes ~45 seconds with no clear user-facing narrative. After the bridge reconnects, stale devices/players reappear. A crash-restart loop repeats every ~2 minutes while hardware remains off. The user has no clear indication of system state during this process.
+Root cause: Multiple interacting issues across backend and frontend: (1) backend adapter never clears device/player state on crash/disconnect; (2) bridge crash detection is slow (~20s before crash is declared); (3) bridge enters a crash-restart loop every ~2 min when hardware is off rather than settling into a stable "no hardware" state; (4) frontend has no transitional states or progress indication during the crash-restart sequence; (5) related open bugs (route mismatch not clearing, interface score not updating, false-positive connected state during restart) compound the confusion.
+Fix: None yet. Needs holistic assessment — likely requires Architect audit of the disconnect/reconnect data flow (what the backend sends, when, and what states it transitions through) plus Designer work on what the UX should look like across all these transitional states.
+File(s): TBD — cross-cutting: scue/bridge/adapter.py, scue/bridge/manager.py, frontend/src/stores/bridgeStore.ts, frontend/src/components/bridge/*
 
 ### [OPEN] Route status and bridge connection show false-positive during restart
 Date: 2026-03-18

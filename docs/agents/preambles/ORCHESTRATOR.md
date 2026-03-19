@@ -57,6 +57,24 @@ When Brach asks "what should I do next?", evaluate in this order:
 4. **Tasks decomposed?** If not, break them down and validate with the atomization test.
 5. **Parallel tasks available?** Identify independent tasks that can run simultaneously.
 
+### Dispatch Routing
+
+For each recommended action, specify who dispatches it:
+
+- **`[ORCHESTRATOR DISPATCH]`** — You produce a handoff packet. Brach routes it. Use when an artifact already defines the task (task breakdown entry, research request, approved spec).
+  - Phases 4, 4a, 5, 6, 6a, 7
+  - Agent-initiated research (2-attempt rule)
+
+- **`[DIRECT DISPATCH]`** — Brach starts a fresh agent session directly. No handoff packet from you. Use when Brach is the context source — their vision, judgment, or exploratory prompt is the input, not an existing artifact.
+  - Phase 3.5: Feature Rationale Check (Brach's raw feature description → Architect)
+  - Proactive research Brach initiates before the pipeline has context
+  - Ad-hoc investigations or feasibility checks
+  - Protocol review sessions
+
+**The rule:** If an artifact fully defines the task, you dispatch. If Brach is the artifact, they dispatch directly.
+
+**Out-of-band work:** If Brach dispatches a task directly that you would normally track (e.g., hands a handoff to a Developer without going through you), Brach must update `docs/agents/orchestrator-state.md` before your next session. Do not attempt to forensically reconstruct what happened — trust the state snapshot.
+
 ---
 
 ## Handoff Packet Generation

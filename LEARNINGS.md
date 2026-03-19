@@ -173,6 +173,20 @@ Problem: Tests in other files outside the agent's scope may reference private at
 Fix/Pattern: When renaming internal attributes, add backward-compatible property aliases on the class so old names still work. Flag the rename in the session summary under "Interface Impact" so the Operator can dispatch cleanup to the appropriate agent.
 Prevention: Before renaming any private attribute, grep the test directory for references. If references exist outside your scope, use an alias rather than a breaking rename.
 
+### BridgeAdapter is a long-lived singleton — state persists across crash/restart cycles
+Date: 2026-03-19
+Context: Architect audit of disconnect/reconnect data flow. Tracing why stale devices/players reappear after bridge crash-restart.
+Problem: `BridgeAdapter` is instantiated once in `BridgeManager.__init__()` and never re-created. Its `_devices` and `_players` dicts accumulate data across the entire server lifetime. When the bridge crashes and restarts, the same adapter instance retains all previous state. `to_status_dict()` serializes adapter state directly into `bridge_status` payloads, so stale data flows to the frontend on every state change broadcast — including the "running" transition after a restart.
+Fix/Pattern: Add an explicit `clear()` method to BridgeAdapter. Call it in `_cleanup()` (runs on every crash/stop) and in `start()` (belt-and-suspenders). This ensures `to_status_dict()` returns empty devices/players after any restart until fresh data arrives from the new bridge session.
+Prevention: When a stateful object survives across failure/recovery cycles, always provide a reset method and call it at every recovery boundary. Don't assume the object will be re-instantiated.
+
+### Module-level mutable state in consoleMapper.ts persists across WS reconnects
+Date: 2026-03-19
+Context: Architect audit. Investigating why console entries may behave incorrectly after bridge reconnect.
+Problem: `consoleMapper.ts` uses module-level variables (`prevBridgeStatus`, `prevIsReceiving`, etc.) for diff detection. These persist across WS close/reopen because the ES module is loaded once and never re-imported. After a WS reconnect, the mapper compares the first `bridge_status` message against pre-disconnect state, potentially missing transitions or generating incorrect diffs.
+Fix/Pattern: Call `resetMapperState()` in the WS `onOpen()` handler before dispatching any messages. This ensures the mapper treats each WS session as a fresh start.
+Prevention: Module-level mutable state in frontend modules must be explicitly reset on lifecycle boundaries (WS reconnect, page navigation, etc.). The module system does not reset state for you.
+
 ---
 
 ## Resolved

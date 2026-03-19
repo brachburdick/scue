@@ -235,3 +235,124 @@
 - **Actual:** HTTP 500 returned with raw `"error": "route: bad address: en16"` — FAIL as of 2026-03-18 QA session
 - **Status:** FAIL
 - **Notes:** Root cause: `scue/api/network.py:fix_route_endpoint()` calls `network.route.fix_route()` directly, bypassing `BridgeManager.fix_route()` which has the friendly error wrapping. Fix should be applied to the endpoint or it should route through the manager. Tracked as outcome of QA-BRIDGE-LIFECYCLE session 2026-03-18.
+
+---
+
+### SC-015: Bridge reconnects to running state with stale adapter data — UI should remain empty
+
+- **Given:** Server running, board ON, USB-ETH plugged, bridge CONNECTED (devices and players visible in UI)
+- **When:** Board is powered off (or adapter unplugged), bridge goes through a crash-restart cycle, and bridge status returns to "running" — but the backend adapter still holds stale `_devices`/`_players` from before the disconnect
+- **Then:**
+  - [ ] DeviceList shows empty state ("No Pioneer devices found") — NOT stale device cards
+  - [ ] PlayerList shows "No active players." — NOT stale player cards with stale BPM/pitch
+  - [ ] Stale data does NOT snap back when bridge status re-enters "running" without fresh hardware data
+  - [ ] Empty state persists until actual Pioneer hardware announcements are received by beat-link
+- **Actual:** Stale Device (Player 2 / inferred-player-1) and Players (p1, p2) reappeared in UI when bridge returned to running after board power-off. Empty states showed correctly during crashed/starting states but stale data snapped back on running state entry.
+- **Status:** FAIL
+- **Notes:** Root cause: backend adapter (`scue/bridge/adapter.py`) never clears `_devices`/`_players` on crash or restart. Frontend fix gates on `status !== "running"`, which correctly handles non-running states but cannot protect against stale data that arrives in a `status="running"` message. Fix requires backend adapter to clear its state on disconnect, OR a frontend mechanism to detect and reject stale data in the first running-state message after a reconnect (session epoch, reconnect grace window, etc.). Discovered: 2026-03-19 QA session (session-003-qa-tester.md). Linked to FIX-STALE-DEVICES partial fix.
+
+### SC-016: Stale data reappears on each crash-restart cycle iteration with hardware off
+
+- **Given:** Server running, board OFF, USB-ETH plugged, bridge in crash-restart cycle (cycling through crashed → starting → running)
+- **When:** Bridge repeatedly enters the running state briefly before detecting no hardware and crashing again (crash-restart loop)
+- **Then:**
+  - [ ] Stale device/player data does NOT reappear on any "running" entry in the crash cycle
+  - [ ] UI stays in empty state throughout all iterations of the crash loop
+  - [ ] No flicker between "stale data visible" and "empty state" across crash loop cycles
+  - [ ] Bridge eventually stabilizes in waiting_for_hardware with empty state, no further stale data exposure
+- **Actual:** Stale data reappeared on each brief "running" entry across multiple crash cycles (~2-minute interval). Empty state was shown correctly during the non-running windows, but stale data snapped back each time the bridge briefly entered running. Observed across at least 3 crash cycles during the 09:01–09:06 window.
+- **Status:** FAIL
+- **Notes:** Compound failure — the SC-015 root cause (adapter not clearing state) multiplies across every crash cycle iteration. Each new bridge subprocess inherits stale adapter data. Until the adapter clears `_devices`/`_players` on disconnect/restart, every running-state entry (however brief) will re-expose stale data. Discovered: 2026-03-19 QA session (session-003-qa-tester.md).
+
+---
+
+<!-- Post-fix scenarios added by Architect audit (2026-03-19, session-004-architect) -->
+<!-- These validate the fixes from spec-disconnect-reconnect.md TASK-001 through TASK-005. -->
+<!-- They should PASS after all tasks are implemented. -->
+
+### SC-017: Adapter state cleared after crash — no stale data on reconnect
+
+- **Given:** Server running, board ON, USB-ETH plugged, bridge CONNECTED (devices and players visible). TASK-001 fix applied (adapter.clear() in _cleanup and start).
+- **When:** Board is powered off, bridge crashes and restarts, bridge status returns to "running"
+- **Then:**
+  - [ ] `to_status_dict()` returns `devices={}`, `players={}` immediately after restart (before new hardware data arrives)
+  - [ ] DeviceList shows empty state after restart — no stale device cards
+  - [ ] PlayerList shows "No active players." after restart — no stale BPM/pitch
+  - [ ] When board is powered back on and beat-link discovers hardware, fresh devices/players appear (not stale data from before the disconnect)
+  - [ ] `pioneer_status.is_receiving` is `false` after restart until fresh Pioneer traffic arrives
+- **Actual:**
+- **Status:** NOT_TESTED
+- **Notes:** Validates TASK-001. The key change is `adapter.clear()` called in `_cleanup()` (which runs on crash) and `start()`. Also validates `_last_pioneer_message_time` reset prevents false-positive `is_receiving`.
+
+### SC-018: Interface pre-check prevents crash loop when hardware is absent
+
+- **Given:** Server running, bridge in `waiting_for_hardware` (crash threshold reached), USB-ETH adapter UNPLUGGED (interface doesn't exist in system). TASK-002 fix applied.
+- **When:** Slow-poll fires (every 30 seconds)
+- **Then:**
+  - [ ] Manager checks interface availability via `socket.if_nametoindex()`
+  - [ ] Interface check fails (OSError) — logged at debug level
+  - [ ] `start()` is NOT called — no subprocess launch, no crash
+  - [ ] Bridge remains in `waiting_for_hardware` — no status transitions
+  - [ ] No crash-restart cycles occur during the entire hardware-absent period
+  - [ ] When USB-ETH adapter is re-plugged: next poll cycle detects the interface, calls `start()`, bridge recovers
+- **Actual:**
+- **Status:** NOT_TESTED
+- **Notes:** Validates TASK-002. Compare against SC-001/SC-010 behavior (pre-fix: 3 crashes per poll cycle). Post-fix: zero crashes per poll cycle when interface is absent.
+
+### SC-019: Route warning auto-clears on bridge reconnect
+
+- **Given:** Server running, board ON, USB-ETH plugged, bridge CONNECTED. Route mismatch warning visible in RouteStatusBanner (e.g., after adapter re-plug with different interface). TASK-003 fix applied.
+- **When:** Bridge crashes and reconnects (or user triggers "Apply & Restart Bridge"), bridge status transitions to "running"
+- **Then:**
+  - [ ] `["network", "route"]` TanStack query is invalidated on the running transition
+  - [ ] `["network", "interfaces"]` TanStack query is invalidated on the running transition
+  - [ ] RouteStatusBanner refetches route status and updates — warning clears if route is now correct
+  - [ ] InterfaceSelector refetches interface list — scores update
+  - [ ] No manual "Fix Now" click required to clear a stale route warning
+- **Actual:**
+- **Status:** NOT_TESTED
+- **Notes:** Validates TASK-003 (query invalidation). The fix adds a module-level prev status tracker in ws.ts that detects transitions to "running" and invalidates queries.
+
+### SC-020: Console mapper resets on WS reconnect — entries survive
+
+- **Given:** Server running, bridge CONNECTED, console panel has 10+ log entries visible. TASK-003 + TASK-005 fixes applied.
+- **When:** WS connection drops and reconnects (e.g., backend restart, network blip)
+- **Then:**
+  - [ ] All 10+ pre-existing console entries remain visible after reconnect
+  - [ ] "Backend connection lost" entry appears on disconnect
+  - [ ] "Connected to backend" entry appears on reconnect
+  - [ ] First `bridge_status` after reconnect generates appropriate console entries (e.g., "Bridge status: running") — mapper treats it as fresh session
+  - [ ] No duplicate/stale diff entries from comparing new session state against pre-disconnect state
+- **Actual:**
+- **Status:** NOT_TESTED
+- **Notes:** Validates TASK-003 (mapper reset) and TASK-005 (console log persistence). The mapper reset ensures correct entries; the TASK-005 fix ensures entries aren't flushed.
+
+### SC-021: Interface score updates for active traffic and correct route
+
+- **Given:** Server running, USB-ETH plugged (en7), board OFF, bridge in `running` (no devices). TASK-004 fix applied.
+- **When:** Board is powered on, Pioneer traffic begins flowing on en7, route is verified correct
+- **Then:**
+  - [ ] Interface score for en7 increases from baseline (e.g., 5) to a higher value reflecting active traffic and correct route
+  - [ ] `GET /api/network/interfaces` returns the updated score
+  - [ ] InterfaceSelector displays the updated score in the UI
+  - [ ] When board is powered off and traffic stops, score decreases back toward baseline
+- **Actual:**
+- **Status:** NOT_TESTED
+- **Notes:** Validates TASK-004. Requires investigation of current scoring logic to determine exact expected score values.
+
+### SC-022: Full disconnect/reconnect lifecycle — end to end
+
+- **Given:** Server running, board ON, USB-ETH plugged, bridge CONNECTED, devices and players visible, route correct. ALL fixes applied (TASK-001 through TASK-005).
+- **When:** Board is powered off → bridge crashes → restarts → enters waiting_for_hardware (if interface absent) or running (if interface present) → board powered back on → bridge recovers
+- **Then:**
+  - [ ] Phase 1 (board off): Pioneer traffic lost within 3s, device list clears within 5s
+  - [ ] Phase 2 (crash): Adapter state cleared, devices/players empty in bridge_status payload
+  - [ ] Phase 3 (restart): No stale data during brief "running" window (adapter was cleared)
+  - [ ] Phase 4 (waiting): No crash-restart loop if interface is absent (pre-check skips start)
+  - [ ] Phase 5 (board on): Bridge detects hardware, devices/players repopulate with fresh data
+  - [ ] Phase 6 (recovery): Route warning clears automatically, interface score updates, console entries from all phases preserved
+  - [ ] Total time from board-off to stable empty state: < 30s (no unnecessary crash cycles)
+  - [ ] Total time from board-on to full recovery: < 15s (one poll cycle + beat-link discovery)
+- **Actual:**
+- **Status:** NOT_TESTED
+- **Notes:** End-to-end integration scenario. This is the gold-standard test — if this passes, all 6 original bugs are resolved. Run after ALL tasks are complete.
