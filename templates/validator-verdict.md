@@ -1,19 +1,14 @@
 # Validator Verdict: [FILL: TASK_ID]
 
-> Status: [FILL: COMPLETE]
-> Project Root: [FILL: /absolute/path/to/project]
-> Revision Of: [FILL: artifact path or "none"]
-> Supersedes: [FILL: artifact path(s) or "none"]
-> Superseded By: [FILL: artifact path(s) or "none"]
+---
+status: COMPLETE
+project_root: [FILL: /absolute/path/to/project]
+---
 
 ## Verdict: [FILL: PASS | FAIL]
 
 ## Verification Scope: [FILL: STATIC | STATIC+TESTS]
 [FILL: what was checked]
-
-## Pre-Check: Session Summary
-- Session summary exists: [FILL: YES | NO]
-- All required fields present: [FILL: YES | NO — list missing fields]
 
 ## Tests
 - Pre-existing tests pass: [FILL: YES | NO — list failures]
@@ -27,6 +22,15 @@
 - Files modified: [FILL: list]
 - Out-of-scope modifications: [FILL: list or "none"]
 
+## Compliance Check
+- Session summary exists at expected path: [YES | NO]
+- Session summary has all required fields: [YES | NO — list missing]
+- Artifacts declared in session summary exist on disk: [YES | NO — list missing]
+- Interface changes properly flagged: [YES | NO | N/A]
+
+## Supersession
+- Artifacts superseded by this session: [list with paths, or "None"]
+
 ## What Went Well
 - [FILL: specific, evidence-based praise]
 
@@ -36,7 +40,8 @@
 
 ## Recommended Next Step
 - [FILL: NEXT TASK | QA DISPATCH | DEVELOPER RETRY | OPERATOR DECISION]
-- [FILL: why]
+- Dispatch mode: [FILL: ORCHESTRATOR DISPATCH | DIRECT DISPATCH]
+- [FILL: why this is the correct next step]
 
 ## Recommendation
 [FILL: remediation steps if FAIL, or "None"]

@@ -67,6 +67,14 @@ If any are unaccounted for, do not dispatch.
 ## Operator Concerns
 Promote unresolved operator concerns, especially FE state-behavior questions, into `## Pending Decisions` in the state snapshot. Do not leave them buried in session summaries.
 
+## Reading Priority
+For completed Developer sessions: read the Validator Verdict first. It contains compliance status, recommended next step, and dispatch mode. Read the raw session summary only when:
+- The session is BLOCKED or PARTIAL (no verdict exists yet)
+- The verdict flags issues that require understanding the producer's reasoning
+- You need the exact `## Follow-Up Items` or `## Learnings` content
+
+For non-Developer sessions: read the session summary directly.
+
 ## Context Budget Self-Assessment
 If you cannot confidently produce the next handoff from on-disk artifacts alone, recommend a fresh Orchestrator session or direct operator dispatch instead of bluffing.
 

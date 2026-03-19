@@ -4,7 +4,7 @@
 > Add entries here as you notice gaps, bugs, or ideas during sessions.
 > These get promoted to the root protocol (or kept project-local) during review.
 >
-> **Last cleared:** 2026-03-19 (v1.6 protocol review)
+> **Last cleared:** 2026-03-19 (v1.8 protocol sync)
 
 ---
 
@@ -13,22 +13,6 @@
 <!-- Context: What happened -->
 <!-- Observation: What went wrong or could be better -->
 <!-- Improvement: Proposed change -->
-
-### Developer skipped session summary despite clear preamble instructions
-**Date:** 2026-03-19
-**Session:** 1.6.1 (FIX-STALE-DEVICES, feat-FE-BLT)
-**Context:** Developer agent completed all acceptance criteria, passed validation and QA, but did not write a session summary. When prompted, the agent acknowledged the preamble instructions were "perfectly clear" (COMMON_RULES.md and DEVELOPER.md both state session summaries are non-negotiable). Summary was only written after operator intervention.
-**Observation:** This is a recurrence of the v1.0 resolved BUG. The Validator Step 0 pre-check would have caught it downstream, but the Developer still didn't self-enforce. The SubagentStop hook fired `PreToolUse:Bash hook error` during recovery, suggesting the hook infrastructure may need review.
-**Classification:** BUG (recurrence) — prompt-level rule failed; structural gate (hook) produced errors.
-**Improvement:** (1) Investigate SubagentStop hook health — is it correctly blocking session completion when no summary exists? (2) Consider adding a redundant session summary reminder as the LAST line of the Developer preamble, not just in COMMON_RULES. (3) If this recurs after both fixes, the hook is the only reliable gate and prompt enforcement should be deprioritized.
-
-### Architect skipped handoff packets and test scenarios despite clear preamble instructions
-**Date:** 2026-03-19
-**Session:** 1.6.1 (Architect session for feat-FE-BLT spec/plan)
-**Context:** Architect produced spec, plan, and task breakdown successfully, but did not write handoff packets (required per ARCHITECT.md lines 96-103) or test scenarios (required per lines 119-121 for specs involving hardware/FE-BE integration). When interrogated, the Architect acknowledged the instructions were explicit and this was "a protocol compliance gap on my part, not a communication gap on yours."
-**Observation:** This is the second agent in session 1.6.1 to skip mandatory artifacts while acknowledging the preamble was clear (Developer also skipped session summary). Pattern: agents complete the *primary* deliverable (code/spec) and signal "done" without producing secondary artifacts (session summaries, handoff packets, test scenarios). The requirements are scattered across preamble sections — agents read them at setup but lose track by session end.
-**Classification:** BUG (systemic pattern) — prompt-level artifact requirements are not reliably self-enforced by any role.
-**Improvement:** Add a mandatory end-of-session checklist as the LAST section of each role's preamble — a numbered "before you say you're done, verify:" list. Role-specific items per role (Developer: session summary, LEARNINGS; Architect: session summary, handoff packets, test scenarios, LEARNINGS; etc.). This is the pilot's pre-landing checklist pattern: redundant with training, but catches items dropped under cognitive load. Applies universally — not project-specific.
 
 ### Orchestrator state desync from out-of-band Developer dispatch
 **Date:** 2026-03-19
@@ -56,3 +40,7 @@
 <!-- Invocation expansion, session checklist update), DESIGNER.md (UI State Behavior -->
 <!-- Artifacts scope), templates/handoff-packet.md (State Behavior section), -->
 <!-- templates/ui-state-behavior.md (new template). -->
+
+<!-- Resolved 2026-03-19 (v1.8): Developer/Architect artifact-skipping BUGs resolved by -->
+<!-- session summary responsibility split: producer owns factual recap (simplified exit -->
+<!-- sequence), Validator owns compliance check, hook owns existence gate. -->

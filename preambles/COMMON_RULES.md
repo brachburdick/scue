@@ -78,15 +78,10 @@ Any agent resolving a bug inline without delegation must:
 ## Milestone Maintenance
 Any session that closes a blocker must update `docs/MILESTONES.md` before ending.
 
-## Universal Exit Sequence
-Every session ends with all of the following:
-1. Artifact checklist: confirm required outputs were written to the exact path named in the handoff.
-2. Chain-status declaration: set artifact status fields honestly and identify the next routing step.
-3. Session retro: record missteps, learnings, and follow-up items.
-4. Self-assessment: state confidence and the biggest remaining risk.
+## Before Ending Your Session
 
-## Session Summary
-Every session ends with a session summary written to disk using `templates/session-summary.md`.
+1. Write the required artifact(s) to the exact output path from your handoff packet.
+2. If your work produced learnings, append them to `LEARNINGS.md`.
+3. Tell Brach: "Session summary written to `[path]`."
 
-## LEARNINGS.md
-If the session summary contains durable learnings, append them to `LEARNINGS.md` before ending the session.
+Three steps. The Validator handles compliance verification; the hook handles existence enforcement.

@@ -1,10 +1,12 @@
 # Plan: [FILL: FEATURE_NAME]
 
-> Status: [FILL: DRAFT | APPROVED | SUPERSEDED]
-> Project Root: [FILL: /absolute/path/to/project]
-> Revision Of: [FILL: artifact path or "none"]
-> Supersedes: [FILL: artifact path(s) or "none"]
-> Superseded By: [FILL: artifact path(s) or "none"]
+---
+status: [FILL: DRAFT | APPROVED | SUPERSEDED]
+project_root: [FILL: /absolute/path/to/project]
+revision_of: [FILL: artifact path or "none"]
+supersedes: [FILL: artifact path(s) or "none"]
+superseded_by: [FILL: artifact path(s) or "none"]
+---
 
 ## Summary
 [FILL: high-level implementation approach]

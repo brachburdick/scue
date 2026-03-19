@@ -1,10 +1,9 @@
 # Session Summary: [FILL: TASK_ID]
 
-> Status: [FILL: COMPLETE | PARTIAL | BLOCKED]
-> Project Root: [FILL: /absolute/path/to/project]
-> Revision Of: [FILL: artifact path or "none"]
-> Supersedes: [FILL: artifact path(s) or "none"]
-> Superseded By: [FILL: artifact path(s) or "none"]
+---
+status: [FILL: COMPLETE | PARTIAL | BLOCKED]
+project_root: [FILL: /absolute/path/to/project]
+---
 
 ## Role
 [FILL: role name. Use "Orchestrator-inline" for approved inline fixes.]
@@ -23,11 +22,7 @@
 - [FILL: or "None"]
 
 ## Artifacts Produced
-- `[FILL: path/to/artifact]` — [FILL: what it is and why it exists]
-- [FILL: or "None"]
-
-## Artifacts Superseded
-- `[FILL: path/to/old-artifact]` — [FILL: what replaced it]
+- `[FILL: path/to/artifact]` — [FILL: what it is]
 - [FILL: or "None"]
 
 ## Interfaces Added or Modified
@@ -38,23 +33,13 @@
 - [FILL: or "None"]
 
 ## Scope Violations
-- [FILL: needed out-of-scope change or "None"]
+- [FILL: needed out-of-scope change, or "None"]
 
 ## Remaining Work
 - [FILL: what is left undone, or "None"]
 
 ## Blocked On
 - [FILL: unresolved dependency, decision, or "None"]
-
-## Routing Recommendation
-- Dispatch owner: [FILL: ORCHESTRATOR DISPATCH | DIRECT DISPATCH | NONE]
-- Recommended next artifact or input: [FILL: path, question, or "none"]
-
-## Exit Checklist
-- [ ] Required artifacts written to disk
-- [ ] Superseded artifacts marked
-- [ ] Follow-up items captured
-- [ ] Routing recommendation declared
 
 ## Missteps
 - [FILL: command/tool failure, retry, or environment surprise with specifics, or "None"]
@@ -64,7 +49,3 @@
 
 ## Follow-Up Items
 - [FILL: backlog-worthy out-of-scope item, or "None"]
-
-## Self-Assessment
-- Confidence: [FILL: HIGH | MEDIUM | LOW]
-- Biggest risk if accepted as-is: [FILL: one line or "none"]

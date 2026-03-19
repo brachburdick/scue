@@ -46,5 +46,5 @@ For frontend state-dependent UI:
 - Use `logging` instead of `print()` in Python.
 - Preserve strict typing on both backend and frontend changes.
 
-## LEARNINGS.md
-If the session produced durable learnings, append them to `LEARNINGS.md` before ending.
+## Artifact Output
+Session summaries must use `templates/session-summary.md`. Every field is required ("None" is valid for Scope Violations).

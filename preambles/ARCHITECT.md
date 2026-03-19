@@ -36,6 +36,19 @@ When a spec touches multi-component behavior, hardware integration, or live work
 Every task should include:
 - `QA Required: YES | NO`
 - `State Behavior: artifact path | N/A`
+- `Interface Scope: CONTRACT_ONLY | PRODUCER | CONSUMER | END_TO_END | NONE`
+
+## Interface Scope Decomposition
+When a feature or bug fix requires changes to a contract boundary (WebSocket payloads, API response shapes, type definitions, dataclass fields, message schemas):
+
+1. Tag each task with `Interface Scope` (see §2.6).
+2. Create a CONTRACT_ONLY task first: define the contract in `docs/interfaces.md`, create or update test fixtures, and write the canonical field inventory.
+3. Create separate PRODUCER and CONSUMER tasks that reference the completed contract.
+4. Do not combine PRODUCER and CONSUMER scope in a single task. The cost of an extra session is lower than the cost of a field drop.
+
+When the contract change is trivial (adding one optional field with a clear default), you may combine PRODUCER and CONSUMER into one task with a note explaining why the split is unnecessary.
+
+When producing tasks with `Interface Scope` tags, include `skills/contract-integrity.md` in the task's `Context files`.
 
 ## Interface Documentation Acceptance Criterion
 Any task that could change a contract should include an acceptance criterion pointing at `docs/interfaces.md`.

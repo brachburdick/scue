@@ -1,10 +1,12 @@
 # Handoff Packet: [FILL: TASK_ID]
 
-> Status: [FILL: APPROVED]
-> Project Root: [FILL: /absolute/path/to/project]
-> Revision Of: [FILL: artifact path or "none"]
-> Supersedes: [FILL: artifact path(s) or "none"]
-> Superseded By: [FILL: artifact path(s) or "none"]
+---
+status: APPROVED
+project_root: [FILL: /absolute/path/to/project]
+revision_of: [FILL: artifact path or "none"]
+supersedes: [FILL: artifact path(s) or "none"]
+superseded_by: [FILL: artifact path(s) or "none"]
+---
 
 ## Dispatch
 - Mode: [FILL: ORCHESTRATOR DISPATCH | DIRECT DISPATCH]
@@ -29,17 +31,11 @@
 
 ## Context Files
 - `AGENT_BOOTSTRAP.md`
-- `preambles/COMMON_RULES.md`
-- `preambles/[FILL: ROLE].md`
 - [FILL: relevant spec, plan, tasks, interfaces, findings, or skill files]
 
 ## Interface Contracts
 - [FILL: exact contract file(s), payloads, signatures, or "none"]
 - [FILL: if parallel work exists, state ownership split and shared boundary]
-
-## State Behavior
-- [FILL: link to UI state behavior artifact, explicit mapping, or "N/A"]
-- [FILL: if any `[ASK OPERATOR]` remains here, resolve it before Developer dispatch]
 
 ## Required Output
 - Write: `[FILL: same exact path from Dispatch > Output path]`
@@ -49,7 +45,6 @@
 ## Constraints
 - [FILL: non-negotiable rule]
 - [FILL: non-negotiable rule]
-- All pre-existing tests must continue to pass.
 
 ## Acceptance Criteria
 - [ ] [FILL: specific, testable condition]
