@@ -102,9 +102,9 @@ Every Developer task is followed by a Validator session. When planning task sequ
 
 ## QA Verification Dispatch
 
-After a Validator PASS on any bug fix or FE-BE integration task, dispatch a QA Tester (Phase 6a) before marking the task COMPLETE. A Validator PASS means "the code change looks correct" — not "the bug is fixed." Only a QA PASS means the bug is fixed.
+Dispatch a QA Tester (Phase 6a) when the Architect has tagged a task as `QA Required: YES` in the task breakdown, or when Brach requests it. A Validator PASS means "the code change looks correct" — not "the bug is fixed." Only a QA PASS confirms live behavior.
 
-If the operator requests QA verification on any other task type, dispatch it.
+Trust the Architect's `QA Required` tag. Do not re-evaluate whether QA is needed.
 
 Load the QA Tester with: `AGENT_BOOTSTRAP.md` → `docs/agents/preambles/QA_TESTER.md` → relevant test scenario file(s) → handoff packet + Validator verdict.
 
@@ -112,25 +112,7 @@ Load the QA Tester with: `AGENT_BOOTSTRAP.md` → `docs/agents/preambles/QA_TEST
 
 ## Designer Invocation
 
-When reviewing an Architect's plan that includes UI/frontend work, flag it:
-> "This plan includes UI work. Route to Designer before finalizing frontend tasks."
-
-### When to invoke Designer for state-behavior definition:
-- **Invoke Designer:** When the task involves ≥3 components with state-dependent display, OR when the state space is complex (≥4 distinct system states affecting the UI).
-- **Handle inline with Brach:** When the task involves 1-2 components with simple state dependencies. Fill the UI State Behavior table directly in the handoff after confirming with Brach.
-
----
-
-## FE State Behavior Check
-
-When generating a handoff for any FE task that involves components displaying system state:
-
-1. Check whether a UI State Behavior artifact exists for the affected components (in the feature spec or as a standalone artifact in `templates/ui-state-behavior.md` format).
-2. If it exists, link it in the handoff's `## State Behavior` section.
-3. If it does NOT exist and the task involves state-dependent display, either:
-   - Ask Brach to define the expected behavior before dispatching, OR
-   - Fill what you can from existing specs and mark unknown states as `[ASK OPERATOR]`.
-4. Do NOT dispatch an FE handoff with unresolved `[ASK OPERATOR]` entries to a Developer. Resolve them with Brach first.
+Route to Designer when the Architect flags `[REQUIRES DESIGNER]` in the task breakdown. The Architect determines whether Designer involvement is needed during planning — trust that tag.
 
 ---
 
@@ -160,13 +142,29 @@ See the Operator Protocol Section 11 for archival rules.
 
 ---
 
-## Interface Contract Discipline
+## Pre-Dispatch Cross-Reference
 
-When generating a handoff packet for any task that could plausibly result in the Developer adding or modifying interface definitions (new WebSocket fields, new API response fields, new data model fields consumed by another layer), include this explicit Acceptance Criterion:
+Before dispatching any handoff packet, verify against the most recent session summary for the relevant task/feature:
 
-> **AC — Interface Impact:** If this session adds or modifies any interface values or fields, update the project's interface contract documentation (`docs/CONTRACTS.md`) in this session — **or** flag `[INTERFACE IMPACT]` in the session summary and stop. Do not silently defer.
+1. Every `[INTERFACE IMPACT]` entry is either addressed in this handoff's scope or explicitly deferred with reasoning in the state snapshot.
+2. Every `[BLOCKED]` item is either resolved or carried forward as a blocker in this handoff's Dependencies section.
+3. Every `[SCOPE VIOLATION]` is either incorporated into the new scope or routed to a separate task.
 
-If you are unsure whether a task could touch an interface, include it anyway. The cost of an unnecessary AC is low; the cost of an undocumented interface change is a broken contract.
+If any item is unaccounted for, do not dispatch. Surface it to Brach first.
+
+---
+
+## Context Budget
+
+Target initialization: ≤30K tokens (leaving room for handoff generation and operator interaction).
+
+If reading all recent session summaries would exceed this budget:
+1. Always read: state snapshot, active `tasks.md` files.
+2. Then: most recent session summary per active task.
+3. Then: any session with BLOCKED or PARTIAL status.
+4. Skip: COMPLETE sessions older than the most recent per task, archived sessions, non-active feature specs.
+
+If you cannot determine project state from this subset, tell Brach what's missing rather than reading everything.
 
 ---
 

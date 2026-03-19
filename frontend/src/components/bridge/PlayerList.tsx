@@ -9,7 +9,11 @@ export function PlayerList({
   const entries = Object.entries(players);
 
   if (entries.length === 0) {
-    return null;
+    return (
+      <div className="rounded-lg border border-dashed border-gray-700 px-4 py-6 text-center">
+        <p className="text-sm text-gray-500">No active players.</p>
+      </div>
+    );
   }
 
   return (

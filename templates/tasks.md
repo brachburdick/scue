@@ -13,6 +13,8 @@
 - **Scope:** [FILL: Files this task touches]
 - **Inputs:** [FILL: What must exist before this task starts]
 - **Outputs:** [FILL: What must exist after this task completes]
+- **QA Required:** [FILL: YES (with reason) / NO]
+- **State Behavior:** [FILL: link to UI State Behavior artifact | `[INLINE — simple]` | `[REQUIRES DESIGNER]` | N/A]
 - **Acceptance Criteria:**
   - [ ] [FILL: Testable condition]
   - [ ] [FILL: Testable condition]
@@ -35,6 +37,8 @@
 - **Scope:** [FILL]
 - **Inputs:** [FILL]
 - **Outputs:** [FILL]
+- **QA Required:** [FILL: YES (with reason) / NO]
+- **State Behavior:** [FILL: link to UI State Behavior artifact | `[INLINE — simple]` | `[REQUIRES DESIGNER]` | N/A]
 - **Acceptance Criteria:**
   - [ ] [FILL]
   - [ ] All pre-existing tests pass

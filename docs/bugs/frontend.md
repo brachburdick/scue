@@ -76,13 +76,14 @@ Root cause: Not yet investigated. Score calculation may not account for active P
 Fix: None yet. Non-blocker. Needs investigation into interface scoring logic.
 File(s): TBD — likely frontend/src/components/bridge/InterfaceRow.tsx or InterfaceSelector.tsx
 
-### [OPEN] Devices and players show stale data after hardware disconnect
+### Devices and players show stale data after hardware disconnect
 Date: 2026-03-18
+Resolved: 2026-03-19
 Milestone: FE-BLT
 Symptom: When Pioneer hardware disconnects (adapter unplugged, board powered off), the DeviceList and PlayerList continue to show the last-known device and player data. They do not clear or show a "disconnected" state. Stale BPM and pitch values remain visible.
-Root cause: Not yet investigated. The bridge adapter likely does not emit a clear/reset event on disconnect; the FE store retains the last-known state until a new `device_found` or `player_status` message arrives.
-Fix: None yet. Non-blocker but visually misleading — operator sees a connected-looking UI while hardware is gone. Noted repeatedly by Brach across multiple sessions; not yet addressed. Requires defining expected display state for each disconnect scenario before implementing (see PROTOCOL_IMPROVEMENT.md — UI state matrix gap).
-File(s): TBD — likely scue/api/ws.py (emit clear event on disconnect) + frontend/src/stores/bridgeStore.ts
+Root cause: Two issues: (1) The backend bridge adapter (`_devices`/`_players` dicts) is never cleared on disconnect, so `to_status_dict()` continues to include stale device/player data in `bridge_status` payloads even in non-running states. (2) The frontend `bridgeStore.setBridgeState()` blindly accepted devices/players from every `bridge_status` message regardless of bridge status. (3) `setWsConnected(false)` did not clear devices/players, so a WebSocket disconnect left stale data in place. (4) `PlayerList` returned `null` on empty state instead of showing an empty-state message.
+Fix: Frontend-only fix in bridgeStore: `setBridgeState()` now force-clears devices/players to `{}` when `status !== "running"`, ignoring stale backend data. `setWsConnected(false)` also clears devices/players. PlayerList now renders "No active players." empty state instead of returning null.
+File(s): frontend/src/stores/bridgeStore.ts, frontend/src/components/bridge/PlayerList.tsx
 
 ### [OPEN] Route status and bridge connection show false-positive during restart
 Date: 2026-03-18

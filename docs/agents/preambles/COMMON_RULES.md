@@ -84,6 +84,10 @@ All structured outputs must use the schemas in `templates/`. Copy the relevant t
 | Feature spec | `templates/spec.md` |
 | Task breakdown | `templates/tasks.md` |
 | Validator verdict | `templates/validator-verdict.md` |
+| QA verdict | `templates/qa-verdict.md` |
+| Test scenario matrix | `templates/test-scenarios.md` |
+| Orchestrator state snapshot | `templates/orchestrator-state.md` |
+| UI state behavior | `templates/ui-state-behavior.md` |
 
 If a required field is missing from your output, the artifact is incomplete. The Operator will send it back.
 

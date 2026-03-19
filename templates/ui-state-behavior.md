@@ -28,3 +28,9 @@ These are common SCUE system states. Include only those relevant to the componen
 | Route state | `active`, `inactive`, `mismatch`, `unknown` |
 | Playback | `playing`, `stopped`, `loading` |
 | Data freshness | `live`, `stale` (no update within expected interval) |
+
+## Compound States
+
+Not all state combinations produce unique display behavior. Include a compound-state row ONLY when the combination requires display that differs from what the individual states would each produce independently. Do not enumerate all permutations — focus on combinations where the compound behavior is surprising or non-obvious.
+
+Example: if "bridge disconnected" always shows a full-screen error regardless of hardware state, no compound rows are needed for bridge disconnected + hardware variations. But if "bridge reconnecting + hardware absent" should show a different message than "bridge reconnecting + hardware present," add those as explicit rows.

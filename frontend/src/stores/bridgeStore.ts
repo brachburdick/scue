@@ -74,25 +74,34 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
     set((prev) => ({
       wsConnected: connected,
       isStartingUp: computeIsStartingUp(connected, prev.status),
+      // Clear stale device/player data on WS disconnect so components
+      // show empty state instead of last-known values.
+      ...(connected ? {} : { devices: {}, players: {} }),
     })),
 
   setBridgeState: (state: BridgeState) =>
-    set((prev) => ({
-      status: state.status,
-      port: state.port,
-      networkInterface: state.network_interface,
-      jarExists: state.jar_exists,
-      jreAvailable: state.jre_available,
-      restartCount: state.restart_count,
-      restartAttempt: state.restart_attempt,
-      nextRetryInS: state.next_retry_in_s,
-      routeCorrect: state.route_correct,
-      routeWarning: state.route_warning,
-      devices: state.devices,
-      players: state.players,
-      dotStatus: computeDotStatus(state.status),
-      isStartingUp: computeIsStartingUp(prev.wsConnected, state.status),
-    })),
+    set((prev) => {
+      const isRunning = state.status === "running";
+      return {
+        status: state.status,
+        port: state.port,
+        networkInterface: state.network_interface,
+        jarExists: state.jar_exists,
+        jreAvailable: state.jre_available,
+        restartCount: state.restart_count,
+        restartAttempt: state.restart_attempt,
+        nextRetryInS: state.next_retry_in_s,
+        routeCorrect: state.route_correct,
+        routeWarning: state.route_warning,
+        // Trust device/player data only when bridge is running.
+        // In non-running states the backend adapter may retain stale
+        // entries, so force-clear on the frontend side.
+        devices: isRunning ? state.devices : {},
+        players: isRunning ? state.players : {},
+        dotStatus: computeDotStatus(state.status),
+        isStartingUp: computeIsStartingUp(prev.wsConnected, state.status),
+      };
+    }),
 
   setPioneerStatus: (isReceiving: boolean, ageMs: number, bridgeConnected: boolean) =>
     set((prev) => ({
