@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..config.loader import UsbConfig
 from ..layer1.storage import TrackCache, TrackStore
 
 logger = logging.getLogger(__name__)
@@ -20,17 +21,20 @@ router = APIRouter(prefix="/api/usb", tags=["usb"])
 _store: TrackStore | None = None
 _cache: TrackCache | None = None
 _last_scan: dict | None = None
-
-# Default relative paths within a Pioneer USB
-_DB_RELATIVE = "PIONEER/rekordbox/exportLibrary.db"
-_ANLZ_RELATIVE = "PIONEER/USBANLZ"
+_usb_config = UsbConfig()  # defaults until init_usb_api() is called
 
 
-def init_usb_api(store: TrackStore, cache: TrackCache) -> None:
+def init_usb_api(
+    store: TrackStore,
+    cache: TrackCache,
+    usb_config: UsbConfig | None = None,
+) -> None:
     """Store references for the USB endpoints."""
-    global _store, _cache
+    global _store, _cache, _usb_config
     _store = store
     _cache = cache
+    if usb_config is not None:
+        _usb_config = usb_config
 
 
 class UsbScanRequest(BaseModel):
@@ -74,9 +78,9 @@ async def scan_usb(req: UsbScanRequest) -> dict:
     if usb_path.name == "exportLibrary.db":
         db_path = usb_path
         anlz_dir = usb_path.parent.parent.parent / "USBANLZ"
-    elif (usb_path / _DB_RELATIVE).exists():
-        db_path = usb_path / _DB_RELATIVE
-        anlz_dir = usb_path / _ANLZ_RELATIVE
+    elif (usb_path / _usb_config.db_relative_path).exists():
+        db_path = usb_path / _usb_config.db_relative_path
+        anlz_dir = usb_path / _usb_config.anlz_relative_path
     else:
         raise HTTPException(
             status_code=400,

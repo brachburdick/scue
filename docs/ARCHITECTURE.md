@@ -55,7 +55,7 @@ SCUE's Python side:
 4. Monitors the subprocess health (restart on crash, with backoff)
 5. Receives typed JSON messages and feeds them into Layer 1
 
-### Bridge Message Types (v1.1.0 — ADR-012)
+### Bridge Message Types (v1.2.0 — ADR-012)
 
 The bridge emits **5 message types** (real-time data only). Track metadata, beatgrids, waveforms, phrase analysis, and cue points are resolved by the Python side, not the bridge.
 
@@ -132,15 +132,36 @@ BridgeMessage {
 - `phrase_analysis` — via pyrekordbox ANLZ parser (DLP) or future extensions (legacy)
 - `cue_points` — via pyrekordbox ANLZ parser (DLP) or future extensions (legacy)
 
+### Synthetic Device Recovery
+
+The Java bridge emits `device_found` once per device during `initBeatLink()`, before the Python WebSocket client may be connected. If the Python side misses these events (late connect, reconnect after crash), `devices` stays empty even though `player_status` data is streaming.
+
+The adapter handles this with `_ensure_device_from_player()`: when a `player_status` message arrives for an unknown player number, a synthetic `DeviceInfo` is created from available data and `on_device_change` is fired. This ensures the devices dict stays populated regardless of `device_found` timing. Future improvement: add state replay to the Java bridge's `BridgeWebSocketServer.onOpen()`.
+
+### Pioneer Traffic vs Bridge Liveness
+
+The bridge manager tracks two separate timestamps:
+- `_last_message_time` — updated by ALL WebSocket messages (including `bridge_status` heartbeats). Used for bridge liveness detection.
+- `_last_pioneer_message_time` — updated only by Pioneer hardware messages (`device_found`, `player_status`, `beat`, etc.). Used for `is_receiving` in the `pioneer_status` WebSocket message.
+
+This split prevents bridge heartbeats from inflating `is_receiving` when no Pioneer hardware data is actually arriving.
+
 ### Decoupling Strategy
 
 The bridge is treated as a replaceable data source. Layer 1 does not import from the bridge directly — it consumes `BridgeMessage` objects through an adapter in `scue/bridge/adapter.py` that normalizes bridge data into Layer 1's internal types. If beat-link is ever replaced, only the adapter changes.
+
+**Current implementation note (2026-03-19):** The intended boundary above is not fully realized yet. `scue/layer1/tracking.py` and `scue/layer1/cursor.py` currently import `PlayerState` from `scue.bridge.adapter`, which means a Layer 0 adapter type has leaked into Layer 1's runtime contract. Treat this as known architectural drift, not the target design. The desired end state is a Layer 1-owned ingress type (or port interface) that the bridge adapts into, so a future bridge replacement remains isolated to Layer 0.
 
 The bridge JAR is stored in `lib/beat-link-bridge.jar` and is NOT compiled from source as part of SCUE's build. It is a pre-built artifact. The bridge's Java source lives in a separate directory (`bridge-java/`) with its own build process (Gradle or Maven). This separation is intentional — the Java side has a different toolchain, different release cadence, and should be updatable by dropping in a new JAR.
 
 ### Fallback Behavior
 
-If the bridge fails to start (no JRE, JAR missing, etc.), SCUE falls back to the direct UDP parser (`bridge/fallback.py`) for basic data. The UI indicates degraded mode: "Beat-Link bridge unavailable: running in basic mode. BPM, beat position, and play state available. Device discovery, on-air status, and rekordbox_id unavailable."
+The `FallbackParser` (`bridge/fallback.py`) provides degraded-mode operation using direct UDP parsing. It is wired into `BridgeManager` and activates automatically in two scenarios:
+
+1. **No JRE or JAR:** If the bridge cannot start at all (`no_jre` or `no_jar` state), the manager transitions directly to `fallback` mode.
+2. **Repeated crashes:** After `max_crash_before_fallback` consecutive bridge crashes (default: 3), the manager gives up on the bridge and falls back to UDP parsing.
+
+In fallback mode, basic data is available (BPM, beat position, play state) but device discovery, on-air status, and rekordbox_id are unavailable. The `mode` field in `to_status_dict()` reflects `"fallback"` vs `"bridge"`, and the frontend displays a degraded-mode indicator.
 
 ### Testing Strategy
 
@@ -152,7 +173,7 @@ If the bridge fails to start (no JRE, JAR missing, etc.), SCUE falls back to the
 
 Pioneer hardware splits into two database formats: **DeviceSQL** (legacy `export.pdb`) used by CDJ-2000NXS2, CDJ-3000, etc., and **Device Library Plus** (encrypted `exportLibrary.db`) used by XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X. The track IDs are different namespaces — beat-link's MetadataFinder returns wrong metadata on DLP hardware.
 
-In v1.1.0, all metadata finders (MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder) are **stripped from the bridge JAR**. The bridge provides real-time playback data only. Metadata is resolved by the Python side:
+In v1.2.0, all metadata finders (MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder) are **stripped from the bridge JAR**. The bridge provides real-time playback data only. Metadata is resolved by the Python side:
 
 ```
 Legacy hardware (CDJ-2000NXS2, CDJ-3000, etc.):
@@ -708,7 +729,7 @@ settings:
 | Concern | Choice | Rationale |
 |---|---|---|
 | Language | **TypeScript (strict mode)** | Type safety, better AI-assisted coding, catches contract violations at compile time. |
-| Framework | **React 18+** | Brach's familiarity. Performance adequate for state display at 60fps. |
+| Framework | **React 19** | Brach's familiarity. Performance adequate for state display at 60fps. |
 | Styling | **Tailwind CSS** | Utility-first, fast iteration, consistent design system. |
 | Build tool | **Vite** | Fast HMR, first-class TS/React support. |
 | State management | **Zustand** | Minimal boilerplate, TS-native, independent stores per concern. |
@@ -898,7 +919,7 @@ Deliverable: All remaining pages with full functionality.
 | Track data storage | **JSON files (source of truth) + SQLite (cache/index)** | Portable, inspectable. SQLite rebuilt from files. |
 | Log storage | **Rotating log files + in-memory ring buffer** | No DB table overhead. Files for history, buffer for live console. |
 | Real-time event bus | **In-process async queues (asyncio.Queue)** | All layers on same machine. Consider ZeroMQ if needed later. |
-| Frontend framework | **React 18+ with TypeScript (strict)** | Familiar, adequate performance, type safety for contracts. |
+| Frontend framework | **React 19 with TypeScript (strict)** | Familiar, adequate performance, type safety for contracts. |
 | Frontend build | **Vite** | Fast dev server, first-class TS/React. |
 | Frontend styling | **Tailwind CSS** | Utility-first, fast iteration. |
 | Frontend state | **Zustand** | Minimal boilerplate, TS-native, independent stores. |

@@ -1,9 +1,12 @@
 """Network API — interface enumeration, route status, and route fix endpoints."""
 
+from __future__ import annotations
+
 import logging
 import platform
 from dataclasses import asdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 from fastapi import APIRouter, HTTPException
@@ -18,11 +21,27 @@ from ..network.route import (
     get_current_route,
 )
 
+if TYPE_CHECKING:
+    from ..bridge.manager import BridgeManager
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/network", tags=["network"])
 
 BRIDGE_CONFIG_PATH = Path("config/bridge.yaml")
+
+# Module-level reference set by init_network_api().
+_bridge_manager: BridgeManager | None = None
+
+
+def init_network_api(bridge_manager: BridgeManager) -> None:
+    """Inject the bridge manager for live context scoring.
+
+    Called from main.py at startup. The network module never imports
+    bridge_manager directly — this preserves layer separation.
+    """
+    global _bridge_manager
+    _bridge_manager = bridge_manager
 
 
 def _get_configured_interface() -> str | None:
@@ -42,9 +61,28 @@ async def list_interfaces() -> dict:
     """List available network interfaces with Pro DJ Link suitability scoring.
 
     Works even when the bridge is not running. Uses Python-side enumeration
-    with the same scoring algorithm as the Java bridge.
+    with the same scoring algorithm as the Java bridge.  When the bridge IS
+    running, live context (Pioneer traffic, route state) boosts the score of
+    the active interface.
     """
-    interfaces = enumerate_interfaces()
+    # Extract live context from bridge manager (if available) as plain values
+    # so the network module never receives a bridge object directly.
+    active_traffic_iface: str | None = None
+    route_correct_iface: str | None = None
+
+    if _bridge_manager is not None:
+        # If Pioneer traffic is actively flowing, the configured interface
+        # is the one receiving it.
+        if _bridge_manager.pioneer_traffic_active and _bridge_manager.network_interface:
+            active_traffic_iface = _bridge_manager.network_interface
+        # If the macOS route is confirmed correct, boost the configured interface.
+        if _bridge_manager.route_correct and _bridge_manager.network_interface:
+            route_correct_iface = _bridge_manager.network_interface
+
+    interfaces = enumerate_interfaces(
+        active_traffic_interface=active_traffic_iface,
+        route_correct_interface=route_correct_iface,
+    )
     configured = _get_configured_interface()
 
     # Recommended = highest-scoring interface
@@ -114,6 +152,25 @@ async def fix_route_endpoint(body: RouteFixRequest) -> dict:
     result = fix_route(body.interface)
 
     if not result.success:
+        # Wrap raw kernel errors with a user-friendly message.
+        # "route: bad address: <iface>" means the interface doesn't exist
+        # (adapter unplugged / hardware off). Mirrors manager.py:296–308.
+        if result.error and (
+            "bad address" in result.error
+            or "no such interface" in result.error.lower()
+        ):
+            friendly = (
+                f"Network interface '{body.interface}' is not available. "
+                f"Make sure your USB-Ethernet adapter is connected and the "
+                f"interface is up before fixing the route. "
+                f"(kernel error: {result.error})"
+            )
+            result = type(result)(
+                success=False,
+                error=friendly,
+                previous_interface=result.previous_interface,
+                new_interface=result.new_interface,
+            )
         logger.warning("Route fix failed for %s: %s", body.interface, result.error)
         raise HTTPException(
             status_code=500,

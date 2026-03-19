@@ -39,3 +39,9 @@ export type {
   WSPioneerStatus,
   WSMessage,
 } from "./ws";
+
+export type {
+  ConsoleEntry,
+  ConsoleSource,
+  ConsoleSeverity,
+} from "./console";

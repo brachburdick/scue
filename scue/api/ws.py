@@ -13,6 +13,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .ws_manager import WSManager
 
+from ..config.loader import WatchdogConfig
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -20,13 +22,20 @@ router = APIRouter()
 # Singleton — set up by main.py
 _ws_manager: WSManager | None = None
 _bridge_manager = None  # type: ignore  # Set by init_ws()
+_watchdog_config = WatchdogConfig()  # defaults until init_ws() is called
 
 
-def init_ws(ws_manager: WSManager, bridge_manager: object) -> None:
+def init_ws(
+    ws_manager: WSManager,
+    bridge_manager: object,
+    watchdog_config: WatchdogConfig | None = None,
+) -> None:
     """Store references for the WebSocket endpoint."""
-    global _ws_manager, _bridge_manager
+    global _ws_manager, _bridge_manager, _watchdog_config
     _ws_manager = ws_manager
     _bridge_manager = bridge_manager
+    if watchdog_config is not None:
+        _watchdog_config = watchdog_config
 
 
 def _build_bridge_status() -> dict:
@@ -43,17 +52,36 @@ def _build_bridge_status() -> dict:
 
 
 def _build_pioneer_status() -> dict:
-    """Build a pioneer_status liveness message."""
+    """Build a pioneer_status liveness message.
+
+    Uses two separate timestamps to distinguish bridge process liveness
+    from actual Pioneer hardware traffic:
+    - bridge_connected: bridge subprocess is alive and sending messages
+    - is_receiving: Pioneer hardware (device/player/beat) data arriving
+    """
     if _bridge_manager is None:
         return {
             "type": "pioneer_status",
-            "payload": {"is_receiving": False, "last_message_age_ms": -1},
+            "payload": {
+                "is_receiving": False,
+                "bridge_connected": False,
+                "last_message_age_ms": -1,
+            },
         }
 
-    last_time = getattr(_bridge_manager, "_last_message_time", 0.0)
-    if last_time > 0:
-        age_ms = int((time.time() - last_time) * 1000)
-        is_receiving = age_ms < 5000  # 5s threshold
+    now = time.time()
+
+    # Bridge liveness: any message from the bridge WebSocket (including heartbeats)
+    threshold_ms = _watchdog_config.is_receiving_threshold_ms
+    bridge_time = getattr(_bridge_manager, "_last_message_time", 0.0)
+    bridge_connected = bridge_time > 0 and (now - bridge_time) < threshold_ms / 1000
+
+    # Pioneer traffic: only device_found, player_status, beat, etc.
+    # (NOT bridge_status heartbeats)
+    pioneer_time = getattr(_bridge_manager, "_last_pioneer_message_time", 0.0)
+    if pioneer_time > 0:
+        age_ms = int((now - pioneer_time) * 1000)
+        is_receiving = age_ms < threshold_ms
     else:
         age_ms = -1
         is_receiving = False
@@ -62,6 +90,7 @@ def _build_pioneer_status() -> dict:
         "type": "pioneer_status",
         "payload": {
             "is_receiving": is_receiving,
+            "bridge_connected": bridge_connected,
             "last_message_age_ms": age_ms,
         },
     }
@@ -89,8 +118,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         while True:
             try:
                 # Wait for client messages (ping/pong/close)
-                # Timeout every 2s to send pioneer_status
-                data = await asyncio.wait_for(ws.receive_text(), timeout=2.0)
+                # Timeout every poll_interval to send pioneer_status
+                data = await asyncio.wait_for(
+                    ws.receive_text(),
+                    timeout=_watchdog_config.poll_interval_s,
+                )
             except asyncio.TimeoutError:
                 # Send periodic pioneer status
                 try:

@@ -75,8 +75,12 @@ Completed: 2026-03-16
 - [x] `scue/api/bridge.py` — `GET /api/bridge/status` endpoint
 - [x] `tools/mock_bridge.py` — WebSocket replay tool for testing without Pioneer hardware
 - [x] 4 JSON fixture files (device discovery, playback session, track metadata, transition)
-- [x] 53 tests passing (messages, adapter, manager)
+- [x] 121 tests passing (messages, adapter, manager, fallback)
 - [x] Java bridge JAR (`lib/beat-link-bridge.jar`) — v1.1.0 built and tested with XDJ-AZ (ADR-012: real-time data only, metadata finders stripped)
+- [x] **[AUDIT]** Fallback parser wired into BridgeManager — triggers on `no_jre`/`no_jar` and after 3 consecutive crashes. Fixed 2026-03-17.
+- [x] **[BUG-BRIDGE-CYCLE]** Crash-restart cycle on hardware disconnect/reconnect — 6 root causes identified and fixed (2026-03-18). QA verified with live XDJ-AZ hardware. Remaining FE display issues (stale devices/players, route mismatch persistence, console log clearing) logged as non-blockers in docs/bugs/frontend.md.
+- [x] **[AUDIT]** Fallback parser test file added (`tests/test_bridge/test_fallback.py`) — 7 tests. Fixed 2026-03-17.
+- [x] **[FIX]** Synthetic device creation from `player_status` — adapter now infers `DeviceInfo` when `device_found` was missed (e.g., Python connects after bridge init). Fixed 2026-03-17.
 
 ### ~~Milestone 2 — Live Cursor + Pioneer Enrichment (Layer 1B)~~ → COMPLETE (2026-03-16)
 - [x] `scue/layer1/models.py` — Added TrackCursor, SectionInfo, BeatPosition, PlaybackState, TrackCursorFeatures, DivergenceRecord
@@ -100,14 +104,38 @@ Completed: 2026-03-16
 - [x] Wired into main.py (usb_router + init_usb_api)
 - [x] 21 new tests (scanner: 19, prefix matching, storage), all passing
 - [x] Verified against real XDJ-AZ USB backup: 2022 tracks read, 4/4 analyses matched
-- [x] Full suite: 177 passed, 11 skipped
-- [ ] ANLZ beatgrid reading deferred: rbox Rust parser panics on some XDJ-AZ ANLZ files (tracked in bugs/layer0-bridge.md)
+- [x] Full suite: 277 passed, 11 skipped (as of 2026-03-17)
+- [x] ANLZ beatgrid reading: rbox Rust parser panicked on XDJ-AZ files; replaced with two-tier pure-Python strategy (ADR-013: pyrekordbox primary + custom anlz_parser.py fallback). Fixed 2026-03-16.
+
+### ~~Audit Backlog — 2026-03-17 findings~~ → COMPLETE (2026-03-18)
+- [x] **[AUDIT-01]** Traffic detected but device never discovered — fixed 2026-03-17 (synthetic device creation from `player_status`)
+- [x] **[AUDIT-02]** Fallback parser not wired into BridgeManager — fixed 2026-03-17
+- [x] **[AUDIT-03]** API-level test coverage — `tests/test_api/` added (20 tests: batch jobs, scan dedup, WS broadcasting, bridge settings). Fixed 2026-03-18.
+- [x] **[AUDIT-04]** YAML config consolidation — `scue/config/loader.py` + `config/server.yaml` + bridge/usb.yaml extensions. Pre-existing (confirmed complete 2026-03-18).
+- [x] **[AUDIT-05]** Doc drift (React version, FE-BLT milestone, FE-2 status) — fixed 2026-03-17/18
+- Full suite: 304 passed, 11 skipped (2026-03-18); 6 `test_analysis_edge_cases` skipped due to librosa not installed in test env — pre-existing, not a regression
 
 ### Milestone 3 — Cue Stream (Layer 2, section cues only)
 ### Milestone 4 — Basic Effect Engine (Layer 3A + 3B, minimal)
 ### Milestone 5 — DMX Output (Layer 4A + 4B)
 ### Milestone 6 — End-to-End Demo
 ### Milestone FE-2 — WebSocket + Console + Bridge Status
+**Status:** PARTIALLY COMPLETE — WebSocket client + bridgeStore built as part of FE-BLT. Console log streaming remains.
+- [x] WebSocket client with auto-reconnect (`api/ws.ts`)
+- [x] `bridgeStore` — bridge status, devices, players, dotStatus, isStartingUp
+- [x] `pioneer_status` message handling (is_receiving, lastMessageAgeMs)
+- [ ] Console panel wired to real-time bridge log output (currently placeholder)
+
+### ~~Milestone FE-BLT — Bridge Page~~ → COMPLETE (2026-03-17)
+- [x] BridgeStatusPanel: StatusBanner, TrafficIndicator, DeviceList, PlayerList
+- [x] HardwareSelectionPanel: RouteStatusBanner, ActionBar, InterfaceSelector
+- [x] InterfaceRow with type/link-local badges and scoring
+- [x] Route auto-fix on page load (at most once per mount)
+- [x] Startup gating pattern: all queries gated with `enabled: !isStartingUp`
+- [x] TopBar: StatusDot (bridge status only), TrafficDot (Pioneer liveness), StartupIndicator
+- [x] 6 bugs found and fixed (see `docs/bugs/frontend.md`)
+- [x] **[RESOLVED]** Pioneer traffic indicator flickers during active playback — presumed resolved by BLT→Bridge refactor 2026-03-18; see docs/bugs/frontend.md
+
 ### ~~Milestone FE-4 — Upload & Analyze Flow~~ → COMPLETE (2026-03-16)
 - [x] Path-based scan → batch analyze → progress tracking flow
 - [x] `POST /api/tracks/scan` — directory scanning with fingerprint-based dedup

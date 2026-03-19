@@ -2,12 +2,24 @@
 
 Automated lighting/laser/visual cue generation for live DJ sets.
 
+## Agent Workflow
+-   Entry point for all agents: `AGENT_BOOTSTRAP.md`
+-   Multi-agent workflow index: `docs/agents/README.md`
+-   Role preambles: `docs/agents/preambles/` (COMMON_RULES, ORCHESTRATOR, ARCHITECT, RESEARCHER, DESIGNER, DEVELOPER, VALIDATOR)
+-   Agent roster & scope definitions: `docs/agents/AGENT_ROSTER.md`
+-   Handoff format contracts: `docs/agents/HANDOFF_CONTRACTS.md`
+-   Artifact templates: `templates/` (handoff-packet, session-summary, spec, tasks, research-request, research-findings, validator-verdict)
+-   Domain skill files: `skills/`
+-   Feature specs, plans, tasks, sessions: `specs/feat-[name]/`
+-   Research findings: `research/`
+
+
 ## Stack
 - Python 3.11+, FastAPI, asyncio
 - beat-link (Java library) via managed subprocess for Pro DJ Link protocol
 - librosa, allin1-mlx for audio analysis
 - JSON files (source of truth) + SQLite (derived cache) for track data
-- React 18 + TypeScript (strict) + Vite + Tailwind for frontend
+- React 19 + TypeScript (strict) + Vite + Tailwind for frontend
 - Zustand for FE state, TanStack Query/Table for data fetching/display
 - WebSocket for real-time FE/BE communication, REST for CRUD
 - YAML for all configuration (effects, fixtures, routing, palettes)

@@ -1,0 +1,12 @@
+server:
+  cors_origins:
+    - "http://localhost:5173"
+  audio_extensions:
+    - ".mp3"
+    - ".wav"
+    - ".flac"
+    - ".aiff"
+    - ".m4a"
+    - ".ogg"
+  tracks_dir: "tracks"
+  cache_path: "cache/scue.db"

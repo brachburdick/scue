@@ -11,6 +11,7 @@ export interface WSPioneerStatus {
   type: "pioneer_status";
   payload: {
     is_receiving: boolean;
+    bridge_connected: boolean;
     last_message_age_ms: number;
   };
 }

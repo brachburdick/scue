@@ -132,6 +132,16 @@ class BridgeAdapter:
         self.bridge_connected: bool = False
         self.bridge_version: str = ""
 
+    def clear(self) -> None:
+        """Reset accumulated device and player state.
+
+        Called on bridge crash/restart to prevent stale data from persisting
+        across sessions.  Does NOT reset callbacks (wired once at startup)
+        or bridge_connected / bridge_version (managed by bridge_status messages).
+        """
+        self._devices.clear()
+        self._players.clear()
+
     @property
     def devices(self) -> dict[str, DeviceInfo]:
         return dict(self._devices)
@@ -207,6 +217,11 @@ class BridgeAdapter:
         payload = parse_typed_payload(msg)
         if not isinstance(payload, PlayerStatusPayload):
             return
+
+        # Infer device presence from player_status if no device_found was received.
+        # This happens when the Python side connects to the bridge WebSocket after
+        # the device was already discovered (device_found fired before we connected).
+        self._ensure_device_from_player(msg.player_number, msg.timestamp)
 
         player = self._ensure_player(msg.player_number)
         player.bpm = payload.bpm
@@ -358,6 +373,40 @@ class BridgeAdapter:
         if player_number not in self._players:
             self._players[player_number] = PlayerState(player_number=player_number)
         return self._players[player_number]
+
+    def _ensure_device_from_player(self, player_number: int, timestamp: float) -> None:
+        """Synthesize a device entry if we see player data but never got device_found.
+
+        When the Python side connects to the bridge WebSocket after device discovery
+        already happened, device_found events are missed. We infer device presence
+        from player_status messages to keep the devices dict and downstream status
+        (frontend device list, pioneer_status.is_receiving) accurate.
+        """
+        # Check if any existing device matches this player number
+        for dev in self._devices.values():
+            if dev.device_number == player_number:
+                dev.last_seen = timestamp
+                return
+
+        # No device found for this player — synthesize one
+        # Use a placeholder IP keyed by player number since we don't know the real IP
+        placeholder_ip = f"inferred-player-{player_number}"
+        device = DeviceInfo(
+            device_name=f"Player {player_number}",
+            device_number=player_number,
+            device_type="cdj",
+            ip_address=placeholder_ip,
+            last_seen=timestamp,
+            uses_dlp=True,  # Assume DLP since that's our primary hardware
+        )
+        self._devices[placeholder_ip] = device
+        logger.info(
+            "Device inferred from player_status: player %d (no device_found received)",
+            player_number,
+        )
+
+        if self.on_device_change is not None:
+            self.on_device_change(device, "found")
 
     # Handler dispatch table
     _handlers: dict[str, Callable[["BridgeAdapter", BridgeMessage], None]] = {

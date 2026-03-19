@@ -129,6 +129,66 @@ Prevention: Always distinguish transport connectivity (WS open) from data connec
 
 ---
 
+## Cross-Cutting / Workflow
+
+### fix_route() wrapping must be applied at every call site, not just the manager
+Date: 2026-03-18
+Context: QA of BUG-BRIDGE-CYCLE fix. Testing `POST /api/network/route/fix` with a
+nonexistent interface ("en16").
+Problem: The "route: bad address" friendly error wrapping was added to `BridgeManager.fix_route()`
+but `scue/api/network.py:fix_route_endpoint()` calls `network.route.fix_route()` directly,
+bypassing the manager's method entirely. The raw kernel error still reaches the user.
+Fix/Pattern: When adding error wrapping to a service-layer method, audit every API endpoint
+that calls the same underlying function directly. Either (a) route all API calls through the
+service layer, or (b) apply the wrapping at the lowest common point (the network module itself).
+Prevention: If an error-wrapping fix lives in a class method, grep for direct calls to the
+underlying function in API handlers. Do not assume the class method is the only call path.
+
+### mock_bridge.py cannot simulate "hardware absent" when JAR + JRE are present
+Date: 2026-03-18
+Context: QA of BUG-BRIDGE-CYCLE. Attempted to use mock_bridge.py for SC-005/SC-011/SC-012.
+Problem: `BridgeManager` checks JAR + JRE presence on every `start()`. When both are
+available, the manager always attempts a real Java launch — mock_bridge.py (a WebSocket
+server on port 17400) would conflict with the real bridge, not substitute for it. Testing
+"no hardware" scenarios requires either physical disconnection or a config flag to bypass
+JAR/JRE detection.
+Fix/Pattern: Add an env var or config flag (e.g., `SCUE_FORCE_MOCK_BRIDGE=1`) that sets
+`jar_exists=False` in the manager's checks, forcing it to skip the real Java launch path.
+This unlocks SC-005/SC-010/SC-011/SC-012 in CI/mock environments.
+Prevention: When designing mock infrastructure, consider that the real system may have all
+prerequisites installed. Mock tooling needs a way to override real-system detection, not just
+replace the binary.
+
+### _last_message_time not reset in start() causes crash cycle on every restart
+Date: 2026-03-18
+Context: Live hardware QA of BUG-BRIDGE-CYCLE fix. Testing SC-001 (adapter unplug), SC-003 (board power off), SC-010 (user restart, board off).
+Problem: `BridgeManager.start()` does not reset `_last_message_time` to `0.0` before launching a new subprocess. At initial server start, `_last_message_time=0.0` (class default), so the health check guard `if self._last_message_time > 0` is False — the silence check never fires — bridge stays stable. After any crash, `_last_message_time` holds the timestamp of the last message from the previous run. Health check fires within 10s of restart (old timestamp is >20s stale), before beat-link can reconnect — drives another crash — repeat. This creates a permanent crash cycle on every restart, defeating the BUG-BRIDGE-CYCLE fix for all hardware-disconnect scenarios.
+Fix/Pattern: Add `self._last_message_time = 0.0` at the start of `start()`, before `_launch_subprocess()`. This gives beat-link the same clean 20s silence window on restarts that it gets on initial startup.
+Prevention: Any health check that guards on `field > 0` depends on the field being initialized to 0 on fresh start. If the field is not reset on restart, the guard does not apply and the check fires immediately. Always reset health check timestamps in `start()` / reset methods.
+
+### Renaming private attributes can break out-of-scope tests
+Date: 2026-03-17
+Context: Bridge L0 sessions — renaming internal attributes during refactoring.
+Problem: Tests in other files outside the agent's scope may reference private attributes by name (e.g., `_restart_count`, `_last_message_time`). Renaming these attributes breaks those tests, but the agent doesn't know about them because they're outside scope.
+Fix/Pattern: When renaming internal attributes, add backward-compatible property aliases on the class so old names still work. Flag the rename in the session summary under "Interface Impact" so the Operator can dispatch cleanup to the appropriate agent.
+Prevention: Before renaming any private attribute, grep the test directory for references. If references exist outside your scope, use an alias rather than a breaking rename.
+
+### BridgeAdapter is a long-lived singleton — state persists across crash/restart cycles
+Date: 2026-03-19
+Context: Architect audit of disconnect/reconnect data flow. Tracing why stale devices/players reappear after bridge crash-restart.
+Problem: `BridgeAdapter` is instantiated once in `BridgeManager.__init__()` and never re-created. Its `_devices` and `_players` dicts accumulate data across the entire server lifetime. When the bridge crashes and restarts, the same adapter instance retains all previous state. `to_status_dict()` serializes adapter state directly into `bridge_status` payloads, so stale data flows to the frontend on every state change broadcast — including the "running" transition after a restart.
+Fix/Pattern: Add an explicit `clear()` method to BridgeAdapter. Call it in `_cleanup()` (runs on every crash/stop) and in `start()` (belt-and-suspenders). This ensures `to_status_dict()` returns empty devices/players after any restart until fresh data arrives from the new bridge session.
+Prevention: When a stateful object survives across failure/recovery cycles, always provide a reset method and call it at every recovery boundary. Don't assume the object will be re-instantiated.
+
+### Module-level mutable state in consoleMapper.ts persists across WS reconnects
+Date: 2026-03-19
+Context: Architect audit. Investigating why console entries may behave incorrectly after bridge reconnect.
+Problem: `consoleMapper.ts` uses module-level variables (`prevBridgeStatus`, `prevIsReceiving`, etc.) for diff detection. These persist across WS close/reopen because the ES module is loaded once and never re-imported. After a WS reconnect, the mapper compares the first `bridge_status` message against pre-disconnect state, potentially missing transitions or generating incorrect diffs.
+Fix/Pattern: Call `resetMapperState()` in the WS `onOpen()` handler before dispatching any messages. This ensures the mapper treats each WS session as a fresh start.
+Prevention: Module-level mutable state in frontend modules must be explicitly reset on lifecycle boundaries (WS reconnect, page navigation, etc.). The module system does not reset state for you.
+
+---
+
 ## Resolved
 
 *(Items that are fixed at the code level but kept for historical context)*
@@ -137,3 +197,35 @@ Prevention: Always distinguish transport connectivity (WS open) from data connec
 Context: Initially attempted to use beat-link-trigger OSC expressions to bridge Pioneer data.
 Problem: Required the DJ to configure OSC expressions manually in beat-link-trigger; no turnkey setup. Expressions never configured, so no data arrived.
 Resolution: Replaced entirely with beat-link library as managed subprocess (ADR-005 in new architecture). No beat-link-trigger dependency.
+
+### Bridge listen loop crash does not auto-recover (fixed)
+Date: 2026-03-17
+Context: Investigating device discovery blocker — bridge reported is_receiving=true but devices stayed empty.
+Problem: When _listen_loop errors (WebSocket disconnect), the handler set status="crashed" but did not call _schedule_restart(). The health check loop saw non-"running" status and exited its loop. Result: permanent "crashed" state with no recovery path. The Java subprocess could still be running with a dead WebSocket server (zombie process).
+Fix: Added _schedule_restart() call in listen loop error handler. Also separated _last_pioneer_message_time from _last_message_time so is_receiving reflects actual Pioneer traffic, not bridge heartbeats.
+Prevention: Any status transition to "crashed" should trigger restart logic. Audit all paths that set _status = "crashed" to ensure they either call _schedule_restart() or have a clear reason not to (e.g., no_jre/no_jar). Also: always check for zombie Java processes after unexpected bridge crashes — `ps aux | grep beat-link`.
+### is_receiving can be inflated by bridge heartbeats (fixed)
+Date: 2026-03-17
+Context: Same investigation as above.
+Problem: _last_message_time was updated by ALL WebSocket messages including bridge_status heartbeats. When VirtualCdj.start() failed, bridge_status error messages kept is_receiving flickering to true. Frontend showed "Pioneer traffic detected" when no Pioneer hardware was actually communicating.
+Fix: Added separate _last_pioneer_message_time that only updates on device/player/beat messages. pioneer_status.is_receiving now derives from this. Added bridge_connected field for bridge process liveness.
+Prevention: When building status indicators, always distinguish between "transport is alive" and "data source is producing data." They are different failure modes.
+
+### Bridge crash-restart cycle when hardware absent (fixed)
+Date: 2026-03-18
+Context: Bridge entered unrecoverable crash-restart cycle when Pioneer USB-Ethernet adapter was unplugged or board powered off. Each restart stole macOS window focus ("beat link trigger" in menu bar).
+Problem: Four compounding issues:
+1. Health check checked `_last_message_time` silence as restart trigger. Bridge heartbeats keep this fresh while the process is up, so this was correct — but the intent was muddled. Pioneer hardware silence (`_last_pioneer_message_time`) is explicitly NOT a restart trigger; that was never the correct trigger.
+2. `_consecutive_failures` reset to 0 on ANY `"running"` transition, including quick start-crash cycles (< 30 s). Each brief connection reset the counter, blocking fallback/waiting threshold from ever triggering.
+3. After crash threshold, bridge entered "fallback" (UDP parser) which has no auto-recovery path to full bridge mode. Fallback also fails when interface doesn't exist (adapter unplugged).
+4. Java subprocess launched without AWT-suppression JVM flags, so every launch stole macOS focus and identified as "beat link trigger".
+Fix/Pattern:
+1. Health check comment clarified: only bridge WebSocket heartbeat silence (all messages including bridge_status) triggers restart — NOT Pioneer traffic silence.
+2. Added `_last_stable_start_time` + `_MIN_STABLE_UPTIME_S = 30 s`: `_consecutive_failures` only resets if the previous run lasted ≥ 30 s.
+3. Replaced fallback transition with `waiting_for_hardware` state: slow-poll every 30 s with `start()`. Failure counter reset on entry so next cycle starts fresh. Fallback now reserved for JRE/JAR absent only.
+4. Added `_JVM_FLAGS = ["-Djava.awt.headless=true", "-Dapple.awt.UIElement=true", "-Xdock:name=SCUE Bridge"]` inserted between "java" and "-jar" in the subprocess launch command.
+5. Bonus: `fix_route()` in manager.py now wraps "route: bad address" kernel errors with a user-readable message.
+Prevention:
+- Any circuit-breaker pattern (failure count → fallback) must guard against "partial success" resetting the counter. If the code can briefly succeed before crashing, add a minimum stable uptime check.
+- Always provide a recovery path from any fallback/degraded state. A terminal state with no recovery requires manual intervention.
+- Health check silence conditions must be clearly scoped: are we checking bridge liveness or hardware data presence? They are different failure modes.

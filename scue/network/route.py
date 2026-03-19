@@ -279,15 +279,38 @@ def _classify_interface(name: str) -> str:
     return "other"
 
 
-def _score_interface(iface: NetworkInterfaceInfo) -> int:
+def _score_interface(
+    iface: NetworkInterfaceInfo,
+    *,
+    active_traffic_interface: str | None = None,
+    route_correct_interface: str | None = None,
+) -> int:
     """Score an interface for Pro DJ Link suitability.
 
-    Replicates the Java bridge's scoring algorithm:
+    Replicates the Java bridge's scoring algorithm, plus live context bonuses:
+
+    Static factors (always available):
     - Has link-local address (169.254.x.x): +10
     - Name suggests wired Ethernet: +5
     - Has private IP (10.x, 172.16.x, 192.168.x): +3
     - Name suggests Wi-Fi: -5
     - Name suggests VPN/virtual: -10
+
+    Live context factors (passed as parameters to preserve layer separation):
+    - Pioneer traffic actively flowing on this interface: +10
+    - macOS broadcast route points to this interface: +5
+
+    Parameters
+    ----------
+    iface:
+        The interface to score.
+    active_traffic_interface:
+        Name of the interface currently receiving Pioneer traffic (e.g. "en7"),
+        or None if no traffic is flowing. Provided by the bridge manager.
+    route_correct_interface:
+        Name of the interface the macOS broadcast route currently points to,
+        or None if the route is unknown/not applicable. Provided by the bridge
+        manager's route check result.
     """
     score = 0
 
@@ -306,14 +329,33 @@ def _score_interface(iface: NetworkInterfaceInfo) -> int:
             score += 3
             break
 
+    # Live context bonuses — only applied when bridge context is available
+    if active_traffic_interface and iface.name == active_traffic_interface:
+        score += 10
+    if route_correct_interface and iface.name == route_correct_interface:
+        score += 5
+
     return score
 
 
-def enumerate_interfaces() -> list[NetworkInterfaceInfo]:
+def enumerate_interfaces(
+    *,
+    active_traffic_interface: str | None = None,
+    route_correct_interface: str | None = None,
+) -> list[NetworkInterfaceInfo]:
     """List available network interfaces with Pro DJ Link suitability scoring.
 
     Uses psutil for cross-platform interface enumeration. Filters out loopback
     and virtual interfaces. Works even when the bridge is not running.
+
+    Parameters
+    ----------
+    active_traffic_interface:
+        Name of the interface currently receiving Pioneer traffic, or None.
+        Passed through to ``_score_interface`` for live context scoring.
+    route_correct_interface:
+        Name of the interface the macOS broadcast route currently points to,
+        or None.  Passed through to ``_score_interface`` for live context scoring.
     """
     addrs = psutil.net_if_addrs()
     stats = psutil.net_if_stats()
@@ -369,7 +411,11 @@ def enumerate_interfaces() -> list[NetworkInterfaceInfo]:
             type=iface_type,
             score=0,
         )
-        iface.score = _score_interface(iface)
+        iface.score = _score_interface(
+            iface,
+            active_traffic_interface=active_traffic_interface,
+            route_correct_interface=route_correct_interface,
+        )
         interfaces.append(iface)
 
     # Sort by score descending

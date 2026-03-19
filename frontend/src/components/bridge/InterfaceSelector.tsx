@@ -8,9 +8,13 @@ export function InterfaceSelector({
   onInterfaceChanged: () => void;
 }) {
   const isStartingUp = useBridgeStore((s) => s.isStartingUp);
+  const status = useBridgeStore((s) => s.status);
   const { data, isLoading, isFetching, error, refetch } = useInterfaces({
     enabled: !isStartingUp,
   });
+
+  // S3: crashed — selection disabled, reduced opacity, refresh still enabled
+  const selectionDisabled = status === "crashed";
 
   if (isStartingUp) {
     return (
@@ -63,6 +67,7 @@ export function InterfaceSelector({
   }
 
   const handleSelect = async (name: string) => {
+    if (selectionDisabled) return;
     if (name === data.configured_interface) return;
     try {
       await updateBridgeInterface(name);
@@ -100,15 +105,17 @@ export function InterfaceSelector({
           </svg>
         </button>
       </div>
-      {data.interfaces.map((iface) => (
-        <InterfaceRow
-          key={iface.name}
-          iface={iface}
-          isConfigured={iface.name === data.configured_interface}
-          isRecommended={iface.name === data.recommended_interface}
-          onSelect={handleSelect}
-        />
-      ))}
+      <div className={selectionDisabled ? "opacity-50 pointer-events-none" : ""}>
+        {data.interfaces.map((iface) => (
+          <InterfaceRow
+            key={iface.name}
+            iface={iface}
+            isConfigured={iface.name === data.configured_interface}
+            isRecommended={iface.name === data.recommended_interface}
+            onSelect={handleSelect}
+          />
+        ))}
+      </div>
     </div>
   );
 }
