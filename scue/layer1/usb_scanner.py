@@ -45,6 +45,10 @@ class UsbTrack:
     cue_points: list[dict] = field(default_factory=list)
     memory_points: list[dict] = field(default_factory=list)
     hot_cues: list[dict] = field(default_factory=list)
+    # Pioneer ANLZ waveform data (raw bytes, base64-encoded for storage)
+    waveform_pwv5: bytes = b""  # Color detail (3-bit RGB + 5-bit height, 2 bytes/entry)
+    waveform_pwv3: bytes = b""  # Monochrome detail (5-bit height + 3-bit intensity, 1 byte/entry)
+    waveform_pwv7: bytes = b""  # 3-band detail (mid/high/low, 3 bytes/entry, CDJ-3000+)
 
 
 @dataclass
@@ -242,10 +246,13 @@ def _read_anlz_data(track: UsbTrack, anlz_dir: Path, anlz_path: str) -> None:
 
     # Tier 1: pyrekordbox
     if _try_pyrekordbox(track, dat_path):
-        return
+        pass  # Continue to read waveforms from .EXT/.2EX even if .DAT succeeded
+    else:
+        # Tier 2: custom minimal parser (beatgrid/cues only, no waveform support)
+        _try_custom_parser(track, dat_path)
 
-    # Tier 2: custom minimal parser
-    _try_custom_parser(track, dat_path)
+    # Read waveform data from .EXT and .2EX files (separate from .DAT)
+    _try_read_waveforms(track, dat_path)
 
 
 def _try_pyrekordbox(track: UsbTrack, dat_path: Path) -> bool:
@@ -349,6 +356,71 @@ def _try_custom_parser(track: UsbTrack, dat_path: Path) -> bool:
         len(track.hot_cues), len(track.memory_points),
     )
     return True
+
+
+def _try_read_waveforms(track: UsbTrack, dat_path: Path) -> None:
+    """Read waveform data from .EXT and .2EX ANLZ files.
+
+    PWV5 (color detail) and PWV3 (monochrome detail) are in .EXT files.
+    PWV7 (3-band detail) is in .2EX files (CDJ-3000+ only).
+
+    Stores raw bytes on the UsbTrack. Decoding happens at API response time.
+    """
+    try:
+        from pyrekordbox.anlz import AnlzFile
+    except ImportError:
+        return  # pyrekordbox not available
+
+    # .EXT file: PWV5 (color) and PWV3 (monochrome)
+    ext_path = dat_path.with_suffix(".EXT")
+    if ext_path.exists():
+        try:
+            ext = AnlzFile.parse_file(ext_path)
+
+            # PWV5: color detail waveform (primary)
+            try:
+                pwv5_tag = ext.get_tag("PWV5")
+                if pwv5_tag is not None:
+                    track.waveform_pwv5 = bytes(pwv5_tag.content.entries)
+                    logger.debug(
+                        "Read PWV5 for track %d: %d bytes",
+                        track.rekordbox_id, len(track.waveform_pwv5),
+                    )
+            except Exception as e:
+                logger.debug("PWV5 read failed for track %d: %s", track.rekordbox_id, e)
+
+            # PWV3: monochrome detail waveform (fallback)
+            try:
+                pwv3_tag = ext.get_tag("PWV3")
+                if pwv3_tag is not None:
+                    track.waveform_pwv3 = bytes(pwv3_tag.content.entries)
+                    logger.debug(
+                        "Read PWV3 for track %d: %d bytes",
+                        track.rekordbox_id, len(track.waveform_pwv3),
+                    )
+            except Exception as e:
+                logger.debug("PWV3 read failed for track %d: %s", track.rekordbox_id, e)
+
+        except Exception:
+            logger.debug("Failed to parse .EXT file for track %d", track.rekordbox_id)
+
+    # .2EX file: PWV7 (3-band detail, CDJ-3000+ only)
+    ext2_path = dat_path.with_suffix(".2EX")
+    if ext2_path.exists():
+        try:
+            ext2 = AnlzFile.parse_file(ext2_path)
+            try:
+                pwv7_tag = ext2.get_tag("PWV7")
+                if pwv7_tag is not None:
+                    track.waveform_pwv7 = bytes(pwv7_tag.content.entries)
+                    logger.debug(
+                        "Read PWV7 for track %d: %d bytes",
+                        track.rekordbox_id, len(track.waveform_pwv7),
+                    )
+            except Exception as e:
+                logger.debug("PWV7 read failed for track %d: %s", track.rekordbox_id, e)
+        except Exception:
+            logger.debug("Failed to parse .2EX file for track %d", track.rekordbox_id)
 
 
 def match_usb_tracks(
@@ -504,6 +576,9 @@ def apply_scan_results(
             "hot_cues": t.hot_cues,
             "file_path": t.file_path,
             "scan_timestamp": result.scan_timestamp,
+            "waveform_pwv5": t.waveform_pwv5,
+            "waveform_pwv3": t.waveform_pwv3,
+            "waveform_pwv7": t.waveform_pwv7,
         }, source_player="dlp", source_slot="usb")
 
         linked += 1
@@ -533,6 +608,9 @@ def apply_scan_results(
                     "hot_cues": t.hot_cues,
                     "file_path": t.file_path,
                     "scan_timestamp": result.scan_timestamp,
+                    "waveform_pwv5": t.waveform_pwv5,
+                    "waveform_pwv3": t.waveform_pwv3,
+                    "waveform_pwv7": t.waveform_pwv7,
                 }, source_player="devicesql", source_slot="usb")
                 linked += 1
                 logger.debug(

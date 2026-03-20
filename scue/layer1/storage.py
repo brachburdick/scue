@@ -9,6 +9,7 @@ All writes go to JSON first, then update SQLite.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import sqlite3
@@ -150,6 +151,22 @@ def _migrate_pioneer_metadata(conn: sqlite3.Connection) -> None:
         conn.execute("DROP TABLE pioneer_metadata")
 
 
+def _migrate_pioneer_metadata_waveforms(conn: sqlite3.Connection) -> None:
+    """Add waveform columns to existing pioneer_metadata table if missing.
+
+    Data loss: none — new columns get empty defaults. USB rescan repopulates.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='pioneer_metadata'"
+    ).fetchone()
+    if row and "waveform_pwv5" not in row[0]:
+        logger.info("Migrating pioneer_metadata: adding waveform columns")
+        for col in ("waveform_pwv5", "waveform_pwv3", "waveform_pwv7"):
+            conn.execute(
+                f"ALTER TABLE pioneer_metadata ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"
+            )
+
+
 # ---------------------------------------------------------------------------
 # SQLite cache (derived index)
 # ---------------------------------------------------------------------------
@@ -231,9 +248,13 @@ class TrackCache:
                     hot_cues_json TEXT NOT NULL DEFAULT '[]',
                     file_path TEXT NOT NULL DEFAULT '',
                     scan_timestamp REAL NOT NULL,
+                    waveform_pwv5 TEXT NOT NULL DEFAULT '',
+                    waveform_pwv3 TEXT NOT NULL DEFAULT '',
+                    waveform_pwv7 TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY (source_player, source_slot, rekordbox_id)
                 )
             """)
+            _migrate_pioneer_metadata_waveforms(conn)
 
     def _connect(self) -> sqlite3.Connection:
         """Get a database connection."""
@@ -435,13 +456,21 @@ class TrackCache:
         """
         import time as _time
 
+        # Encode waveform bytes to base64 for TEXT column storage
+        wf_pwv5 = metadata.get("waveform_pwv5", b"")
+        wf_pwv3 = metadata.get("waveform_pwv3", b"")
+        wf_pwv7 = metadata.get("waveform_pwv7", b"")
+        wf_pwv5_b64 = base64.b64encode(wf_pwv5).decode("ascii") if wf_pwv5 else ""
+        wf_pwv3_b64 = base64.b64encode(wf_pwv3).decode("ascii") if wf_pwv3 else ""
+        wf_pwv7_b64 = base64.b64encode(wf_pwv7).decode("ascii") if wf_pwv7 else ""
+
         with self._connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO pioneer_metadata
                 (source_player, source_slot, rekordbox_id, title, artist, bpm, key_name,
                  beatgrid_json, cue_points_json, memory_points_json, hot_cues_json,
-                 file_path, scan_timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 file_path, scan_timestamp, waveform_pwv5, waveform_pwv3, waveform_pwv7)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 source_player,
                 source_slot,
@@ -456,6 +485,9 @@ class TrackCache:
                 json.dumps(metadata.get("hot_cues", [])),
                 metadata.get("file_path", ""),
                 metadata.get("scan_timestamp", _time.time()),
+                wf_pwv5_b64,
+                wf_pwv3_b64,
+                wf_pwv7_b64,
             ))
 
     def get_pioneer_metadata(
@@ -487,6 +519,11 @@ class TrackCache:
         if row is None:
             return None
 
+        # Decode waveform base64 back to bytes
+        wf_pwv5_b64 = row["waveform_pwv5"] if "waveform_pwv5" in row.keys() else ""
+        wf_pwv3_b64 = row["waveform_pwv3"] if "waveform_pwv3" in row.keys() else ""
+        wf_pwv7_b64 = row["waveform_pwv7"] if "waveform_pwv7" in row.keys() else ""
+
         return {
             "rekordbox_id": row["rekordbox_id"],
             "title": row["title"],
@@ -499,7 +536,62 @@ class TrackCache:
             "hot_cues": json.loads(row["hot_cues_json"]),
             "file_path": row["file_path"],
             "scan_timestamp": row["scan_timestamp"],
+            "waveform_pwv5": base64.b64decode(wf_pwv5_b64) if wf_pwv5_b64 else b"",
+            "waveform_pwv3": base64.b64decode(wf_pwv3_b64) if wf_pwv3_b64 else b"",
+            "waveform_pwv7": base64.b64decode(wf_pwv7_b64) if wf_pwv7_b64 else b"",
         }
+
+    def get_pioneer_waveforms_by_fingerprint(
+        self,
+        fingerprint: str,
+    ) -> dict | None:
+        """Look up Pioneer waveform data for a track by its SCUE fingerprint.
+
+        Performs a reverse lookup: fingerprint → track_ids → pioneer_metadata.
+        Returns the first pioneer_metadata row that has waveform data.
+
+        Returns:
+            Dict with waveform_pwv5, waveform_pwv3, waveform_pwv7 (bytes).
+            None if no waveform data found.
+        """
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            # Find all (source_player, source_slot, rekordbox_id) for this fingerprint
+            id_rows = conn.execute(
+                "SELECT source_player, source_slot, rekordbox_id "
+                "FROM track_ids WHERE fingerprint = ?",
+                (fingerprint,),
+            ).fetchall()
+
+        if not id_rows:
+            return None
+
+        # Check each for waveform data
+        for id_row in id_rows:
+            with self._connect() as conn:
+                conn.row_factory = sqlite3.Row
+                meta_row = conn.execute(
+                    "SELECT waveform_pwv5, waveform_pwv3, waveform_pwv7 "
+                    "FROM pioneer_metadata "
+                    "WHERE source_player = ? AND source_slot = ? AND rekordbox_id = ?",
+                    (id_row["source_player"], id_row["source_slot"], id_row["rekordbox_id"]),
+                ).fetchone()
+
+            if meta_row is None:
+                continue
+
+            pwv5_b64 = meta_row["waveform_pwv5"] or ""
+            pwv3_b64 = meta_row["waveform_pwv3"] or ""
+            pwv7_b64 = meta_row["waveform_pwv7"] or ""
+
+            if pwv5_b64 or pwv3_b64 or pwv7_b64:
+                return {
+                    "waveform_pwv5": base64.b64decode(pwv5_b64) if pwv5_b64 else b"",
+                    "waveform_pwv3": base64.b64decode(pwv3_b64) if pwv3_b64 else b"",
+                    "waveform_pwv7": base64.b64decode(pwv7_b64) if pwv7_b64 else b"",
+                }
+
+        return None
 
     def list_pioneer_metadata(self) -> list[dict]:
         """List all cached Pioneer metadata (for UI / debugging)."""
