@@ -289,12 +289,16 @@ async def analyze_track(
     }
 
 
-async def _run_analysis_task(
+def _run_analysis_task(
     audio_path: str,
     force: bool = False,
     skip_waveform: bool = False,
 ) -> None:
-    """Background task for track analysis."""
+    """Background task for track analysis.
+
+    NOTE: This is a sync function (not async def) so FastAPI runs it in a
+    thread pool instead of blocking the event loop.
+    """
     from ..layer1.analysis import run_analysis
 
     try:
@@ -402,8 +406,18 @@ async def _run_batch_analysis(
 
     job.status = "running"
 
+    def _make_progress_cb(j: AnalysisJob):
+        """Create a progress callback that updates the job's per-step fields."""
+        def cb(step: int, step_name: str, total_steps: int) -> None:
+            j.current_step = step
+            j.current_step_name = step_name
+            j.total_steps = total_steps
+        return cb
+
     for i, file_result in enumerate(job.results):
         job.current_file = file_result.filename
+        job.current_step = 0
+        job.current_step_name = "Starting"
         try:
             await asyncio.to_thread(
                 run_analysis,
@@ -411,6 +425,7 @@ async def _run_batch_analysis(
                 tracks_dir=_tracks_dir,
                 cache_path=_cache_path,
                 skip_waveform=skip_waveform,
+                progress_callback=_make_progress_cb(job),
             )
             file_result.status = "done"
             # Get the fingerprint for the result

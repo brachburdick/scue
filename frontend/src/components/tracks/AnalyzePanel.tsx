@@ -6,7 +6,7 @@ import { FolderBrowser } from "../shared/FolderBrowser";
 
 export function AnalyzePanel() {
   const store = useAnalyzeStore();
-  const { data: job } = useJobStatus(store.jobId);
+  const { data: job, error: jobError } = useJobStatus(store.jobId);
   const queryClient = useQueryClient();
   const [browserOpen, setBrowserOpen] = useState(false);
 
@@ -48,10 +48,36 @@ export function AnalyzePanel() {
     store.reset();
   };
 
-  // Phase 3: Job running or complete
-  if (store.jobId && job) {
+  // Phase 3: Job running or complete (or errored)
+  if (store.jobId && (job || jobError)) {
+    // Handle polling errors (e.g. server restart, lost job)
+    if (jobError && !job) {
+      return (
+        <div className="mb-6 rounded border border-red-800 bg-red-900/20 p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-red-400">
+              Analysis job lost — the server may have restarted.
+            </span>
+            <button
+              onClick={handleReset}
+              className="text-xs text-gray-400 hover:text-gray-200"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (!job) return null;
+
     const pct = job.total > 0 ? Math.round((job.completed / job.total) * 100) : 0;
     const isDone = job.status === "complete" || job.status === "failed";
+
+    // Per-step progress within the current file
+    const stepPct = job.total_steps > 0
+      ? Math.round((job.current_step / job.total_steps) * 100)
+      : 0;
 
     return (
       <div className="mb-6 rounded border border-gray-800 bg-gray-900/50 p-4">
@@ -72,6 +98,8 @@ export function AnalyzePanel() {
             </button>
           )}
         </div>
+
+        {/* Per-file progress bar */}
         <div className="w-full bg-gray-800 rounded-full h-2 mb-1">
           <div
             className={`h-2 rounded-full transition-all ${
@@ -80,9 +108,29 @@ export function AnalyzePanel() {
             style={{ width: `${pct}%` }}
           />
         </div>
-        <span className="text-xs text-gray-500">
-          {job.completed + job.failed}/{job.total} ({pct}%)
-        </span>
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-500">
+            {job.completed + job.failed}/{job.total} ({pct}%)
+          </span>
+
+          {/* Per-step indicator for current file */}
+          {!isDone && job.current_step > 0 && (
+            <span className="text-xs text-gray-500">
+              Step {job.current_step}/{job.total_steps}: {job.current_step_name}
+            </span>
+          )}
+        </div>
+
+        {/* Per-step mini progress bar */}
+        {!isDone && job.current_step > 0 && (
+          <div className="w-full bg-gray-800 rounded-full h-1 mt-1.5">
+            <div
+              className="h-1 rounded-full bg-cyan-600 transition-all"
+              style={{ width: `${stepPct}%` }}
+            />
+          </div>
+        )}
       </div>
     );
   }

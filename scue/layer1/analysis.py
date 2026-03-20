@@ -40,6 +40,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_RUPTURES_PENALTY = 5.0
 
 
+ProgressCallback = None  # type alias: Callable[[int, str, int], None] | None
+
+
 def run_analysis(
     audio_path: str | Path,
     tracks_dir: str | Path | None = None,
@@ -47,6 +50,7 @@ def run_analysis(
     ruptures_penalty: float = DEFAULT_RUPTURES_PENALTY,
     skip_waveform: bool = False,
     force: bool = False,
+    progress_callback: ProgressCallback = None,
 ) -> TrackAnalysis:
     """Run the full analysis pipeline on an audio file.
 
@@ -57,6 +61,7 @@ def run_analysis(
         ruptures_penalty: Ruptures penalty parameter.
         skip_waveform: If True, skip RGB waveform computation.
         force: If True, re-analyze even if analysis exists.
+        progress_callback: Optional callback(step, step_name, total_steps) for progress reporting.
 
     Returns:
         Complete TrackAnalysis object.
@@ -65,11 +70,21 @@ def run_analysis(
     if not audio_path.exists():
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
+    total_steps = 10
+
+    def _progress(step: int, name: str) -> None:
+        if progress_callback is not None:
+            try:
+                progress_callback(step, name, total_steps)
+            except Exception:
+                pass  # never let progress reporting break analysis
+
     start_time = time.time()
     logger.info("=" * 60)
     logger.info("Starting analysis: %s", audio_path.name)
 
     # Step 1: Fingerprint
+    _progress(1, "Computing fingerprint")
     fingerprint = compute_fingerprint(audio_path)
     logger.info("Fingerprint: %s", fingerprint[:16])
 
@@ -83,15 +98,18 @@ def run_analysis(
             return existing
 
     # Step 2: Extract audio features
-    logger.info("Step 2/9: Extracting audio features...")
+    _progress(2, "Extracting audio features")
+    logger.info("Step 2/10: Extracting audio features...")
     features = extract_all(str(audio_path))
 
     # Step 3: Analyze structure (allin1-mlx or fallback)
-    logger.info("Step 3/9: Analyzing structure...")
+    _progress(3, "Analyzing structure")
+    logger.info("Step 3/10: Analyzing structure...")
     structure = analyze_structure(str(audio_path))
 
     # Step 4: Detect change-point boundaries (ruptures)
-    logger.info("Step 4/9: Detecting change-point boundaries...")
+    _progress(4, "Detecting boundaries")
+    logger.info("Step 4/10: Detecting change-point boundaries...")
     if features.stacked_matrix is None:
         logger.warning("No feature matrix for %s — skipping boundary detection", audio_path.name)
         ruptures_boundaries = []
@@ -104,11 +122,13 @@ def run_analysis(
         )
 
     # Step 5: Merge boundaries
-    logger.info("Step 5/9: Merging boundaries...")
+    _progress(5, "Merging boundaries")
+    logger.info("Step 5/10: Merging boundaries...")
     merged_sections = merge_boundaries(structure.sections, ruptures_boundaries)
 
     # Step 6: Snap to 8-bar grid
-    logger.info("Step 6/9: Snapping to 8-bar grid...")
+    _progress(6, "Snapping to grid")
+    logger.info("Step 6/10: Snapping to 8-bar grid...")
     raw_for_snap = [
         {
             "label": s.label,
@@ -128,7 +148,8 @@ def run_analysis(
         logger.info("  SNAP: %s", line)
 
     # Step 7: Classify with EDM flow model
-    logger.info("Step 7/9: Classifying with EDM flow model...")
+    _progress(7, "Classifying sections")
+    logger.info("Step 7/10: Classifying with EDM flow model...")
     track_stats = get_track_stats(features)
     section_feats = [
         get_section_features(features, s.start, s.end)
@@ -141,7 +162,8 @@ def run_analysis(
     )
 
     # Step 8: Compute confidence scores
-    logger.info("Step 8/9: Scoring confidence...")
+    _progress(8, "Scoring confidence")
+    logger.info("Step 8/10: Scoring confidence...")
     scored_sections = _score_confidence(
         classified_sections,
         structure.source,
@@ -166,19 +188,21 @@ def run_analysis(
             original_label=last.original_label, source=last.source,
         )
 
-    # Step 8.5: Event detection (M7)
-    logger.info("Step 8.5: Detecting musical events...")
+    # Step 9: Event detection (M7)
+    _progress(9, "Detecting events")
+    logger.info("Step 9/10: Detecting musical events...")
     detected_events, drum_patterns = _run_event_detection(
         features, structure.beats, structure.downbeats, scored_sections,
     )
 
-    # Step 9: Compute RGB waveform
+    # Step 10: Compute RGB waveform
+    _progress(10, "Computing waveform")
     waveform = None
     if not skip_waveform:
-        logger.info("Step 9/9: Computing RGB waveform...")
+        logger.info("Step 10/10: Computing RGB waveform...")
         waveform = compute_rgb_waveform(features.signal, features.sr)
     else:
-        logger.info("Step 9/9: Skipping waveform (skip_waveform=True)")
+        logger.info("Step 10/10: Skipping waveform (skip_waveform=True)")
 
     # Extract title from filename
     title = audio_path.stem

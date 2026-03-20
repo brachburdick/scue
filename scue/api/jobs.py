@@ -30,6 +30,9 @@ class AnalysisJob:
     completed: int = 0
     failed: int = 0
     current_file: str | None = None
+    current_step: int = 0           # current analysis step within current file
+    current_step_name: str = ""     # human-readable step name
+    total_steps: int = 10           # total steps per file
     results: list[FileResult] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
 
@@ -67,6 +70,9 @@ def job_to_dict(job: AnalysisJob) -> dict:
         "completed": job.completed,
         "failed": job.failed,
         "current_file": job.current_file,
+        "current_step": job.current_step,
+        "current_step_name": job.current_step_name,
+        "total_steps": job.total_steps,
         "results": [
             {
                 "path": r.path,

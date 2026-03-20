@@ -31,6 +31,9 @@ export interface JobStatus {
   completed: number;
   failed: number;
   current_file: string | null;
+  current_step: number;
+  current_step_name: string;
+  total_steps: number;
   results: JobFileResult[];
 }
 
