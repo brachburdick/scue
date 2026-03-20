@@ -121,6 +121,31 @@ async def resolve_track(
     }
 
 
+@router.get("/{fingerprint}/events")
+async def get_track_events(fingerprint: str) -> dict:
+    """Get detected events and drum patterns for a track.
+
+    Returns tonal events (riser, faller, stab) as individual objects
+    and percussion as compact DrumPattern objects.
+    """
+    from ..layer1.detectors.events import drum_pattern_to_dict
+    from ..layer1.models import event_to_dict
+
+    store = _get_store()
+    analysis = store.load_latest(fingerprint)
+    if analysis is None:
+        raise HTTPException(404, f"Track not found: {fingerprint[:16]}")
+
+    return {
+        "fingerprint": fingerprint,
+        "events": [event_to_dict(e) for e in analysis.events],
+        "drum_patterns": [drum_pattern_to_dict(p) for p in analysis.drum_patterns],
+        "total_events": len(analysis.events),
+        "total_patterns": len(analysis.drum_patterns),
+        "event_types": list(set(e.type for e in analysis.events)),
+    }
+
+
 @router.get("/{fingerprint}/pioneer-waveform")
 async def get_pioneer_waveform(fingerprint: str) -> dict:
     """Get Pioneer ANLZ waveform data for a track.
