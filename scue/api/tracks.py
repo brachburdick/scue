@@ -91,7 +91,37 @@ async def get_job_status(job_id: str) -> dict:
     return job_to_dict(job)
 
 
-# NOTE: /{fingerprint} must come AFTER all fixed-path routes (/jobs, /scan, etc.)
+@router.get("/resolve/{source_player}/{source_slot}/{rekordbox_id}")
+async def resolve_track(
+    source_player: str,
+    source_slot: str,
+    rekordbox_id: int,
+) -> dict:
+    """Resolve a composite key (source_player, source_slot, rekordbox_id) to a fingerprint.
+
+    Used by the frontend to look up track analysis from bridge-reported IDs (ADR-015).
+    """
+    cache = _get_cache()
+    fingerprint = cache.lookup_fingerprint(
+        rekordbox_id, source_player=source_player, source_slot=source_slot,
+    )
+    if fingerprint is None:
+        raise HTTPException(
+            404,
+            f"No track linked for {source_player}/{source_slot}/{rekordbox_id}",
+        )
+    # Include title + artist from cache for quick display before full analysis loads
+    track_meta = cache.get_track(fingerprint)
+    title = track_meta.get("title", "") if track_meta else ""
+    artist = track_meta.get("artist", "") if track_meta else ""
+    return {
+        "fingerprint": fingerprint,
+        "title": title,
+        "artist": artist,
+    }
+
+
+# NOTE: /{fingerprint} must come AFTER all fixed-path routes (/jobs, /scan, /resolve, etc.)
 # to avoid FastAPI matching "jobs" or "scan" as a fingerprint value.
 @router.get("/{fingerprint}")
 async def get_track(fingerprint: str) -> dict:
