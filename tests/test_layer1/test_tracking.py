@@ -37,6 +37,8 @@ def _make_player(
     rekordbox_id: int = 42001,
     bpm: float = 128.0,
     is_on_air: bool = True,
+    track_source_player: int = 0,
+    track_source_slot: str = "",
     **overrides,
 ) -> PlayerState:
     defaults = dict(
@@ -48,6 +50,8 @@ def _make_player(
         playback_state="playing",
         is_on_air=is_on_air,
         rekordbox_id=rekordbox_id,
+        track_source_player=track_source_player,
+        track_source_slot=track_source_slot,
     )
     defaults.update(overrides)
     return PlayerState(**defaults)
@@ -187,19 +191,103 @@ class TestPlaybackTracker:
         cache.link_rekordbox_id(1001, "fp1")
         cache.link_rekordbox_id(1002, "fp2")
 
-        # Player 1 on-air
-        p1 = _make_player(player_number=1, rekordbox_id=1001, is_on_air=True)
+        # Player 1 on-air, reading from player 1's USB
+        p1 = _make_player(player_number=1, rekordbox_id=1001, is_on_air=True,
+                           track_source_player=1, track_source_slot="usb")
         tracker.update_position(1, 15000.0)
         c1 = tracker.on_player_update(p1)
         assert c1 is not None
 
-        # Player 2 not on-air
-        p2 = _make_player(player_number=2, rekordbox_id=1002, is_on_air=False)
+        # Player 2 not on-air, also reading from player 1's USB
+        p2 = _make_player(player_number=2, rekordbox_id=1002, is_on_air=False,
+                           track_source_player=1, track_source_slot="usb")
         c2 = tracker.on_player_update(p2)
         assert c2 is None
 
         # Player 2 goes on-air
-        p2_on = _make_player(player_number=2, rekordbox_id=1002, is_on_air=True)
+        p2_on = _make_player(player_number=2, rekordbox_id=1002, is_on_air=True,
+                              track_source_player=1, track_source_slot="usb")
         tracker.update_position(2, 50000.0)
         c2 = tracker.on_player_update(p2_on)
         assert c2 is not None
+
+    def test_dlp_namespace_fallback(self, tmp_path: Path) -> None:
+        """Tracker falls back to DLP namespace when direct player lookup fails (ADR-015)."""
+        analysis = _make_analysis(rekordbox_id=0)
+        store = TrackStore(tmp_path / "tracks")
+        cache = TrackCache(tmp_path / "cache.db")
+        store.save(analysis)
+        cache.index_analysis(analysis)
+        # Link under DLP namespace (as USB scanner does)
+        cache.link_rekordbox_id(5001, analysis.fingerprint, source_player="dlp", source_slot="usb")
+
+        tracker = PlaybackTracker(store, cache)
+
+        # Bridge reports player 1 with rekordbox_id=5001, no track_source_player set
+        player = _make_player(player_number=1, rekordbox_id=5001, is_on_air=True)
+        tracker.update_position(1, 15000.0)
+        cursor = tracker.on_player_update(player)
+
+        # Should resolve via DLP fallback
+        assert cursor is not None
+        assert tracker.get_analysis(1) is not None
+        assert tracker.get_analysis(1).fingerprint == analysis.fingerprint
+
+    def test_composite_key_with_source_fields(self, tmp_path: Path) -> None:
+        """Tracker uses track_source_player/slot from PlayerState for lookup (ADR-015)."""
+        analysis = _make_analysis(rekordbox_id=0)
+        store = TrackStore(tmp_path / "tracks")
+        cache = TrackCache(tmp_path / "cache.db")
+        store.save(analysis)
+        cache.index_analysis(analysis)
+        # Link under player 2 / sd namespace
+        cache.link_rekordbox_id(7001, analysis.fingerprint, source_player="2", source_slot="sd")
+
+        tracker = PlaybackTracker(store, cache)
+
+        # Player 1 playing a track from player 2's SD slot
+        player = _make_player(
+            player_number=1, rekordbox_id=7001, is_on_air=True,
+            track_source_player=2, track_source_slot="sd",
+        )
+        tracker.update_position(1, 15000.0)
+        cursor = tracker.on_player_update(player)
+
+        assert cursor is not None
+        assert tracker.get_analysis(1).fingerprint == analysis.fingerprint
+
+    def test_multi_usb_different_tracks_same_id(self, tmp_path: Path) -> None:
+        """Two USBs with same rekordbox_id resolve to different tracks (ADR-015)."""
+        a1 = _make_analysis(fp="fp_usb1", rekordbox_id=0, bpm=128.0)
+        a2 = _make_analysis(fp="fp_usb2", rekordbox_id=0, bpm=140.0)
+        store = TrackStore(tmp_path / "tracks")
+        cache = TrackCache(tmp_path / "cache.db")
+        for a in [a1, a2]:
+            store.save(a)
+            cache.index_analysis(a)
+
+        # Same rekordbox_id=1, different source players (USB in player 1 vs player 2)
+        cache.link_rekordbox_id(1, "fp_usb1", source_player="1", source_slot="usb")
+        cache.link_rekordbox_id(1, "fp_usb2", source_player="2", source_slot="usb")
+
+        tracker = PlaybackTracker(store, cache)
+
+        # Player 1 playing from its own USB
+        p1 = _make_player(
+            player_number=1, rekordbox_id=1, is_on_air=True,
+            track_source_player=1, track_source_slot="usb",
+        )
+        tracker.update_position(1, 15000.0)
+        c1 = tracker.on_player_update(p1)
+        assert c1 is not None
+        assert tracker.get_analysis(1).fingerprint == "fp_usb1"
+
+        # Player 2 playing from its own USB — same rekordbox_id, different track
+        p2 = _make_player(
+            player_number=2, rekordbox_id=1, is_on_air=True,
+            track_source_player=2, track_source_slot="usb",
+        )
+        tracker.update_position(2, 15000.0)
+        c2 = tracker.on_player_update(p2)
+        assert c2 is not None
+        assert tracker.get_analysis(2).fingerprint == "fp_usb2"
