@@ -1,13 +1,14 @@
 /**
  * DetectorTuningPage — dev-only page for testing and tuning event detection.
  *
- * Route: /dev/detectors (not linked from main nav)
+ * Route: /dev/detectors
  * Loads a track's analysis, displays detected events on the waveform,
  * and provides controls for filtering, toggling, and comparing strategies.
  */
 
 import { useState, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { TrackPicker } from "../components/analysis/TrackPicker.tsx";
 import { EventTimeline } from "../components/detectors/EventTimeline.tsx";
 import { EventControls } from "../components/detectors/EventControls.tsx";
 import { EventStats } from "../components/detectors/EventStats.tsx";
@@ -18,8 +19,7 @@ const API_BASE = "/api/tracks";
 const ALL_TYPES: EventType[] = ["kick", "snare", "clap", "hihat", "riser", "faller", "stab"];
 
 export function DetectorTuningPage() {
-  const [fingerprint, setFingerprint] = useState("");
-  const [inputValue, setInputValue] = useState("");
+  const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [visibleTypes, setVisibleTypes] = useState<Set<EventType>>(new Set(ALL_TYPES));
   const [minConfidence, setMinConfidence] = useState(0);
 
@@ -101,12 +101,6 @@ export function DetectorTuningPage() {
     });
   }, []);
 
-  const handleLoad = () => {
-    if (inputValue.trim()) {
-      setFingerprint(inputValue.trim());
-    }
-  };
-
   const isLoading = analysisLoading || eventsLoading;
 
   return (
@@ -114,27 +108,15 @@ export function DetectorTuningPage() {
       <div>
         <h1 className="text-xl font-semibold text-white">Detector Tuning</h1>
         <p className="text-sm text-slate-400 mt-1">
-          Dev tool for testing and tuning event detection algorithms.
+          Select a track to inspect its detected events.
         </p>
       </div>
 
-      {/* Track selector */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleLoad()}
-          placeholder="Enter track fingerprint..."
-          className="flex-1 bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 focus:border-cyan-500 focus:outline-none font-mono"
-        />
-        <button
-          onClick={handleLoad}
-          className="px-4 py-2 bg-cyan-600 text-white text-sm rounded-lg hover:bg-cyan-500 transition-colors"
-        >
-          Load
-        </button>
-      </div>
+      {/* Track picker table */}
+      <TrackPicker
+        selectedFingerprint={fingerprint}
+        onSelect={setFingerprint}
+      />
 
       {isLoading && (
         <div className="text-slate-400 text-sm animate-pulse">Loading track data...</div>
@@ -182,12 +164,6 @@ export function DetectorTuningPage() {
             </div>
           </div>
         </>
-      )}
-
-      {!fingerprint && !isLoading && (
-        <div className="text-center text-slate-600 py-12">
-          Enter a track fingerprint to load its detected events.
-        </div>
       )}
     </div>
   );

@@ -10,6 +10,8 @@ const navItems = [
   { label: "System", header: true },
   { to: "/logs", label: "Logs" },
   { to: "/network", label: "Network" },
+  { label: "Dev", header: true },
+  { to: "/dev/detectors", label: "Detectors" },
 ] as const;
 
 export function Sidebar() {
