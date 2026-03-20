@@ -166,6 +166,12 @@ def run_analysis(
             original_label=last.original_label, source=last.source,
         )
 
+    # Step 8.5: Event detection (M7)
+    logger.info("Step 8.5: Detecting musical events...")
+    detected_events, drum_patterns = _run_event_detection(
+        features, structure.beats, structure.downbeats, scored_sections,
+    )
+
     # Step 9: Compute RGB waveform
     waveform = None
     if not skip_waveform:
@@ -190,7 +196,8 @@ def run_analysis(
         downbeats=structure.downbeats,
         beatgrid_source="analysis",
         sections=scored_sections,
-        events=[],  # Tier 2 — Milestone 7
+        events=detected_events,
+        drum_patterns=drum_patterns,
         features=TrackFeatures(
             energy_curve=energy_curve,
             mood="neutral",  # Tier 3 — future
@@ -256,3 +263,85 @@ def _score_confidence(
         ))
 
     return result
+
+
+def _run_event_detection(
+    features: AudioFeatures,
+    beats: list[float],
+    downbeats: list[float],
+    sections: list[Section],
+) -> tuple[list, list]:
+    """Run configured event detectors and merge results.
+
+    Returns:
+        Tuple of (tonal_events: list[MusicalEvent], drum_patterns: list[DrumPattern]).
+    """
+    from .detectors.events import DetectorResult, DrumPattern, load_detector_config
+    from .models import MusicalEvent
+
+    try:
+        config = load_detector_config()
+    except Exception:
+        logger.exception("Failed to load detector config — skipping event detection")
+        return [], []
+
+    all_events: list[MusicalEvent] = []
+    all_patterns: list[DrumPattern] = []
+    active = config.active_strategies
+
+    # Percussion detection
+    perc_strategy = active.get("percussion")
+    if perc_strategy:
+        try:
+            if perc_strategy == "random_forest":
+                from .detectors.percussion_rf import PercussionRFDetector
+                detector = PercussionRFDetector()
+            else:
+                from .detectors.percussion_heuristic import PercussionHeuristicDetector
+                detector = PercussionHeuristicDetector()
+
+            result = detector.detect(features, beats, downbeats, sections, config)
+            all_patterns.extend(result.patterns)
+            all_events.extend(result.events)
+            logger.info("Percussion (%s): %d patterns", perc_strategy, len(result.patterns))
+        except Exception:
+            logger.exception("Percussion detection failed (strategy=%s)", perc_strategy)
+
+    # Riser detection
+    if active.get("riser"):
+        try:
+            from .detectors.tonal import RiserDetector
+            result = RiserDetector().detect(features, beats, downbeats, sections, config)
+            all_events.extend(result.events)
+            logger.info("Riser detection: %d events", len(result.events))
+        except Exception:
+            logger.exception("Riser detection failed")
+
+    # Faller detection
+    if active.get("faller"):
+        try:
+            from .detectors.tonal import FallerDetector
+            result = FallerDetector().detect(features, beats, downbeats, sections, config)
+            all_events.extend(result.events)
+            logger.info("Faller detection: %d events", len(result.events))
+        except Exception:
+            logger.exception("Faller detection failed")
+
+    # Stab detection
+    if active.get("stab"):
+        try:
+            from .detectors.tonal import StabDetector
+            result = StabDetector().detect(features, beats, downbeats, sections, config)
+            all_events.extend(result.events)
+            logger.info("Stab detection: %d events", len(result.events))
+        except Exception:
+            logger.exception("Stab detection failed")
+
+    # Sort all events by timestamp
+    all_events.sort(key=lambda e: e.timestamp)
+
+    logger.info(
+        "Event detection complete: %d events, %d drum patterns",
+        len(all_events), len(all_patterns),
+    )
+    return all_events, all_patterns
