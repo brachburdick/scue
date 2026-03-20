@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "./client";
-import type { TrackListResponse } from "../types";
+import type { TrackAnalysis, TrackListResponse } from "../types";
 
 export interface TrackListParams {
   limit?: number;
@@ -25,5 +25,13 @@ export function useTracks(params: TrackListParams = {}) {
   return useQuery<TrackListResponse>({
     queryKey: ["tracks", params],
     queryFn: () => apiFetch<TrackListResponse>(buildTrackListUrl(params)),
+  });
+}
+
+export function useTrackAnalysis(fingerprint: string | null) {
+  return useQuery<TrackAnalysis>({
+    queryKey: ["track-analysis", fingerprint],
+    queryFn: () => apiFetch<TrackAnalysis>(`/tracks/${fingerprint}`),
+    enabled: fingerprint !== null,
   });
 }

@@ -114,6 +114,26 @@ File(s): frontend/src/api/ws.ts, frontend/src/utils/consoleMapper.ts, frontend/s
 
 ---
 
+### Frontend disconnect preserves stale bridge status
+Date: 2026-03-20
+Milestone: FE-BLT
+Severity: LOW (misleading, not broken)
+Symptom: On WS disconnect, the `status` field in bridgeStore is NOT cleared, so `dotStatus` (derived from `status`) stays green even though the connection is lost. Users see a green status dot despite being disconnected.
+Root cause: `bridgeStore.ts:136-157` on WS disconnect clears devices, players, isRecovering, and countdownSecondsRemaining, and recomputes isStartingUp — but does NOT clear `status`. So `status` can remain `"running"` after disconnect. The TopBar does show a startup indicator when `isStartingUp` is true (partially mitigating), but the dot color is misleading.
+Fix: Clear `status` on WS disconnect (set to `null` or a distinguished `"disconnected"` value), or derive `dotStatus` to account for WS connection state.
+File(s): frontend/src/stores/bridgeStore.ts (~line 136-157)
+Source: External code review 2026-03-20
+
+### WebSocket URL hardcoded to port 8000
+Date: 2026-03-20
+Milestone: FE-BLT
+Severity: MEDIUM (blocks any non-default deployment)
+Symptom: WebSocket connection fails if backend runs on any port other than 8000. REST API works fine (uses Vite's same-origin proxy), but WS bypasses the proxy.
+Root cause: `ws.ts:14` hardcodes `ws://${window.location.hostname}:8000/ws`. REST uses Vite's proxy (same-origin `/api`), but WS bypasses the proxy with an explicit port. This breaks on any deployment where the backend isn't on port 8000.
+Fix: Derive WS URL from `window.location` for both host and port, or configure via environment variable, or route through the Vite proxy if possible.
+File(s): frontend/src/api/ws.ts (~line 14)
+Source: External code review 2026-03-20
+
 ### HTML entity strings rendered as literal text in sort indicators
 Date: 2026-03-16
 Milestone: FE-3

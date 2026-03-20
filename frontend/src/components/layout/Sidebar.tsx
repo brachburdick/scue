@@ -1,6 +1,8 @@
 import { NavLink } from "react-router-dom";
 
 const navItems = [
+  { to: "/analysis", label: "Analysis" },
+  { to: "/live", label: "Live Monitor" },
   { label: "Data", header: true },
   { to: "/data/db", label: "Tracks" },
   { to: "/data/bridge", label: "Bridge" },

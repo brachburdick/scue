@@ -129,6 +129,34 @@ Prevention: Always distinguish transport connectivity (WS open) from data connec
 
 ---
 
+## API / Infrastructure
+
+### In-memory job tracking — server restart loses all job state
+Date: 2026-03-20
+Context: External code review of analysis job infrastructure.
+Problem: `_jobs` dict in `jobs.py` stores analysis job status in a Python dict. Server restart = all job state gone. If a long batch analysis is running and the server crashes, there's no recovery and no record of what was in progress.
+Fix/Pattern: Document this limitation explicitly. For now this is acceptable for a local tool. If job reliability becomes important, persist job state to SQLite or a file.
+Prevention: When implementing job/task tracking, decide early whether persistence is required. For local-only tools, in-memory is fine — but document the limitation so future developers don't debug "lost jobs" mystery.
+Source: External code review 2026-03-20
+
+### Lazy imports in API handlers — intentional but undocumented
+Date: 2026-03-20
+Context: External code review flagged scattered `from ..layer1.analysis import run_analysis` inside request handler function bodies.
+Problem: This pattern works (avoids circular imports) but is unusual and makes dependency graphs harder to reason about. An agent told "use dataclasses for all models" respected that rule for domain models but didn't apply consistent import style — classic scope-boundary issue in multi-agent work.
+Fix/Pattern: Either document this as intentional in CLAUDE.md (e.g., "inline imports are used in API handlers to avoid circular dependencies") or refactor to proper `__init__.py` re-exports or FastAPI dependency injection. If kept, add a comment at the first occurrence explaining why.
+Prevention: When a codebase uses an unusual pattern intentionally, document it in CLAUDE.md so agents don't "fix" it or propagate it inconsistently.
+Source: External code review 2026-03-20
+
+### WebSocket messages built as raw dicts instead of dataclasses
+Date: 2026-03-20
+Context: External code review. `_build_bridge_status()`, `_build_pioneer_status()` return raw dicts while all other data models use typed dataclasses.
+Problem: Inconsistency between "use dataclasses for all models" rule and WS message construction. An agent that was told "use dataclasses" respected it for domain models but not WS payloads — scope-boundary issue.
+Fix/Pattern: Define WS message dataclasses (e.g., `BridgeStatusMessage`, `PioneerStatusMessage`) and use `dataclasses.asdict()` for serialization. This also makes the WS message schema self-documenting and type-checkable.
+Prevention: When defining coding conventions ("use dataclasses for all models"), be explicit about scope — does "all models" include WS messages, API responses, internal events? Spell it out in CLAUDE.md.
+Source: External code review 2026-03-20
+
+---
+
 ## Cross-Cutting / Workflow
 
 ### fix_route() wrapping must be applied at every call site, not just the manager

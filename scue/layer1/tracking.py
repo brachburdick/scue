@@ -10,14 +10,19 @@ None from on_player_update().
 """
 
 import logging
+from collections.abc import Callable
+from typing import Any
 
-from ..bridge.adapter import PlayerState
+from ..bridge.adapter import DeviceInfo, PlayerState
 from .cursor import build_cursor
 from .enrichment import run_enrichment_pass
 from .models import TrackAnalysis, TrackCursor
 from .storage import TrackStore, TrackCache
 
 log = logging.getLogger(__name__)
+
+# Callback type for looking up device info by player number
+DeviceLookup = Callable[[int], DeviceInfo | None]
 
 
 class PlaybackTracker:
@@ -30,9 +35,15 @@ class PlaybackTracker:
     4. Return cursor only for on-air player
     """
 
-    def __init__(self, store: TrackStore, cache: TrackCache) -> None:
+    def __init__(
+        self,
+        store: TrackStore,
+        cache: TrackCache,
+        device_lookup: DeviceLookup | None = None,
+    ) -> None:
         self._store = store
         self._cache = cache
+        self._device_lookup = device_lookup
         # Per-player state: rekordbox_id currently loaded
         self._player_track: dict[int, int] = {}
         # Per-player cached analysis (avoids repeated lookups)

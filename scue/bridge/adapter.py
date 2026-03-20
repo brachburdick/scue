@@ -75,6 +75,10 @@ class PlayerState:
     duration: float = 0.0
     rekordbox_id: int = 0
 
+    # Track source (from player_status messages — which player/slot loaded the track)
+    track_source_player: int = 0
+    track_source_slot: str = ""  # "sd" | "usb" | "cd" | "collection"
+
     # Beat grid (from beat_grid messages)
     beat_grid: list[dict] = field(default_factory=list)
 
@@ -230,6 +234,8 @@ class BridgeAdapter:
         player.beat_number = payload.beat_number
         player.playback_state = payload.playback_state
         player.is_on_air = payload.is_on_air
+        player.track_source_player = payload.track_source_player
+        player.track_source_slot = payload.track_source_slot
         player.last_update = msg.timestamp
 
         # Detect track changes via rekordbox_id in player_status.

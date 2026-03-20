@@ -12,14 +12,18 @@ from scue.layer1.models import Section, TrackAnalysis, TrackFeatures
 from scue.layer1.storage import TrackCache, TrackStore
 from scue.layer1.usb_scanner import (
     MatchedTrack,
+    PdbTrack,
     ScanResult,
     UsbTrack,
     _normalize,
+    _normalize_pioneer_path,
     _read_anlz_data,
     _try_custom_parser,
     _try_pyrekordbox,
+    apply_pdb_only_scan,
     apply_scan_results,
     match_usb_tracks,
+    read_pdb_library,
     read_usb_library,
 )
 
@@ -164,7 +168,7 @@ class TestMatchUsbTracks:
         """Tracks already linked in the cache are skipped."""
         analysis = _make_analysis(fp="fp4")
         store, cache = _setup_store_and_cache(tmp_path, [analysis])
-        cache.link_rekordbox_id(104, "fp4")
+        cache.link_rekordbox_id(104, "fp4", source_player="dlp", source_slot="usb")
 
         usb_track = _make_usb_track(rekordbox_id=104, title="Test Track")
 
@@ -242,7 +246,7 @@ class TestMatchUsbTracks:
 
 class TestApplyScanResults:
     def test_apply_creates_links(self, tmp_path: Path) -> None:
-        """apply_scan_results persists rekordbox_id → fingerprint links."""
+        """apply_scan_results persists rekordbox_id → fingerprint links in DLP namespace."""
         store, cache = _setup_store_and_cache(tmp_path)
 
         usb_track = _make_usb_track(rekordbox_id=201, title="Linked Track")
@@ -255,7 +259,7 @@ class TestApplyScanResults:
 
         linked = apply_scan_results(result, cache)
         assert linked == 1
-        assert cache.lookup_fingerprint(201) == "fp_linked"
+        assert cache.lookup_fingerprint(201, source_player="dlp", source_slot="usb") == "fp_linked"
 
     def test_apply_stores_pioneer_metadata(self, tmp_path: Path) -> None:
         """apply_scan_results caches Pioneer metadata for enrichment."""
@@ -276,7 +280,7 @@ class TestApplyScanResults:
 
         apply_scan_results(result, cache)
 
-        meta = cache.get_pioneer_metadata(202)
+        meta = cache.get_pioneer_metadata(202, source_player="dlp", source_slot="usb")
         assert meta is not None
         assert meta["title"] == "With Metadata"
         assert meta["bpm"] == 130.0
@@ -290,10 +294,66 @@ class TestApplyScanResults:
         result = ScanResult(usb_path="/test", total_tracks=0, scan_timestamp=time.time())
         assert apply_scan_results(result, cache) == 0
 
+    def test_apply_dual_namespace_linking(self, tmp_path: Path) -> None:
+        """apply_scan_results with pdb_tracks links both DLP and DeviceSQL namespaces."""
+        store, cache = _setup_store_and_cache(tmp_path)
+
+        usb_track = _make_usb_track(
+            rekordbox_id=301,
+            title="Dual Track",
+            file_path="/Contents/Artist/Track.mp3",
+        )
+        result = ScanResult(
+            usb_path="/test/usb",
+            total_tracks=1,
+            matched=[MatchedTrack(usb_track, "fp_dual", "path_stem")],
+            scan_timestamp=time.time(),
+        )
+
+        pdb_tracks = [PdbTrack(
+            devicesql_id=17,
+            title="Dual Track",
+            file_path="/Contents/Artist/Track.mp3",
+            bpm=128.0,
+        )]
+
+        linked = apply_scan_results(result, cache, pdb_tracks=pdb_tracks)
+        assert linked == 2  # DLP + DeviceSQL
+
+        # Both namespaces point to same fingerprint
+        assert cache.lookup_fingerprint(301, source_player="dlp", source_slot="usb") == "fp_dual"
+        assert cache.lookup_fingerprint(17, source_player="devicesql", source_slot="usb") == "fp_dual"
+
+    def test_apply_pdb_no_match_by_path(self, tmp_path: Path) -> None:
+        """DeviceSQL tracks with no matching DLP file path are not linked."""
+        store, cache = _setup_store_and_cache(tmp_path)
+
+        usb_track = _make_usb_track(
+            rekordbox_id=302,
+            file_path="/Contents/Artist/Track A.mp3",
+        )
+        result = ScanResult(
+            usb_path="/test/usb",
+            total_tracks=1,
+            matched=[MatchedTrack(usb_track, "fp_a", "path_stem")],
+            scan_timestamp=time.time(),
+        )
+
+        pdb_tracks = [PdbTrack(
+            devicesql_id=18,
+            title="Different Track",
+            file_path="/Contents/Artist/Track B.mp3",
+        )]
+
+        linked = apply_scan_results(result, cache, pdb_tracks=pdb_tracks)
+        assert linked == 1  # Only DLP
+        assert cache.lookup_fingerprint(18, source_player="devicesql", source_slot="usb") is None
+
 
 # ── Storage: Pioneer Metadata ────────────────────────────────────────────
 
 class TestPioneerMetadataStorage:
+    """These tests use default source_player/source_slot to verify backward compat."""
     def test_store_and_get(self, tmp_path: Path) -> None:
         cache = TrackCache(tmp_path / "cache.db")
         cache.store_pioneer_metadata(301, {
@@ -355,6 +415,113 @@ class TestPioneerMetadataStorage:
         meta = cache.get_pioneer_metadata(501)
         assert meta["title"] == "New Title"
         assert meta["bpm"] == 130.0
+
+
+# ── Dual-Namespace Scanning ──────────────────────────────────────────────
+
+class TestDualNamespaceScanning:
+    def test_dual_db_scan_both_namespaces(self, tmp_path: Path) -> None:
+        """When both DBs present, both DLP and DeviceSQL entries are created."""
+        analysis = _make_analysis(
+            fp="fp_dual", audio_path="/music/Awesome Track.mp3",
+        )
+        store, cache = _setup_store_and_cache(tmp_path, [analysis])
+
+        # DLP USB track
+        usb_track = _make_usb_track(
+            rekordbox_id=500,
+            title="Awesome Track",
+            file_path="/Contents/Artist/Awesome Track.mp3",
+        )
+        result = ScanResult(
+            usb_path="/test/usb",
+            total_tracks=1,
+            matched=[MatchedTrack(usb_track, "fp_dual", "path_stem")],
+            scan_timestamp=time.time(),
+        )
+
+        # DeviceSQL track with same file path, different ID
+        pdb_tracks = [PdbTrack(
+            devicesql_id=55,
+            title="Awesome Track",
+            file_path="/Contents/Artist/Awesome Track.mp3",
+        )]
+
+        linked = apply_scan_results(result, cache, pdb_tracks=pdb_tracks)
+        assert linked == 2
+
+        # Both namespaces resolve to same fingerprint
+        assert cache.lookup_fingerprint(500, "dlp", "usb") == "fp_dual"
+        assert cache.lookup_fingerprint(55, "devicesql", "usb") == "fp_dual"
+
+    def test_dlp_only_usb(self, tmp_path: Path) -> None:
+        """DLP-only USB (no export.pdb) creates only DLP entries."""
+        analysis = _make_analysis(fp="fp_dlp_only", audio_path="/music/Song.mp3")
+        store, cache = _setup_store_and_cache(tmp_path, [analysis])
+
+        usb_track = _make_usb_track(
+            rekordbox_id=600,
+            file_path="/Contents/Artist/Song.mp3",
+        )
+        result = ScanResult(
+            usb_path="/test/usb",
+            total_tracks=1,
+            matched=[MatchedTrack(usb_track, "fp_dlp_only", "path_stem")],
+            scan_timestamp=time.time(),
+        )
+
+        # No pdb_tracks — DLP-only
+        linked = apply_scan_results(result, cache)
+        assert linked == 1
+        assert cache.lookup_fingerprint(600, "dlp", "usb") == "fp_dlp_only"
+
+    def test_legacy_only_usb(self, tmp_path: Path) -> None:
+        """Legacy-only USB (no exportLibrary.db) creates only DeviceSQL entries."""
+        analysis = _make_analysis(
+            fp="fp_legacy", audio_path="/music/OldTrack.mp3",
+            title="OldTrack", artist="OldArtist",
+        )
+        store, cache = _setup_store_and_cache(tmp_path, [analysis])
+
+        pdb_tracks = [PdbTrack(
+            devicesql_id=700,
+            title="OldTrack",
+            file_path="/Contents/OldArtist/OldTrack.mp3",
+            bpm=125.0,
+        )]
+
+        linked = apply_pdb_only_scan(pdb_tracks, cache, store)
+        assert linked == 1
+        assert cache.lookup_fingerprint(700, "devicesql", "usb") == "fp_legacy"
+
+    def test_file_path_matching_case_insensitive(self, tmp_path: Path) -> None:
+        """File path matching is case-insensitive."""
+        store, cache = _setup_store_and_cache(tmp_path)
+
+        usb_track = _make_usb_track(
+            rekordbox_id=800,
+            file_path="/Contents/Artist/Track.MP3",
+        )
+        result = ScanResult(
+            usb_path="/test/usb",
+            total_tracks=1,
+            matched=[MatchedTrack(usb_track, "fp_case", "path_stem")],
+            scan_timestamp=time.time(),
+        )
+
+        pdb_tracks = [PdbTrack(
+            devicesql_id=80,
+            title="Track",
+            file_path="/Contents/Artist/Track.mp3",  # different case
+        )]
+
+        linked = apply_scan_results(result, cache, pdb_tracks=pdb_tracks)
+        assert linked == 2
+        assert cache.lookup_fingerprint(80, "devicesql", "usb") == "fp_case"
+
+    def test_normalize_pioneer_path(self) -> None:
+        assert _normalize_pioneer_path("/Contents/Artist/Track.MP3") == "/contents/artist/track.mp3"
+        assert _normalize_pioneer_path("\\Contents\\Artist\\Track.mp3") == "/contents/artist/track.mp3"
 
 
 # ── read_usb_library (mocked rbox) ───────────────────────────────────────

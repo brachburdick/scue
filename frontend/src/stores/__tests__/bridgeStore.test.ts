@@ -32,6 +32,8 @@ function makeBridgeState(overrides: Partial<BridgeState> = {}): BridgeState {
     jar_exists: true,
     jre_available: true,
     restart_count: 0,
+    restart_attempt: 0,
+    next_retry_in_s: null,
     route_correct: true,
     route_warning: null,
     devices: {},
@@ -156,7 +158,7 @@ describe("bridgeStore", () => {
 
   describe("setPioneerStatus", () => {
     it("updates isReceiving and lastMessageAgeMs", () => {
-      useBridgeStore.getState().setPioneerStatus(true, 150);
+      useBridgeStore.getState().setPioneerStatus(true, 150, true);
       const state = useBridgeStore.getState();
       expect(state.isReceiving).toBe(true);
       expect(state.lastMessageAgeMs).toBe(150);
@@ -167,7 +169,7 @@ describe("bridgeStore", () => {
       expect(useBridgeStore.getState().dotStatus).toBe("connected");
 
       // Pioneer status goes to not-receiving — dot should stay green
-      useBridgeStore.getState().setPioneerStatus(false, 5000);
+      useBridgeStore.getState().setPioneerStatus(false, 5000, true);
       expect(useBridgeStore.getState().dotStatus).toBe("connected");
     });
   });
@@ -200,7 +202,7 @@ describe("bridgeStore", () => {
       );
 
       // Update pioneer status — devices/players should remain
-      useBridgeStore.getState().setPioneerStatus(true, 100);
+      useBridgeStore.getState().setPioneerStatus(true, 100, true);
 
       const state = useBridgeStore.getState();
       expect(Object.keys(state.devices)).toHaveLength(1);

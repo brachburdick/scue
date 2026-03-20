@@ -195,6 +195,36 @@ File(s): scue/bridge/manager.py, tests/test_bridge/test_manager.py
 
 ---
 
+### WS broadcast set mutation during iteration
+Date: 2026-03-20
+Milestone: N/A (infrastructure)
+Severity: LOW-MEDIUM (race condition, undefined behavior)
+Symptom: Potential skipped or double-visited WebSocket clients during broadcast. Could manifest as missed status updates or duplicate messages under load.
+Root cause: `WSManager.broadcast()` iterates `self._clients` with `for client in self._clients:` while awaiting `send_text`. During those awaits, `connect()` or `disconnect()` can mutate the set. Python sets don't raise on mutation during iteration (unlike dicts), but they can skip or double-visit elements. Dead-client cleanup after the loop is correct, but connect/disconnect during iteration is undefined behavior.
+Fix: Iterate over `list(self._clients)` instead of `self._clients` directly. One-line fix.
+File(s): scue/api/ws.py (WSManager.broadcast)
+Source: External code review 2026-03-20
+
+### Bridge startup failure has no retry
+Date: 2026-03-20
+Milestone: N/A (robustness)
+Severity: MEDIUM
+Symptom: If the bridge fails on initial `start()` (not a mid-run crash), no retry is attempted. The bridge stays in crashed state permanently until the server is restarted.
+Root cause: `start()` at manager.py:218-222 catches the exception, sets crashed, cleans up, and stops. No retry loop, no backoff scheduling. The health check loop handles mid-run crashes, but initial startup failure is terminal. The `waiting_for_hardware` state and retry logic only triggers after `max_crash_before_fallback` consecutive failures — but on a clean first start that fails once, there's no path to retry.
+Fix: Add backoff/retry on initial `start()` failure, or ensure the first failure feeds into the same consecutive-failure counter that eventually leads to `waiting_for_hardware`.
+File(s): scue/bridge/manager.py (~line 218-222)
+Source: External code review 2026-03-20
+
+### Subprocess stdout/stderr pipe deadlock risk
+Date: 2026-03-20
+Milestone: N/A (robustness)
+Severity: LOW (may not trigger in practice)
+Symptom: Java bridge subprocess could hang if it produces enough stdout output to fill the OS pipe buffer (64KB on macOS).
+Root cause: `Popen` uses `stdout=PIPE, stderr=PIPE` at manager.py:361-362. The stdout pipe is never drained during normal operation. The bridge communicates via WebSocket, so stdout volume is likely low. However, if the bridge starts dumping stack traces or verbose logging, the OS pipe buffer fills and the child blocks on write, hanging the bridge.
+Fix: Either spawn a reader thread to drain stdout, or use `subprocess.DEVNULL` if stdout content isn't needed. If log capture is desired, redirect to a file instead of a pipe.
+File(s): scue/bridge/manager.py (~line 361-362)
+Source: External code review 2026-03-20
+
 ### rbox ANLZ parser panics on XDJ-AZ exported files
 Date: 2026-03-16
 Milestone: M-0B

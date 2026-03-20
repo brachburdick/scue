@@ -121,6 +121,36 @@ class TrackStore:
 
 
 # ---------------------------------------------------------------------------
+# Schema migration helpers (DROP + recreate for derived cache tables)
+# ---------------------------------------------------------------------------
+
+def _migrate_track_ids(conn: sqlite3.Connection) -> None:
+    """Drop old single-column-PK track_ids table if it exists.
+
+    Data loss is acceptable — USB rescan repopulates.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='track_ids'"
+    ).fetchone()
+    if row and "source_player" not in row[0]:
+        logger.info("Migrating track_ids table: dropping old single-PK schema")
+        conn.execute("DROP TABLE track_ids")
+
+
+def _migrate_pioneer_metadata(conn: sqlite3.Connection) -> None:
+    """Drop old single-column-PK pioneer_metadata table if it exists.
+
+    Data loss is acceptable — USB rescan repopulates.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='pioneer_metadata'"
+    ).fetchone()
+    if row and "source_player" not in row[0]:
+        logger.info("Migrating pioneer_metadata table: dropping old single-PK schema")
+        conn.execute("DROP TABLE pioneer_metadata")
+
+
+# ---------------------------------------------------------------------------
 # SQLite cache (derived index)
 # ---------------------------------------------------------------------------
 
@@ -161,11 +191,16 @@ class TrackCache:
                     PRIMARY KEY (fingerprint, version)
                 )
             """)
+            # Migration: drop old single-column-PK track_ids if it exists
+            _migrate_track_ids(conn)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS track_ids (
-                    rekordbox_id INTEGER PRIMARY KEY,
+                    source_player TEXT NOT NULL,
+                    source_slot TEXT NOT NULL,
+                    rekordbox_id INTEGER NOT NULL,
                     fingerprint TEXT NOT NULL,
-                    first_seen REAL NOT NULL
+                    first_seen REAL NOT NULL,
+                    PRIMARY KEY (source_player, source_slot, rekordbox_id)
                 )
             """)
             conn.execute("""
@@ -179,9 +214,13 @@ class TrackCache:
                     timestamp REAL NOT NULL
                 )
             """)
+            # Migration: drop old single-column-PK pioneer_metadata if it exists
+            _migrate_pioneer_metadata(conn)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS pioneer_metadata (
-                    rekordbox_id INTEGER PRIMARY KEY,
+                    source_player TEXT NOT NULL,
+                    source_slot TEXT NOT NULL,
+                    rekordbox_id INTEGER NOT NULL,
                     title TEXT NOT NULL DEFAULT '',
                     artist TEXT NOT NULL DEFAULT '',
                     bpm REAL NOT NULL DEFAULT 0.0,
@@ -191,7 +230,8 @@ class TrackCache:
                     memory_points_json TEXT NOT NULL DEFAULT '[]',
                     hot_cues_json TEXT NOT NULL DEFAULT '[]',
                     file_path TEXT NOT NULL DEFAULT '',
-                    scan_timestamp REAL NOT NULL
+                    scan_timestamp REAL NOT NULL,
+                    PRIMARY KEY (source_player, source_slot, rekordbox_id)
                 )
             """)
 
@@ -280,22 +320,49 @@ class TrackCache:
             ).fetchone()
         return row[0] if row else 0
 
-    def lookup_fingerprint(self, rekordbox_id: int) -> str | None:
-        """Look up a track fingerprint by rekordbox ID."""
+    def lookup_fingerprint(
+        self,
+        rekordbox_id: int,
+        source_player: str = "1",
+        source_slot: str = "usb",
+    ) -> str | None:
+        """Look up a track fingerprint by rekordbox ID and source.
+
+        Args:
+            rekordbox_id: Rekordbox track ID.
+            source_player: Source player identifier (e.g. "1", "dlp", "devicesql").
+            source_slot: Source slot identifier (e.g. "usb", "sd").
+        """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT fingerprint FROM track_ids WHERE rekordbox_id = ?",
-                (rekordbox_id,),
+                "SELECT fingerprint FROM track_ids "
+                "WHERE source_player = ? AND source_slot = ? AND rekordbox_id = ?",
+                (source_player, source_slot, rekordbox_id),
             ).fetchone()
         return row[0] if row else None
 
-    def link_rekordbox_id(self, rekordbox_id: int, fingerprint: str) -> None:
-        """Associate a rekordbox ID with a track fingerprint."""
+    def link_rekordbox_id(
+        self,
+        rekordbox_id: int,
+        fingerprint: str,
+        source_player: str = "1",
+        source_slot: str = "usb",
+    ) -> None:
+        """Associate a rekordbox ID with a track fingerprint.
+
+        Args:
+            rekordbox_id: Rekordbox track ID.
+            fingerprint: Track fingerprint (SHA256).
+            source_player: Source player identifier (e.g. "1", "dlp", "devicesql").
+            source_slot: Source slot identifier (e.g. "usb", "sd").
+        """
         import time
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO track_ids (rekordbox_id, fingerprint, first_seen) VALUES (?, ?, ?)",
-                (rekordbox_id, fingerprint, time.time()),
+                "INSERT OR REPLACE INTO track_ids "
+                "(source_player, source_slot, rekordbox_id, fingerprint, first_seen) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (source_player, source_slot, rekordbox_id, fingerprint, time.time()),
             )
 
     def store_divergence(self, record: DivergenceRecord) -> None:
@@ -348,26 +415,36 @@ class TrackCache:
             for r in rows
         ]
 
-    def store_pioneer_metadata(self, rekordbox_id: int, metadata: dict) -> None:
+    def store_pioneer_metadata(
+        self,
+        rekordbox_id: int,
+        metadata: dict,
+        source_player: str = "1",
+        source_slot: str = "usb",
+    ) -> None:
         """Cache Pioneer metadata from a USB scan for later enrichment.
 
         Args:
-            rekordbox_id: DLP track ID from the USB database.
+            rekordbox_id: Track ID from the USB database.
             metadata: Dict with keys: title, artist, bpm, key_name,
                       beatgrid (list[float]), cue_points (list[dict]),
                       memory_points (list[dict]), hot_cues (list[dict]),
                       file_path, scan_timestamp.
+            source_player: Source player identifier (e.g. "1", "dlp", "devicesql").
+            source_slot: Source slot identifier (e.g. "usb", "sd").
         """
         import time as _time
 
         with self._connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO pioneer_metadata
-                (rekordbox_id, title, artist, bpm, key_name,
+                (source_player, source_slot, rekordbox_id, title, artist, bpm, key_name,
                  beatgrid_json, cue_points_json, memory_points_json, hot_cues_json,
                  file_path, scan_timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
+                source_player,
+                source_slot,
                 rekordbox_id,
                 metadata.get("title", ""),
                 metadata.get("artist", ""),
@@ -381,8 +458,18 @@ class TrackCache:
                 metadata.get("scan_timestamp", _time.time()),
             ))
 
-    def get_pioneer_metadata(self, rekordbox_id: int) -> dict | None:
+    def get_pioneer_metadata(
+        self,
+        rekordbox_id: int,
+        source_player: str = "1",
+        source_slot: str = "usb",
+    ) -> dict | None:
         """Retrieve cached Pioneer metadata for a track.
+
+        Args:
+            rekordbox_id: Rekordbox track ID.
+            source_player: Source player identifier (e.g. "1", "dlp", "devicesql").
+            source_slot: Source slot identifier (e.g. "usb", "sd").
 
         Returns:
             Dict with beatgrid (list[float]), cue_points, memory_points,
@@ -392,8 +479,9 @@ class TrackCache:
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
-                "SELECT * FROM pioneer_metadata WHERE rekordbox_id = ?",
-                (rekordbox_id,),
+                "SELECT * FROM pioneer_metadata "
+                "WHERE source_player = ? AND source_slot = ? AND rekordbox_id = ?",
+                (source_player, source_slot, rekordbox_id),
             ).fetchone()
 
         if row is None:
