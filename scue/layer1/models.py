@@ -120,6 +120,7 @@ class TrackAnalysis:
 
     # Tier 2 — Event Detection (empty until Milestone 7)
     events: list[MusicalEvent] = field(default_factory=list)
+    drum_patterns: list = field(default_factory=list)  # list[DrumPattern] — compact percussion
 
     # Tier 3 — Track-Level Features
     features: TrackFeatures = field(default_factory=TrackFeatures)
@@ -325,6 +326,8 @@ def waveform_from_dict(data: dict) -> RGBWaveform:
 
 def analysis_to_dict(analysis: TrackAnalysis) -> dict:
     """Serialize a TrackAnalysis to a JSON-safe dict."""
+    from .detectors.events import drum_pattern_to_dict
+
     result = {
         "fingerprint": analysis.fingerprint,
         "audio_path": analysis.audio_path,
@@ -336,6 +339,7 @@ def analysis_to_dict(analysis: TrackAnalysis) -> dict:
         "beatgrid_source": analysis.beatgrid_source,
         "sections": [section_to_dict(s) for s in analysis.sections],
         "events": [event_to_dict(e) for e in analysis.events],
+        "drum_patterns": [drum_pattern_to_dict(p) for p in analysis.drum_patterns],
         "features": features_to_dict(analysis.features),
         "waveform": waveform_to_dict(analysis.waveform) if analysis.waveform else None,
         "version": analysis.version,
@@ -353,6 +357,8 @@ def analysis_to_dict(analysis: TrackAnalysis) -> dict:
 
 def analysis_from_dict(data: dict) -> TrackAnalysis:
     """Deserialize a TrackAnalysis from a dict."""
+    from .detectors.events import drum_pattern_from_dict
+
     return TrackAnalysis(
         fingerprint=data["fingerprint"],
         audio_path=data["audio_path"],
@@ -364,6 +370,7 @@ def analysis_from_dict(data: dict) -> TrackAnalysis:
         beatgrid_source=data.get("beatgrid_source", "analysis"),
         sections=[section_from_dict(s) for s in data.get("sections", [])],
         events=[event_from_dict(e) for e in data.get("events", [])],
+        drum_patterns=[drum_pattern_from_dict(p) for p in data.get("drum_patterns", [])],
         features=features_from_dict(data["features"]) if "features" in data else TrackFeatures(),
         waveform=waveform_from_dict(data["waveform"]) if data.get("waveform") else None,
         version=data.get("version", 1),

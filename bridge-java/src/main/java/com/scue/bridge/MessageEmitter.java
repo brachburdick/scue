@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,10 +14,8 @@ import java.util.Map;
  * Constructs typed JSON messages matching the SCUE bridge protocol and broadcasts
  * them via the WebSocket server.
  *
- * Per ADR-012: Only real-time playback messages are emitted.
- * Track metadata, beatgrids, waveforms, cue points, and phrase analysis are
- * handled by the Python side via rbox (for DLP hardware) or future bridge
- * extensions (for legacy hardware).
+ * Per ADR-017: Emits both real-time playback messages and Finder data
+ * (metadata, beatgrid, waveform, phrase analysis, cue points).
  *
  * All messages follow the envelope:
  * { "type": "...", "timestamp": ..., "player_number": ..., "payload": { ... } }
@@ -128,5 +127,63 @@ public class MessageEmitter {
         payload.put("bpm", bpm);
         payload.put("pitch", pitch);
         emit("beat", playerNumber, payload);
+    }
+
+    // ── Finder message types (ADR-017) ─────────────────────────────────────
+
+    public void emitTrackMetadata(int playerNumber, String title, String artist,
+                                   String album, String genre, String key,
+                                   double bpm, double duration, String color,
+                                   int rating, String comment, int rekordboxId) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("title", title);
+        payload.put("artist", artist);
+        payload.put("album", album);
+        payload.put("genre", genre);
+        payload.put("key", key);
+        payload.put("bpm", bpm);
+        payload.put("duration", duration);
+        payload.put("color", color);
+        payload.put("rating", rating);
+        payload.put("comment", comment);
+        payload.put("rekordbox_id", rekordboxId);
+        emit("track_metadata", playerNumber, payload);
+    }
+
+    public void emitBeatGrid(int playerNumber, List<Map<String, Object>> beats) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("beats", beats);
+        emit("beat_grid", playerNumber, payload);
+    }
+
+    public void emitWaveformDetail(int playerNumber, String base64Data, int totalBeats) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("data", base64Data);
+        payload.put("total_beats", totalBeats);
+        emit("waveform_detail", playerNumber, payload);
+    }
+
+    public void emitWaveformPreview(int playerNumber, String base64Data, int totalBeats) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("data", base64Data);
+        payload.put("total_beats", totalBeats);
+        emit("waveform_preview", playerNumber, payload);
+    }
+
+    public void emitPhraseAnalysis(int playerNumber, List<Map<String, Object>> phrases) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("phrases", phrases);
+        emit("phrase_analysis", playerNumber, payload);
+    }
+
+    public void emitCuePoints(int playerNumber,
+                               List<Map<String, Object>> cuePoints,
+                               List<Map<String, Object>> memoryPoints,
+                               List<Map<String, Object>> hotCues) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("cue_points", cuePoints);
+        payload.put("memory_points", memoryPoints);
+        payload.put("hot_cues", hotCues);
+        emit("cue_points", playerNumber, payload);
     }
 }

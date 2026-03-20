@@ -356,6 +356,11 @@ class BridgeManager:
         ]
         if self._network_interface:
             cmd.extend(["--interface", self._network_interface])
+        # Pass DLP database key if configured (for exportLibrary.db decryption)
+        import os
+        db_key = os.environ.get("SCUE_DLP_DATABASE_KEY", "")
+        if db_key:
+            cmd.extend(["--database-key", db_key])
         self._process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -694,6 +699,9 @@ class BridgeManager:
                     "rekordbox_id": p.rekordbox_id,
                     "beat_within_bar": p.beat_within_bar,
                     "track_type": getattr(p, "track_type", ""),
+                    "playback_position_ms": p.playback_position_ms,
+                    "track_source_player": p.track_source_player,
+                    "track_source_slot": p.track_source_slot,
                 }
                 for pn, p in self._adapter.players.items()
             },

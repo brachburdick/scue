@@ -1,9 +1,12 @@
 package com.scue.bridge;
 
 import org.deepsymmetry.beatlink.*;
+import org.deepsymmetry.beatlink.data.*;
+import org.deepsymmetry.cratedigger.pdb.RekordboxAnlz;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.ByteBuffer;
 import java.net.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -13,30 +16,29 @@ import java.util.stream.Collectors;
  * Beat-link bridge — connects to Pioneer DJ hardware via Pro DJ Link and streams
  * typed JSON messages over a local WebSocket to the SCUE Python process.
  *
- * Per ADR-012: This bridge provides REAL-TIME PLAYBACK DATA ONLY:
- *   - player_status (BPM, pitch, beat position, play state, on-air, rekordbox ID)
- *   - beat events
- *   - device discovery
+ * Per ADR-017 (supersedes ADR-012): This bridge provides real-time playback data
+ * AND metadata/analysis data via beat-link Finders:
+ *   - player_status, beat events, device discovery (real-time)
+ *   - track_metadata, beat_grid, waveform_detail, phrase_analysis, cue_points (via Finders)
  *
- * Track metadata, beatgrids, waveforms, cue points, and phrase analysis are NOT
- * provided by the bridge. For Device Library Plus hardware (XDJ-AZ, Opus Quad, etc.),
- * the Python side reads metadata directly from the USB via the rbox library.
- * For legacy hardware, a separate metadata path may be added in future.
+ * beat-link 8.1.0-SNAPSHOT has native XDJ-AZ support via CrateDigger NFS downloads
+ * and SQLite ID translation. All Finders are enabled.
  *
  * Startup sequence:
- *   1. Parse CLI args (--port, --player-number, --interface)
+ *   1. Parse CLI args (--port, --player-number, --interface, --database-key)
  *   2. Start WebSocket server
  *   3. Emit bridge_status { connected: false }
  *   4. Select network interface (auto-detect with scoring, or user-specified)
  *   5. Start DeviceFinder
  *   6. Configure and start VirtualCdj on selected interface
  *   7. Start BeatFinder
- *   8. Register listeners, emit bridge_status { connected: true, network_interface: ..., interface_candidates: [...] }
+ *   8. Start all Finders (TimeFinder, MetadataFinder, BeatGridFinder, WaveformFinder, AnalysisTagFinder, ArtFinder)
+ *   9. Register listeners, emit bridge_status { connected: true, network_interface: ..., interface_candidates: [...] }
  */
 public class BeatLinkBridge {
 
     private static final Logger log = LoggerFactory.getLogger(BeatLinkBridge.class);
-    private static final String VERSION = "1.2.0";
+    private static final String VERSION = "2.0.0";
 
     // Known Device Library Plus hardware models
     private static final Set<String> DLP_DEVICES = Set.of(
@@ -52,6 +54,7 @@ public class BeatLinkBridge {
     private final int playerNumber;
     private final int retryInterval;
     private final String requestedInterface; // null = auto-detect
+    private final String databaseKey; // DLP database key for exportLibrary.db decryption
 
     private BridgeWebSocketServer wsServer;
     private MessageEmitter emitter;
@@ -70,11 +73,12 @@ public class BeatLinkBridge {
     // Track which devices use DLP (detected from device name)
     private final Set<String> dlpDeviceIps = ConcurrentHashMap.newKeySet();
 
-    public BeatLinkBridge(int port, int playerNumber, int retryInterval, String requestedInterface) {
+    public BeatLinkBridge(int port, int playerNumber, int retryInterval, String requestedInterface, String databaseKey) {
         this.port = port;
         this.playerNumber = playerNumber;
         this.retryInterval = retryInterval;
         this.requestedInterface = requestedInterface;
+        this.databaseKey = databaseKey;
     }
 
     public void start() throws Exception {
@@ -433,6 +437,12 @@ public class BeatLinkBridge {
         // Register all listeners
         registerListeners();
 
+        // Start Finders (metadata, waveform, beatgrid, phrase analysis, art)
+        startFinders();
+
+        // Register Finder listeners (metadata, beatgrid, waveform, phrase, cues)
+        registerFinderListeners();
+
         // Emit connected status with interface info
         beatLinkConnected = true;
         int deviceCount = DeviceFinder.getInstance().getCurrentDevices().size();
@@ -498,7 +508,7 @@ public class BeatLinkBridge {
         });
         BeatFinder.getInstance().start();
 
-        log.info("All listeners registered (real-time data only, no metadata finders)");
+        log.info("Real-time listeners registered (device, player_status, beat)");
     }
 
     // ── Event handlers ─────────────────────────────────────────────────────
@@ -512,7 +522,7 @@ public class BeatLinkBridge {
 
         if (usesDlp) {
             dlpDeviceIps.add(ip);
-            log.info("Device {} uses Device Library Plus — metadata will come from rbox, not bridge", name);
+            log.info("Device {} uses Device Library Plus — Finders will use CrateDigger NFS path", name);
         }
 
         Integer playerNum = "cdj".equals(type) && num >= 1 && num <= 4 ? num : null;
@@ -574,10 +584,282 @@ public class BeatLinkBridge {
         emitter.emitBeat(pn, beatInBar, bpm, pitchPct);
     }
 
+    // ── Finder lifecycle ────────────────────────────────────────────────────
+
+    private void configureOpusProvider() {
+        if (databaseKey != null && !databaseKey.isEmpty()) {
+            OpusProvider.getInstance().setDatabaseKey(databaseKey);
+            log.info("DLP database key configured — exportLibrary.db decryption enabled");
+        }
+    }
+
+    private void startFinders() {
+        try {
+            // Configure DLP database key before starting any Finders
+            configureOpusProvider();
+
+            // Start TimeFinder first (required by waveform position tracking)
+            TimeFinder.getInstance().start();
+            log.info("TimeFinder started");
+
+            // Start MetadataFinder (required by WaveformFinder)
+            MetadataFinder.getInstance().start();
+            log.info("MetadataFinder started");
+
+            // Start remaining Finders
+            BeatGridFinder.getInstance().start();
+            log.info("BeatGridFinder started");
+
+            WaveformFinder.getInstance().start();
+            log.info("WaveformFinder started");
+
+            AnalysisTagFinder.getInstance().start();
+            log.info("AnalysisTagFinder started");
+
+            // Start ArtFinder for album artwork
+            ArtFinder.getInstance().start();
+            log.info("ArtFinder started");
+
+            log.info("All Finders started successfully");
+        } catch (Exception e) {
+            log.error("Failed to start Finders: {}. Bridge will continue with real-time data only.", e.getMessage(), e);
+        }
+    }
+
+    private void registerFinderListeners() {
+        // Metadata listener
+        MetadataFinder.getInstance().addTrackMetadataListener(update -> {
+            try {
+                if (update.metadata != null) {
+                    emitTrackMetadata(update.player, update.metadata);
+                }
+            } catch (Exception e) {
+                log.error("Error in metadata listener: {}", e.getMessage(), e);
+            }
+        });
+
+        // Beat grid listener
+        BeatGridFinder.getInstance().addBeatGridListener(update -> {
+            try {
+                if (update.beatGrid != null) {
+                    emitBeatGrid(update.player, update.beatGrid);
+                }
+            } catch (Exception e) {
+                log.error("Error in beat grid listener: {}", e.getMessage(), e);
+            }
+        });
+
+        // Waveform listeners (preview + detail)
+        WaveformFinder.getInstance().addWaveformListener(new WaveformListener() {
+            @Override
+            public void previewChanged(WaveformPreviewUpdate update) {
+                try {
+                    if (update.preview != null) {
+                        emitWaveformPreview(update.player, update.preview);
+                    }
+                } catch (Exception e) {
+                    log.error("Error in waveform preview listener: {}", e.getMessage(), e);
+                }
+            }
+            @Override
+            public void detailChanged(WaveformDetailUpdate update) {
+                try {
+                    if (update.detail != null) {
+                        emitWaveformDetail(update.player, update.detail);
+                    }
+                } catch (Exception e) {
+                    log.error("Error in waveform detail listener: {}", e.getMessage(), e);
+                }
+            }
+        });
+
+        // Phrase analysis (PSSI) listener
+        AnalysisTagFinder.getInstance().addAnalysisTagListener(
+            update -> {
+                try {
+                    if (update.taggedSection != null) {
+                        emitPhraseAnalysis(update.player, update.taggedSection);
+                    }
+                } catch (Exception e) {
+                    log.error("Error in analysis tag listener: {}", e.getMessage(), e);
+                }
+            },
+            ".EXT", "PSSI"
+        );
+
+        log.info("Finder listeners registered (metadata, beatgrid, waveform, phrase, cues)");
+    }
+
+    // ── Finder emit helpers ───────────────────────────────────────────────
+
+    private void emitTrackMetadata(int player, TrackMetadata metadata) {
+        String title = metadata.getTitle() != null ? metadata.getTitle() : "";
+        String artist = metadata.getArtist() != null ? metadata.getArtist().label : "";
+        String album = metadata.getAlbum() != null ? metadata.getAlbum().label : "";
+        String genre = metadata.getGenre() != null ? metadata.getGenre().label : "";
+        String key = metadata.getKey() != null ? metadata.getKey().label : "";
+        double bpm = metadata.getTempo() / 100.0;
+        double duration = metadata.getDuration();
+        String color = metadata.getColor() != null ? metadata.getColor().label : null;
+        int rating = metadata.getRating();
+        String comment = metadata.getComment() != null ? metadata.getComment() : "";
+        int rekordboxId = metadata.trackReference != null ? metadata.trackReference.rekordboxId : 0;
+
+        emitter.emitTrackMetadata(player, title, artist, album, genre, key,
+            bpm, duration, color, rating, comment, rekordboxId);
+
+        // Also emit cue points from the metadata's cue list
+        emitCuePoints(player, metadata);
+
+        log.info("Metadata emitted for player {}: {} — {}", player, title, artist);
+    }
+
+    private void emitBeatGrid(int player, BeatGrid beatGrid) {
+        List<Map<String, Object>> beats = new ArrayList<>();
+        for (int i = 1; i <= beatGrid.beatCount; i++) {
+            Map<String, Object> beat = new LinkedHashMap<>();
+            beat.put("beat_number", i);
+            beat.put("time_ms", (double) beatGrid.getTimeWithinTrack(i));
+            beat.put("bpm", (double) beatGrid.getBpm(i) / 100.0);
+            beats.add(beat);
+        }
+        emitter.emitBeatGrid(player, beats);
+        log.info("Beat grid emitted for player {}: {} beats", player, beatGrid.beatCount);
+    }
+
+    private void emitWaveformPreview(int player, WaveformPreview preview) {
+        ByteBuffer data = preview.getData();
+        byte[] bytes = new byte[data.remaining()];
+        data.duplicate().get(bytes);
+        String base64 = Base64.getEncoder().encodeToString(bytes);
+
+        // Get beat count from BeatGridFinder if available
+        BeatGrid grid = BeatGridFinder.getInstance().getLatestBeatGridFor(player);
+        int totalBeats = grid != null ? grid.beatCount : 0;
+
+        emitter.emitWaveformPreview(player, base64, totalBeats);
+        log.info("Waveform preview emitted for player {}: {} bytes", player, bytes.length);
+    }
+
+    private void emitWaveformDetail(int player, WaveformDetail detail) {
+        ByteBuffer data = detail.getData();
+        byte[] bytes = new byte[data.remaining()];
+        data.duplicate().get(bytes);
+        String base64 = Base64.getEncoder().encodeToString(bytes);
+
+        // Get beat count from BeatGridFinder if available
+        BeatGrid grid = BeatGridFinder.getInstance().getLatestBeatGridFor(player);
+        int totalBeats = grid != null ? grid.beatCount : 0;
+
+        emitter.emitWaveformDetail(player, base64, totalBeats);
+        log.info("Waveform detail emitted for player {}: {} bytes", player, bytes.length);
+    }
+
+    private void emitPhraseAnalysis(int player, RekordboxAnlz.TaggedSection section) {
+        List<Map<String, Object>> phrases = new ArrayList<>();
+        try {
+            if (section != null && section.body() instanceof RekordboxAnlz.SongStructureTag) {
+                RekordboxAnlz.SongStructureTag ssTag = (RekordboxAnlz.SongStructureTag) section.body();
+                RekordboxAnlz.SongStructureBody body = ssTag.body();
+                List<RekordboxAnlz.SongStructureEntry> entries = body.entries();
+                int moodValue = body.mood() != null ? (int) body.mood().id() : 0;
+                for (int i = 0; i < entries.size(); i++) {
+                    RekordboxAnlz.SongStructureEntry entry = entries.get(i);
+                    int startBeat = entry.beat();
+                    int endBeat;
+                    if (i + 1 < entries.size()) {
+                        endBeat = entries.get(i + 1).beat();
+                    } else {
+                        // Last entry — use the song structure body's endBeat or beat grid
+                        endBeat = body.endBeat();
+                        if (endBeat <= startBeat) {
+                            BeatGrid grid = BeatGridFinder.getInstance().getLatestBeatGridFor(player);
+                            endBeat = grid != null ? grid.beatCount : startBeat + 64;
+                        }
+                    }
+
+                    // Extract phrase kind name from the kind-specific struct
+                    String kindName = getPhraseKindName(entry, body.mood());
+
+                    Map<String, Object> phrase = new LinkedHashMap<>();
+                    phrase.put("start_beat", startBeat);
+                    phrase.put("end_beat", endBeat);
+                    phrase.put("kind", kindName);
+                    phrase.put("mood", moodValue);
+                    phrases.add(phrase);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error parsing PSSI data for player {}: {}", player, e.getMessage(), e);
+        }
+
+        if (!phrases.isEmpty()) {
+            emitter.emitPhraseAnalysis(player, phrases);
+            log.info("Phrase analysis emitted for player {}: {} phrases", player, phrases.size());
+        }
+    }
+
+    private String getPhraseKindName(RekordboxAnlz.SongStructureEntry entry, RekordboxAnlz.TrackMood mood) {
+        try {
+            Object kind = entry.kind();
+            if (kind instanceof RekordboxAnlz.PhraseHigh) {
+                RekordboxAnlz.MoodHighPhrase id = ((RekordboxAnlz.PhraseHigh) kind).id();
+                return id != null ? id.name().toLowerCase() : "unknown";
+            } else if (kind instanceof RekordboxAnlz.PhraseMid) {
+                RekordboxAnlz.MoodMidPhrase id = ((RekordboxAnlz.PhraseMid) kind).id();
+                return id != null ? id.name().toLowerCase() : "unknown";
+            } else if (kind instanceof RekordboxAnlz.PhraseLow) {
+                RekordboxAnlz.MoodLowPhrase id = ((RekordboxAnlz.PhraseLow) kind).id();
+                return id != null ? id.name().toLowerCase() : "unknown";
+            }
+        } catch (Exception e) {
+            log.debug("Could not resolve phrase kind: {}", e.getMessage());
+        }
+        return "unknown";
+    }
+
+    private void emitCuePoints(int player, TrackMetadata metadata) {
+        List<Map<String, Object>> cuePoints = new ArrayList<>();
+        List<Map<String, Object>> memoryPoints = new ArrayList<>();
+        List<Map<String, Object>> hotCues = new ArrayList<>();
+
+        if (metadata.getCueList() != null) {
+            for (CueList.Entry cue : metadata.getCueList().entries) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("time_ms", (double) cue.cueTime);
+                entry.put("name", cue.comment != null ? cue.comment : "");
+
+                // Determine color
+                String color = "";
+                if (cue.colorId != 0) {
+                    color = String.format("#%06X", cue.colorId & 0xFFFFFF);
+                }
+                entry.put("color", color);
+
+                if (cue.hotCueNumber > 0) {
+                    entry.put("slot", cue.hotCueNumber);
+                    hotCues.add(entry);
+                } else {
+                    memoryPoints.add(entry);
+                }
+            }
+        }
+
+        emitter.emitCuePoints(player, cuePoints, memoryPoints, hotCues);
+        log.info("Cue points emitted for player {}: {} memory, {} hot cues",
+            player, memoryPoints.size(), hotCues.size());
+    }
+
     /**
      * Clean up beat-link components so we can reinitialize cleanly.
      */
     private void cleanupBeatLink() {
+        try { ArtFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
+        try { AnalysisTagFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
+        try { WaveformFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
+        try { BeatGridFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
+        try { MetadataFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
+        try { TimeFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
         try { BeatFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
         try { if (VirtualCdj.getInstance().isRunning()) VirtualCdj.getInstance().stop(); } catch (Exception e) { /* ignore */ }
         try { if (DeviceFinder.getInstance().isRunning()) DeviceFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
@@ -621,6 +903,13 @@ public class BeatLinkBridge {
         running = false;
 
         try {
+            // Stop Finders first (reverse of start order)
+            try { ArtFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
+            try { AnalysisTagFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
+            try { WaveformFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
+            try { BeatGridFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
+            try { MetadataFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
+            try { TimeFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
             try { BeatFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
 
             if (VirtualCdj.getInstance().isRunning()) {
@@ -651,6 +940,7 @@ public class BeatLinkBridge {
         int retryInterval = 10;
         String logLevel = "INFO";
         String interfaceName = null;
+        String databaseKey = null;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -669,9 +959,12 @@ public class BeatLinkBridge {
                 case "--interface":
                     if (i + 1 < args.length) interfaceName = args[++i];
                     break;
+                case "--database-key":
+                    if (i + 1 < args.length) databaseKey = args[++i];
+                    break;
                 default:
                     System.err.println("Unknown argument: " + args[i]);
-                    System.err.println("Usage: java -jar beat-link-bridge.jar [--port N] [--player-number N] [--interface NAME] [--retry-interval S] [--log-level LEVEL]");
+                    System.err.println("Usage: java -jar beat-link-bridge.jar [--port N] [--player-number N] [--interface NAME] [--database-key KEY] [--retry-interval S] [--log-level LEVEL]");
                     System.exit(1);
             }
         }
@@ -682,7 +975,7 @@ public class BeatLinkBridge {
         System.setProperty("org.slf4j.simpleLogger.dateTimeFormat", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
         System.setProperty("org.slf4j.simpleLogger.logFile", "System.err");
 
-        BeatLinkBridge bridge = new BeatLinkBridge(port, playerNumber, retryInterval, interfaceName);
+        BeatLinkBridge bridge = new BeatLinkBridge(port, playerNumber, retryInterval, interfaceName, databaseKey);
         try {
             bridge.start();
         } catch (Exception e) {

@@ -7,6 +7,7 @@ import { EnrichmentPage } from "./pages/EnrichmentPage.tsx";
 import { LogsPage } from "./pages/LogsPage.tsx";
 import { NetworkPage } from "./pages/NetworkPage.tsx";
 import { AnalysisViewerPage } from "./pages/AnalysisViewerPage.tsx";
+import { LiveDeckMonitorPage } from "./pages/LiveDeckMonitorPage.tsx";
 import { connectWebSocket, disconnectWebSocket } from "./api/ws";
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
       <Route element={<Shell />}>
         <Route index element={<Navigate to="/data/db" replace />} />
         <Route path="analysis" element={<AnalysisViewerPage />} />
+        <Route path="live" element={<LiveDeckMonitorPage />} />
         <Route path="data/db" element={<TracksPage />} />
         <Route path="data/bridge" element={<BridgePage />} />
         <Route path="data/enrichment" element={<EnrichmentPage />} />

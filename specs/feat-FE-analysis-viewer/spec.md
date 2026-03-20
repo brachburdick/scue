@@ -131,7 +131,10 @@ interface WaveformCanvasProps {
 
 ### Rendering
 
-**Canvas 2D.** The waveform is rendered as vertical bars, one per sample in the visible range. Each bar is colored by mixing the three frequency bands:
+**Canvas 2D.** Two rendering modes based on available data:
+
+#### Mode 1: SCUE RGB Waveform (primary)
+When `TrackAnalysis.waveform` is available (SCUE-analyzed track). Rendered as vertical bars, one per sample in the visible range. Each bar is colored by mixing the three frequency bands:
 
 - **Bass (low):** Blue `#0066FF`
 - **Mids (mid):** Green `#00CC66`
@@ -148,6 +151,16 @@ b = low * 255          // bass drives blue channel
 ```
 
 Bar height is the max of the three band values at that sample, normalized to the canvas height. Bars extend from center (mirrored top/bottom like rekordbox).
+
+#### Mode 2: Pioneer ANLZ Waveform (instant fallback — future)
+When SCUE analysis hasn't been run but Pioneer waveform data is available from USB scan (ADR-014). Pioneer PWV5 (color, NXS2+) and PWV7 (3-band, CDJ-3000+) provide instant display at ~150 samples/sec (~45K entries per 5-min track). PWV5 uses 3-bit R/G/B + 5-bit height packed in 16-bit big-endian. This mode is not implemented in v1 but the `WaveformCanvas` props should accommodate it:
+
+```typescript
+// Future: WaveformCanvas can accept either source
+waveformSource: "scue" | "pioneer";  // determines rendering path
+```
+
+**v1 scope:** SCUE RGB waveform only. Pioneer rendering is a follow-up task tracked separately (`pioneer-waveform-reading` in tasks.jsonl).
 
 **Section overlays:** Semi-transparent colored regions behind the waveform bars. Each section type gets a distinct color:
 
@@ -319,6 +332,15 @@ const navItems = [
 
 ---
 
+## Research Notes (2026-03-20)
+
+Research findings validated this spec's core approach. Key notes:
+- **Pioneer ANLZ waveforms** are instantly available via pyrekordbox for all hardware (ADR-014). v1 uses SCUE RGB waveform only; Pioneer ANLZ rendering is a future enhancement that the WaveformCanvas architecture supports.
+- **No conflicts** between research findings and this spec's design. The shared WaveformCanvas component is the correct abstraction — it can accommodate both SCUE and Pioneer data sources.
+- **Composite key** changes (ADR-015) don't affect this feature — Analysis Viewer uses fingerprint-based lookup, not rekordbox_id.
+
+---
+
 ## v1 Scope Constraints
 
 ### In Scope
@@ -334,6 +356,7 @@ const navItems = [
 - Editing analysis data (sections, labels, boundaries)
 - Audio playback
 - Waveform data generation (that's Layer 1 analysis)
+- Pioneer ANLZ waveform rendering (future — see ADR-014, `pioneer-waveform-reading` task)
 - Tier 2 event display (M7)
 - Parameter tweaking UI
 - WebGL rendering (stretch goal only)

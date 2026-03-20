@@ -7,7 +7,10 @@ A real-time 2-deck monitoring page showing per-deck waveform with beat-synced cu
 Route: `/live`
 Sidebar: Top-level entry "Live Monitor" (not nested under Data or System).
 
-**Research-driven design note:** `rekordbox_id` is a per-USB auto-increment key, NOT globally unique. Two USBs plugged into different decks can have the same `rekordbox_id` for completely different tracks. Track resolution MUST use the composite key `(source_player, source_slot, rekordbox_id)` to avoid silent mismatches. See `research/dlp-track-id-reliability.md`.
+**Research-driven design notes (2026-03-20):**
+- `rekordbox_id` is a per-USB auto-increment key, NOT globally unique. Two USBs plugged into different decks can have the same `rekordbox_id` for completely different tracks. Track resolution MUST use the composite key `(source_player, source_slot, rekordbox_id)` to avoid silent mismatches. See `research/dlp-track-id-reliability.md` and ADR-015.
+- `playback_position_ms` (from `CdjStatus.getPlaybackPosition()`) needs hardware verification on DLP devices. On XDJ-AZ, beat-link's DLP bug (ADR-016) affects all Finders but CdjStatus fields like BPM, pitch, and beat position work correctly. `getPlaybackPosition()` should work since it's derived from status packets, not dbserver queries — but verify on hardware. Fallback: compute position from `beat_number` + ANLZ beatgrid on Python side.
+- Pioneer ANLZ waveforms are instantly available via pyrekordbox (ADR-014). When SCUE analysis hasn't been run, Pioneer waveform can serve as instant fallback display instead of showing "Unknown track — analyze to see waveform".
 
 ---
 
@@ -250,7 +253,8 @@ The progress is derived by mapping `playback_position_ms` against the current se
 | **rekordbox_id present, not found in DB** | "Unknown track (rekordbox_id: 42001, source: Player 1 USB) — analyze this track to see waveform" |
 | **Resolved, analysis loading** | Waveform skeleton + "Loading analysis..." |
 | **Resolved, analysis in progress (on-demand)** | "Analyzing track... (~3-8s)" with progress spinner. Beat-reactive defaults active in Layer 2 (strobe on downbeat, color cycle per bar). See research Q3: hybrid data flow. |
-| **Resolved, analysis has no waveform** | Metadata visible, waveform area: "No waveform data — re-analyze with waveform enabled" |
+| **Resolved, analysis has no waveform but Pioneer waveform available** | Render Pioneer ANLZ waveform (PWV5/PWV7) with note: "Showing Pioneer waveform — analyze for full detail". (Future — requires `pioneer-waveform-reading` task.) |
+| **Resolved, no waveform data at all** | Metadata visible, waveform area: "No waveform data — analyze this track or scan USB for Pioneer waveform" |
 
 ---
 
@@ -322,7 +326,9 @@ Build order: **Analysis Viewer first**. The shared `WaveformCanvas` is built and
 - Tier 2 event overlays (M7)
 - Mix analysis / alignment between decks
 - Fader/crossfader state visualization
-- Audio fingerprinting for track resolution (future — see `docs/FUTURE_AUDIO_FINGERPRINTING (1).md`)
+- Pioneer ANLZ waveform rendering as fallback (future — requires `pioneer-waveform-reading` task, ADR-014)
+- Audio fingerprinting for track resolution (custom implementation deferred to M7 — no suitable library exists, see research)
+- Audio capture / Layer 0.5 mixing ratio detection (deferred to Phase 2 multi-deck)
 
 ---
 

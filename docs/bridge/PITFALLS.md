@@ -8,32 +8,39 @@ known in advance. Organized by technology.
 
 ## beat-link (Java, v8.0.0)
 
-### MetadataFinder returns wrong records on Device Library Plus hardware
+### MetadataFinder returns wrong records on Device Library Plus hardware (RESOLVED in 8.1.0)
 
-**Affects:** XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X
+**Affects:** XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X (beat-link 8.0.0 only)
 
-beat-link's `MetadataFinder` and `CrateDigger` query track metadata using
+beat-link 8.0.0's `MetadataFinder` and `CrateDigger` query track metadata using
 DeviceSQL IDs. Device Library Plus (DLP) hardware uses a different ID namespace
 (`exportLibrary.db` DLP IDs). When `MetadataFinder` uses a DLP ID to query
 DeviceSQL data, it retrieves the **wrong record** -- a different track entirely.
-The first track loaded may appear correct by coincidence; subsequent tracks will
-be wrong.
 
-This is a confirmed known issue. beat-link-trigger's CHANGELOG acknowledges that
-the XDJ-AZ always uses Device Library Plus IDs.
+**Resolution (ADR-017):** beat-link 8.1.0-SNAPSHOT has native XDJ-AZ support.
+CrateDigger downloads `exportLibrary.db` over NFS, providing ID translation.
+All Finders work correctly on XDJ-AZ. The bridge now uses 8.1.0-SNAPSHOT with
+all Finders enabled. ADR-012's blanket disabling is superseded.
 
-**Impact:** Title, artist, key, album, genre, duration are all wrong. BPM from
-`CdjStatus.getEffectiveTempo()` is always correct (it comes from the playback
-engine, not the database).
-
-**Solution (ADR-012):** Do not start `MetadataFinder`, `BeatGridFinder`,
-`WaveformFinder`, `CrateDigger`, or `AnalysisTagFinder` in the bridge JAR.
-Resolve all metadata on the Python side via `rbox` reading the USB's
-`exportLibrary.db` directly.
+**Still affected:** Opus Quad has no dbserver — still requires metadata archives or
+rbox/pyrekordbox USB scanning.
 
 **Detection:** The bridge detects DLP hardware by matching `DeviceAnnouncement.getDeviceName()`
 (lowercased, normalized) against known models: `xdj-az`, `opus-quad`, `omnis-duo`, `cdj-3000x`.
 Reports `uses_dlp: true` in the `device_found` message.
+
+
+### Database key required for DLP database decryption
+
+**Affects:** XDJ-AZ, Opus Quad, and other DLP hardware
+
+`exportLibrary.db` is encrypted. `OpusProvider.setDatabaseKey()` must be called
+before Finders start, or CrateDigger cannot read the database. The bridge accepts
+`--database-key <KEY>` on the command line. The Python side passes this via the
+`SCUE_DLP_DATABASE_KEY` environment variable.
+
+Without the key, Finders will start but fail to resolve metadata for DLP devices.
+Real-time data (BPM, pitch, beat, on-air) will still work.
 
 
 ### beat-link has NO API to force a specific network interface

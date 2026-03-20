@@ -127,7 +127,7 @@ Managed by `scue/api/ws.py` + `scue/api/ws_manager.py`. Frontend dispatch lives 
     "route_correct": true,
     "route_warning": null,
     "devices": { "<ip>": { "device_name": "XDJ-AZ", "device_number": 1, "device_type": "cdj", "uses_dlp": true } },
-    "players": { "1": { "bpm": 128.0, "pitch": 0.0, "playback_state": "playing", "is_on_air": true, "rekordbox_id": 42001, "beat_within_bar": 3, "track_type": "rekordbox" } }
+    "players": { "1": { "bpm": 128.0, "pitch": 0.0, "playback_state": "playing", "is_on_air": true, "rekordbox_id": 42001, "beat_within_bar": 3, "track_type": "rekordbox", "playback_position_ms": 92450, "track_source_player": 1, "track_source_slot": "usb" } }
   }
 }
 ```

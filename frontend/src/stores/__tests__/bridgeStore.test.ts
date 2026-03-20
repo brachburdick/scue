@@ -105,6 +105,9 @@ describe("bridgeStore", () => {
           rekordbox_id: 42001,
           beat_within_bar: 1,
           track_type: "rekordbox",
+          playback_position_ms: 5000,
+          track_source_player: 1,
+          track_source_slot: "usb",
         },
       };
 
@@ -196,6 +199,9 @@ describe("bridgeStore", () => {
               rekordbox_id: 42001,
               beat_within_bar: 1,
               track_type: "rekordbox",
+              playback_position_ms: 5000,
+              track_source_player: 1,
+              track_source_slot: "usb",
             },
           },
         })

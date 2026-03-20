@@ -73,6 +73,9 @@ export interface PlayerInfo {
   rekordbox_id: number;
   beat_within_bar: number;
   track_type: string;
+  playback_position_ms: number | null;
+  track_source_player: number;
+  track_source_slot: string;
 }
 
 export interface BridgeState {

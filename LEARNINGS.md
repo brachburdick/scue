@@ -19,10 +19,12 @@ Prevention: How to avoid in the future?
 
 ### beat-link MetadataFinder returns wrong metadata on XDJ-AZ (and all Device Library Plus hardware)
 Date: 2026-03-16
+Updated: 2026-03-20
 Context: Building the Java bridge JAR. Testing with Pioneer XDJ-AZ all-in-one DJ unit.
 Problem: Track metadata (title, artist) from MetadataFinder is incorrect after the first track load per player. BPM from CdjStatus is always correct. The XDJ-AZ uses Device Library Plus (DLP) format (`exportLibrary.db`) with a different ID namespace than legacy `export.pdb`. When MetadataFinder uses the DLP ID to query CrateDigger's DeviceSQL data, it retrieves the wrong record. Confirmed known issue: beat-link-trigger's CHANGELOG states the XDJ-AZ always uses Device Library Plus IDs.
 Fix: Use the `rbox` Python library to read metadata directly from the USB's `exportLibrary.db`, bypassing beat-link's metadata system entirely. Use beat-link only for real-time playback data (BPM, pitch, beat position, on-air, beat events). See ADR-012 in DECISIONS.md.
 Prevention: Any time new Pioneer hardware is supported, check whether it uses DLP or legacy DeviceSQL. Affected hardware: XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X.
+**UPDATE 2026-03-20:** beat-link 8.1.0-SNAPSHOT (used by latest BLT) has added XDJ-AZ support. The XDJ-AZ dbserver WORKS — unlike Opus Quad, it has a functioning dbserver port. CrateDigger can download exportLibrary.db over NFS from XDJ-AZ and use it for ID translation. The DLP ID mismatch appears to be resolved in v8.1.0-SNAPSHOT. When this version releases, we should reassess ADR-012 — beat-link's native metadata path may work for XDJ-AZ without our rbox workaround. See `research/findings-xdj-az-blt-metadata-2026-03.md` for full analysis.
 
 ### XDJ-AZ track change detection: trackType does NOT transition through NO_TRACK
 Date: 2026-03-16

@@ -17,7 +17,7 @@
 | XDJ-1000 / XDJ-1000MK2 | WORKS | WORKS | N/A | WORKS |
 | XDJ-XZ | WORKS | WORKS | N/A | WORKS |
 | Opus Quad | BROKEN (no dbserver) | BROKEN (no dbserver) | WORKS (with archive) | WORKS |
-| XDJ-AZ | BROKEN (DLP ID mismatch) | BROKEN (DLP ID mismatch) | UNTESTED | WORKS |
+| XDJ-AZ | WORKS (v8.1.0-SNAPSHOT, dbserver) | WORKS (v8.1.0-SNAPSHOT, dbserver) | WORKS (v8.1.0-SNAPSHOT) | WORKS | **SEE: findings-xdj-az-blt-metadata-2026-03.md** |
 | OMNIS-DUO | BROKEN (DLP ID mismatch) | BROKEN (DLP ID mismatch) | UNTESTED | WORKS |
 | CDJ-3000X | BROKEN (DLP ID mismatch) | BROKEN (DLP ID mismatch) | UNTESTED | WORKS |
 

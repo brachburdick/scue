@@ -35,3 +35,24 @@ export function useTrackAnalysis(fingerprint: string | null) {
     enabled: fingerprint !== null,
   });
 }
+
+export interface ResolveResult {
+  fingerprint: string;
+  title: string;
+  artist: string;
+}
+
+export function useResolveTrack(
+  sourcePlayer: number,
+  sourceSlot: string,
+  rekordboxId: number | null,
+) {
+  return useQuery<ResolveResult>({
+    queryKey: ["resolve-track", sourcePlayer, sourceSlot, rekordboxId],
+    queryFn: () =>
+      apiFetch<ResolveResult>(
+        `/tracks/resolve/${sourcePlayer}/${sourceSlot}/${rekordboxId}`,
+      ),
+    enabled: rekordboxId !== null && rekordboxId > 0,
+  });
+}
