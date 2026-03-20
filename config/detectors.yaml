@@ -1,0 +1,52 @@
+# M7 Event Detection — Detector Configuration
+#
+# Controls which detection strategies are active and their tunable parameters.
+# Re-run analysis with force=True after changing this file.
+
+active_strategies:
+  percussion: "heuristic"   # "heuristic" | "random_forest"
+  riser: "centroid_slope"
+  faller: "centroid_slope"
+  stab: "hpss_harmonic"
+
+params:
+  heuristic:
+    kick_low_band_threshold: 0.6    # sub-band energy threshold (0-1)
+    snare_mid_band_threshold: 0.5   # mid-band energy threshold (0-1)
+    hihat_high_band_threshold: 0.4  # high-band energy threshold (0-1)
+  random_forest:
+    model_path: "models/drum_classifier.joblib"
+    n_estimators: 150
+  centroid_slope:
+    min_slope: 50.0       # Hz/bar minimum centroid slope for riser/faller
+    min_r_squared: 0.7    # linear fit quality threshold
+    min_bars: 2           # minimum duration in bars
+  hpss_harmonic:
+    harmonic_ratio_threshold: 0.3   # harmonic/percussive energy ratio
+    min_centroid_hz: 500            # minimum spectral centroid for stabs
+    max_duration_ms: 200            # maximum stab duration
+
+# Section-aware priors: multipliers applied to detection confidence
+# based on the section label. Values > 1.0 boost, < 1.0 suppress.
+section_priors:
+  riser:
+    build: 1.5
+    drop: 0.3
+    breakdown: 0.5
+    intro: 1.2
+    verse: 0.5
+    outro: 0.3
+  faller:
+    build: 0.2
+    drop: 1.2
+    breakdown: 1.5
+    intro: 0.5
+    verse: 0.5
+    outro: 1.0
+  stab:
+    build: 0.8
+    drop: 1.5
+    breakdown: 0.5
+    intro: 0.3
+    verse: 0.5
+    outro: 0.3

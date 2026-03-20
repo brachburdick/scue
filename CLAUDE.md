@@ -2,16 +2,11 @@
 
 Automated lighting/laser/visual cue generation for live DJ sets.
 
-## Agent Workflow
--   Entry point for all agents: `AGENT_BOOTSTRAP.md`
--   Multi-agent workflow index: `docs/agents/README.md`
--   Role preambles: `docs/agents/preambles/` (COMMON_RULES, ORCHESTRATOR, ARCHITECT, RESEARCHER, DESIGNER, DEVELOPER, VALIDATOR)
--   Agent roster & scope definitions: `docs/agents/AGENT_ROSTER.md`
--   Handoff format contracts: `docs/agents/HANDOFF_CONTRACTS.md`
--   Artifact templates: `templates/` (handoff-packet, session-summary, spec, tasks, research-request, research-findings, validator-verdict)
--   Domain skill files: `skills/`
--   Feature specs, plans, tasks, sessions: `specs/feat-[name]/`
+## Key References
+-   Domain skills: `skills/`
+-   Feature specs & plans: `specs/feat-[name]/`
 -   Research findings: `research/`
+-   Protocol improvement proposals: `docs/agents/PROTOCOL_IMPROVEMENT.md`
 
 
 ## Stack
@@ -33,7 +28,7 @@ Automated lighting/laser/visual cue generation for live DJ sets.
 - Frontend: React/TS app (Tracks, BLT, Enrichment, Logs, Network pages)
 
 Full architecture: docs/ARCHITECTURE.md
-Interface contracts between layers: docs/CONTRACTS.md
+Interface contracts between layers: docs/interfaces.md
 Decision log: docs/DECISIONS.md
 
 ## Commands
@@ -63,7 +58,7 @@ Decision log: docs/DECISIONS.md
 - Zustand stores are independent — no store imports another store
 
 ## Critical Rules
-- NEVER modify a layer's public interface without updating docs/CONTRACTS.md
+- NEVER modify a layer's public interface without updating docs/interfaces.md
 - NEVER overwrite Pioneer-sourced data with SCUE-derived data; log divergence instead
 - NEVER import across layer boundaries except through the defined contracts
 - All configuration is YAML files in config/. No hardcoded values.
@@ -84,6 +79,15 @@ When a bug is found and fixed, record it in the appropriate log under `docs/bugs
 - `docs/bugs/layer4-output.md` — Output & hardware
 
 Every fix gets an entry: symptom, root cause, fix, and affected file(s). No fix is too small to record.
+
+## Flow Skills
+Flow skills (debug flow, feature flow, refactor flow) are inherited from the portfolio level
+(`THE_FACTORY/skills/`). SCUE does not duplicate them.
+
+**SCUE-specific debug rule:** During the **Isolate** phase of any debug task, if the bug could
+involve Layer 3 (effect engine) or Layer 4 (output/hardware), always check DMX output state.
+Verify fixture addresses, universe assignments, and whether the DMX frame buffer reflects
+expected values before moving to Diagnose.
 
 ## Known Issues & Patterns
 See LEARNINGS.md — read it before starting work.

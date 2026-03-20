@@ -39,6 +39,12 @@ class AudioFeatures:
     onset_strength: Any = None       # (n_frames,)
     tempogram: Any = None            # (384, n_frames)
 
+    # M7 extended features — event detection
+    spectral_flatness: Any = None    # (n_frames,) — tonality measure (0=tonal, 1=noisy)
+    spectral_bandwidth: Any = None   # (n_frames,) — spectral spread in Hz
+    y_harmonic: Any = None           # HPSS harmonic component (time-domain)
+    y_percussive: Any = None         # HPSS percussive component (time-domain)
+
     # Stacked normalized feature matrix for change-point detection
     stacked_matrix: Any = None       # (n_frames, n_features)
 
@@ -101,6 +107,25 @@ def extract_all(audio_path: str) -> AudioFeatures:
         onset_envelope=onset, sr=sr, hop_length=HOP_LENGTH
     )
     features.tempogram = tempogram
+
+    # M7: Spectral flatness (tonality measure — low = tonal, high = noisy)
+    flatness = librosa.feature.spectral_flatness(y=signal, hop_length=HOP_LENGTH)[0]
+    features.spectral_flatness = flatness
+
+    # M7: Spectral bandwidth (frequency spread)
+    bandwidth = librosa.feature.spectral_bandwidth(
+        y=signal, sr=sr, hop_length=HOP_LENGTH
+    )[0]
+    features.spectral_bandwidth = bandwidth
+
+    # M7: HPSS — Harmonic-Percussive Source Separation
+    # Most expensive new computation (~500ms for a 6-min track).
+    # Run once here; all downstream detectors share the results.
+    logger.info("Running HPSS separation...")
+    y_harmonic, y_percussive = librosa.effects.hpss(signal)
+    features.y_harmonic = y_harmonic
+    features.y_percussive = y_percussive
+    logger.info("HPSS complete")
 
     # Build stacked + normalized feature matrix for change-point detection
     features.stacked_matrix = _build_stacked_matrix(rms, centroid, onset, chroma, contrast)

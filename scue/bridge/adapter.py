@@ -75,6 +75,13 @@ class PlayerState:
     duration: float = 0.0
     rekordbox_id: int = 0
 
+    # Track source (from player_status messages — which player/slot loaded the track)
+    track_source_player: int = 0
+    track_source_slot: str = ""  # "sd" | "usb" | "cd" | "collection"
+
+    # Playback position (from player_status messages)
+    playback_position_ms: float | None = None
+
     # Beat grid (from beat_grid messages)
     beat_grid: list[dict] = field(default_factory=list)
 
@@ -88,6 +95,7 @@ class PlayerState:
 
     # Waveform
     has_waveform: bool = False
+    waveform_data: str = ""  # base64-encoded waveform bytes
 
     # Timing
     last_update: float = 0.0
@@ -230,6 +238,9 @@ class BridgeAdapter:
         player.beat_number = payload.beat_number
         player.playback_state = payload.playback_state
         player.is_on_air = payload.is_on_air
+        player.track_source_player = payload.track_source_player
+        player.track_source_slot = payload.track_source_slot
+        player.playback_position_ms = self._compute_position_ms(player, payload.beat_number)
         player.last_update = msg.timestamp
 
         # Detect track changes via rekordbox_id in player_status.
@@ -267,6 +278,7 @@ class BridgeAdapter:
 
         player = self._ensure_player(msg.player_number)
         old_title = player.title
+        old_rb_id = player.rekordbox_id
 
         player.title = payload.title
         player.artist = payload.artist
@@ -282,7 +294,10 @@ class BridgeAdapter:
             msg.player_number, payload.title, payload.artist,
         )
 
-        if self.on_track_loaded is not None and payload.title != old_title:
+        # Fire on_track_loaded if title OR rekordbox_id changed
+        title_changed = payload.title != old_title
+        rb_id_changed = payload.rekordbox_id != 0 and payload.rekordbox_id != old_rb_id
+        if self.on_track_loaded is not None and (title_changed or rb_id_changed):
             self.on_track_loaded(msg.player_number, payload.title, payload.artist)
 
     def _handle_beat_grid(self, msg: BridgeMessage) -> None:
@@ -304,8 +319,13 @@ class BridgeAdapter:
         if msg.player_number is None:
             return
 
+        payload = parse_typed_payload(msg)
+        if not isinstance(payload, WaveformDetailPayload):
+            return
+
         player = self._ensure_player(msg.player_number)
         player.has_waveform = True
+        player.waveform_data = payload.data
         player.last_update = msg.timestamp
 
     def _handle_phrase_analysis(self, msg: BridgeMessage) -> None:
@@ -373,6 +393,38 @@ class BridgeAdapter:
         if player_number not in self._players:
             self._players[player_number] = PlayerState(player_number=player_number)
         return self._players[player_number]
+
+    @staticmethod
+    def _compute_position_ms(player: PlayerState, beat_number: int) -> float | None:
+        """Derive playback position in ms from beat_number + beat_grid.
+
+        beat-link 8.0.0 does not expose playback position directly.
+        We interpolate from the ANLZ beat grid that was delivered via
+        beat_grid messages. Returns None if no beat grid is available
+        or beat_number is 0 (no track / unknown position).
+        """
+        if beat_number <= 0 or not player.beat_grid:
+            return None
+
+        grid = player.beat_grid
+        # Find the grid entry matching or just before beat_number
+        # Grid entries: [{"beat_number": N, "time_ms": T, "bpm": B}, ...]
+        if beat_number <= grid[0].get("beat_number", 1):
+            return grid[0].get("time_ms", 0.0)
+
+        for i in range(len(grid) - 1, -1, -1):
+            entry = grid[i]
+            entry_beat = entry.get("beat_number", 0)
+            if entry_beat <= beat_number:
+                # Interpolate from this grid entry
+                time_ms = entry.get("time_ms", 0.0)
+                bpm = entry.get("bpm", 0.0)
+                if bpm > 0:
+                    ms_per_beat = 60_000.0 / bpm
+                    time_ms += (beat_number - entry_beat) * ms_per_beat
+                return time_ms
+
+        return None
 
     def _ensure_device_from_player(self, player_number: int, timestamp: float) -> None:
         """Synthesize a device entry if we see player data but never got device_found.

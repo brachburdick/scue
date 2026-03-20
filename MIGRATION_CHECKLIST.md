@@ -1,80 +1,57 @@
-# Migration Checklist: Agent Workflow Infrastructure Upgrade
+# Migration Checklist: SCUE v1.7 Protocol Sync
 
-> Complete these steps to finalize the transition from the legacy workflow to the Operator Protocol-aligned system.
+This checklist tracks the migration from SCUE's legacy workflow docs to the root operator protocol v1.7 structure.
 
----
+## Completed In This Sync
 
-## Already Done (by this session)
+- [x] Created canonical `preambles/` and moved active role guidance there
+- [x] Added `docs/interfaces.md` as the canonical contract document
+- [x] Converted `docs/CONTRACTS.md` into a compatibility pointer
+- [x] Added `templates/plan.md`
+- [x] Upgraded `templates/handoff-packet.md` to the v1.7 schema while preserving SCUE's `## State Behavior` discipline
+- [x] Upgraded `templates/session-summary.md` to the v1.7 durable-artifact schema
+- [x] Upgraded `templates/validator-verdict.md` to the v1.7 durable-artifact schema
+- [x] Upgraded `templates/orchestrator-state.md` to the v1.7 state schema
+- [x] Added `docs/agents/startup-prompts/kickstart.md`
+- [x] Updated all active startup prompts to use `preambles/` and `docs/interfaces.md`
+- [x] Updated `AGENT_BOOTSTRAP.md` to the canonical path layout
+- [x] Turned legacy `docs/agents/preambles/*` files into compatibility pointers
+- [x] Turned legacy workflow docs in `docs/agents/README.md`, `docs/agents/HANDOFF_CONTRACTS.md`, and `docs/agents/ORCHESTRATOR_PROMPT.md` into compatibility pointers
 
-- [x] Created `templates/` directory with 7 artifact schema templates
-- [x] Created `skills/` directory with 5 domain skill file skeletons
-- [x] Created `AGENT_BOOTSTRAP.md` at project root
-- [x] Renamed preambles: `OPERATOR_PREAMBLE.md` → `ORCHESTRATOR.md`, `ARCHITECT_PREAMBLE.md` → `ARCHITECT.md`, `DEVELOPER_PREAMBLE.md` → `DEVELOPER.md`
-- [x] Updated `COMMON_RULES.md` with: Session Setup (Section 0), [BLOCKED] protocol, 2-attempt research escalation, artifact template requirements, updated file references
-- [x] Updated `ORCHESTRATOR.md` with: template usage, Designer invocation, Validator awareness, housekeeping/archival
-- [x] Updated `ARCHITECT.md` with: template usage, `[REQUIRES DESIGNER REVIEW]` flag, mandatory layer boundaries
-- [x] Updated `DEVELOPER.md` with: template usage, `[BLOCKED]` protocol, enhanced scope discipline
-- [x] Created new preambles: `RESEARCHER.md`, `VALIDATOR.md`, `DESIGNER.md`
-- [x] Updated `CLAUDE.md` agent workflow section
-- [x] Updated `docs/agents/README.md` with new roles and file index
-- [x] Updated `docs/agents/HANDOFF_CONTRACTS.md` with templates reference
+## Still Recommended
 
----
+### 1. Directory Canonicalization For Existing Features
 
-## Manual Steps Required
+- [ ] Create or backfill canonical subdirectories where useful:
+  - `specs/feat-[name]/handoffs/`
+  - `specs/feat-[name]/design/`
+  - `specs/feat-[name]/reviews/`
+  - `specs/feat-[name]/sessions/`
+- [ ] Decide whether to migrate existing feature-root handoff files into `handoffs/` or leave them in place as legacy artifacts with pointers
+- [ ] Decide whether existing UI artifacts such as `specs/feat-FE-BLT/ui-state-behavior-disconnect.md` should be migrated into `design/`
 
-### 1. Session Path Convention (Future-Forward)
+### 2. Legacy Role-Roster Drift
 
-New features should use feature-scoped session directories:
-```
-specs/feat-[name]/sessions/session-001-developer.md
-specs/feat-[name]/sessions/session-001-validator.md
-```
+- [ ] Review `docs/agents/AGENT_ROSTER.md` for legacy contract naming and pre-v1.7 workflow assumptions
+- [ ] Decide whether to preserve it as a project-specific reference or rewrite it against `docs/interfaces.md` and the current role model
 
-Existing date-based files in `sessions/YYYY-MM-DD/` and `handoffs/YYYY-MM-DD/` remain as-is. No need to migrate them.
+### 3. Live State Snapshot Hygiene
 
-### 2. Update ORCHESTRATOR_PROMPT.md
+- [ ] Reconcile `docs/agents/orchestrator-state.md` with the latest feature sessions before the next orchestration session if it is stale
 
-- [x] Review `docs/agents/ORCHESTRATOR_PROMPT.md` and update it to reference the new preamble file name (`ORCHESTRATOR.md` instead of `OPERATOR_PREAMBLE.md`) — already correct; fixed "Operator" → "Orchestrator" label. Done 2026-03-17.
-- [x] Add references to the Validator and Designer roles — already present. Verified 2026-03-17.
+### 4. Future Artifact Paths
 
-### 3. Update AGENT_ROSTER.md
-
-- [x] Review `docs/agents/AGENT_ROSTER.md` and ensure it references the new preamble file names — no old names found. Verified 2026-03-17.
-- [x] Add Validator and Designer roles to the roster if not already present — already present as roles #10 and #11. Verified 2026-03-17.
-
-### 4. Populate Skill Files
-
-- [ ] Review `LEARNINGS.md` and extract additional gotchas into the appropriate skill files
-- [ ] After each Researcher session, distill findings into skill files (ongoing)
-- [ ] Fill `[TODO: Fill from project experience]` placeholders as knowledge accumulates
-
-### 5. Archive Old Preamble References
-
-- [x] Search for any remaining references to `OPERATOR_PREAMBLE.md`, `ARCHITECT_PREAMBLE.md`, or `DEVELOPER_PREAMBLE.md` in docs and update them — only historical references remain (session summaries, this checklist). No active docs reference old names. Verified 2026-03-17.
-- [ ] Check `docs/agents/archive/` is up to date with historical preamble versions
-
-### 6. First Validator Session
-
-- [ ] After the next Developer session, run a Validator session to test the new workflow:
-  - Provide the handoff packet, session summary, and code diff
-  - Verify the Validator produces a verdict using `templates/validator-verdict.md`
-  - Confirm the PASS/FAIL cycle works as expected
-
-### 7. First Designer Session (When UI Work Arises)
-
-- [ ] When the next feature includes frontend/UI work, route through Designer before finalizing frontend tasks
-- [ ] Verify the Designer produces a UI spec and the Architect incorporates it
-
----
+- [ ] Prefer canonical new outputs on future work:
+  - Handoffs: `specs/feat-[name]/handoffs/handoff-[TASK-ID].md`
+  - Session summaries: `specs/feat-[name]/sessions/session-[NNN]-[role].md`
+  - Designer outputs: `specs/feat-[name]/design/ui-spec.md`
+  - Validator verdicts: `specs/feat-[name]/reviews/validator-[TASK-ID].md`
+  - QA verdicts: `specs/feat-[name]/reviews/qa-[TASK-ID-or-BUG-ID].md`
 
 ## Verification
 
-After completing the manual steps:
-
-- [x] All 7 preamble files exist in `docs/agents/preambles/`: COMMON_RULES, ORCHESTRATOR, ARCHITECT, RESEARCHER, DESIGNER, DEVELOPER, VALIDATOR
-- [x] All 7 templates exist in `templates/`
-- [x] `AGENT_BOOTSTRAP.md` exists at project root and is under 30 lines
-- [x] `CLAUDE.md` references the new file locations
-- [x] No remaining references to old preamble names (`*_PREAMBLE.md`) in active docs
-- [x] Skill files exist in `skills/` for all major domains
+- [x] `docs/interfaces.md` exists
+- [x] `templates/plan.md` exists
+- [x] `docs/agents/startup-prompts/kickstart.md` exists
+- [x] `preambles/` exists and contains all required role preambles
+- [x] Active startup prompts now reference canonical SCUE paths

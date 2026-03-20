@@ -56,6 +56,56 @@ Completed: 2026-03-16
 
 ---
 
+## Research Complete: Waveform, Track ID, Bridge Data Strategy (2026-03-20)
+
+**Status:** COMPLETE — 11 research findings produced across waveform sources, DLP track ID reliability, ANLZ formats, hardware topology, audio capture, fingerprinting, and bridge data strategy.
+
+### Key Conclusions
+
+**Waveform data:** Pioneer ANLZ waveforms are instantly available via pyrekordbox for ALL hardware (PWV7 on CDJ-3000+, PWV5 on NXS2, PWV3 on older). WaveformFinder is broken on ALL DLP hardware (confirmed: hard MetadataFinder dependency + ID namespace mismatch). USB ANLZ reading is the universal path. See ADR-014.
+
+**DLP Track IDs:** Volatile across USB re-exports, collide across multiple USBs (mathematically guaranteed). Composite key `(source_player, source_slot, rekordbox_id)` is REQUIRED. Current `track_ids` table has a multi-USB bug. See ADR-015.
+
+**beat-link DLP bug:** XDJ-AZ/CDJ-3000X return wrong data from ALL Finders (not just metadata). Root cause: `CdjStatus` constructor only flags `isFromOpusQuad`; XDJ-AZ takes else branch, DLP ID passes through unchanged. Recommended fix: Strategy D (SCUE translation layer, 2-4 days). See ADR-016.
+
+**Audio capture:** Feasible via USB interface + sounddevice (~0.5ms per update). Informed source separation (known reference signals) far simpler than blind separation. Deferred to multi-deck Phase 2.
+
+**Fingerprinting:** No suitable maintained library exists. Custom constellation-map implementation (~500-800 lines, 2-3 dev-days) recommended at M7.
+
+### Actions Surfaced
+- **HIGH:** Fix composite key bug in `track_ids` table (before Live Deck Monitor ships)
+- **HIGH:** Add `DeckAnalysisState` enum for on-demand analysis fallback
+- **MEDIUM:** Pioneer ANLZ waveform reading via pyrekordbox (instant display)
+- **MEDIUM:** Dual-database USB scanning for mixed hardware
+- **MEDIUM:** Stale-scan detection for re-exports
+- **DEFERRED (M7):** Constellation-map fingerprint generation
+- **DEFERRED:** Audio capture / Layer 0.5 prototype
+
+---
+
+## Current Backlog
+
+### FE-Analysis-Viewer — Pioneer-style colored waveform with section overlays
+**Status:** READY — spec complete, 8 tasks defined.
+- Standalone page at `/analysis` with mini track table, WaveformCanvas (shared), section list, metadata panel
+- WaveformCanvas renders SCUE RGB 3-band data (future: Pioneer ANLZ waveforms as instant fallback)
+- Bidirectional section ↔ waveform interaction
+- Build order: this feature first (provides shared WaveformCanvas for Live Deck Monitor)
+
+### FE-Live-Deck-Monitor — 2-deck real-time waveform + cursor
+**Status:** READY — spec complete, 7 tasks defined. Depends on Analysis Viewer (shared WaveformCanvas).
+- Backend: `playback_position_ms` + source fields in bridge, composite key migration, resolve endpoint
+- Frontend: auto-resolve composite key → fingerprint → analysis, auto-scrolling waveform with live cursor
+- Research-driven: composite key for multi-USB safety, Pioneer waveform as instant fallback
+
+### Milestone 3 — Cue Stream (Layer 2, section cues only)
+**Status:** BLOCKED — waiting on FE-Analysis-Viewer + FE-Live-Deck-Monitor to validate data pipeline end-to-end.
+- Spec complete: section_change, section_anticipation, section_progress, energy_level
+- CueEngine + DeckCueGenerator architecture, 40 Hz tick rate, YAML config
+- Proposed contract addition: `deck_number` field on CueEvent
+
+---
+
 ## Backlog
 
 ### ~~Milestone FE-3 — Track Table (Read-Only)~~ → COMPLETE (2026-03-16)

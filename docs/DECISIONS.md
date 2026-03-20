@@ -61,6 +61,31 @@ Decision: Replace rbox's ANLZ parsing with a two-tier pure-Python strategy:
 rbox's `OneLibrary` is retained for `exportLibrary.db` reading — it works correctly and is the only Python library that supports the DLP/OneLibrary USB database format. pyrekordbox's `Rekordbox6Database` targets the desktop `master.db`, not the USB database.
 Consequences: New dependency: `pyrekordbox>=0.4.4` (added to `[usb]` optional deps alongside rbox). ANLZ reading is now re-enabled in the USB scanner — no more Rust panic risk. All ANLZ parsing runs in pure Python with normal exception handling.
 
+## ADR-014: USB ANLZ waveform reading as universal path via pyrekordbox
+Date: 2026-03-20
+Context: WaveformFinder is broken on ALL DLP hardware (XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X) due to a hard dependency on MetadataFinder + DLP ID namespace mismatch. Even on legacy hardware where WaveformFinder works, it adds startup complexity and network overhead. Research confirmed pyrekordbox v0.4.4 can read ALL 7 ANLZ waveform tags (PWAV, PWV2-7) from USB across all hardware variants.
+Decision: Use pyrekordbox to read Pioneer ANLZ waveform data directly from USB as the universal waveform source for instant display. This eliminates the need for WaveformFinder entirely and provides a single code path for all hardware. Pioneer waveforms (PWV5/PWV7: ~45K entries at ~150/sec) provide sufficient resolution for visual display. SCUE's librosa-analyzed RGB waveform remains the primary source for cue generation (higher precision, frequency-aware). Two rendering paths in WaveformCanvas: SCUE RGB (primary) and Pioneer ANLZ (instant fallback when SCUE analysis hasn't run yet).
+Consequences: Extend usb_scanner.py to read PWV3/PWV5/PWV7 tags during USB scan. Store Pioneer waveform data in pioneer_metadata cache. WaveformCanvas gains a Pioneer rendering mode. ADR-012's blanket disabling of WaveformFinder is confirmed correct — not collateral damage, but the right call.
+
+## ADR-015: Composite primary key for track_ids table (multi-USB safety)
+Date: 2026-03-20
+Context: Research confirmed that DLP rekordbox_id values are per-USB auto-increment keys. Two USBs plugged into different decks will have colliding IDs (e.g., both have track ID 1 for completely different tracks). The current `track_ids` table uses `rekordbox_id INTEGER PRIMARY KEY` which silently overwrites in multi-USB setups. Additionally, IDs are volatile across USB re-exports — rekordbox reassigns IDs when the database is rebuilt.
+Decision: Migrate `track_ids` table to composite primary key `(source_player, source_slot, rekordbox_id)`. Update `lookup_fingerprint()` and `link_rekordbox_id()` signatures to accept all three fields. Add `GET /api/tracks/resolve/{source_player}/{source_slot}/{rekordbox_id}` REST endpoint for frontend track resolution. Migration strategy: drop and recreate (SQLite is derived cache per ADR-004). Tiered reconciliation (composite key → file path stem → title+artist) already implemented in usb_scanner.py, just needs composite key threading.
+Consequences: All callers of lookup_fingerprint and link_rekordbox_id must be updated. Frontend must use composite key for track resolution (not bare rekordbox_id). This must ship before Live Deck Monitor to avoid silent data corruption.
+
+## ADR-016: DLP fix strategy — SCUE translation layer (Strategy D)
+Date: 2026-03-20
+Context: beat-link has a critical DLP bug: CdjStatus constructor only flags `isFromOpusQuad`. XDJ-AZ and CDJ-3000X take the else branch, passing DLP-namespace IDs through unchanged. All Finders (Metadata, BeatGrid, Waveform, AnalysisTag, CrateDigger) build DataReference with the wrong ID, returning wrong track data. Upstream fix timeline uncertain — @brunchboy stated "XDJ-AZ is not supposed to be supported" (Jan 2025). Four strategies evaluated: (A) patch beat-link (3-5 weeks, HIGH risk), (B) SCUE translation layer (1-2 days, LOW risk), (C) DlpProvider (2-3 weeks), (D) hybrid of existing architecture + B.
+Decision: Strategy D — fix composite key (ADR-015), add `uses_dlp` flag per device to route metadata queries to the correct namespace, implement dual-database USB scanning to build DLP↔DeviceSQL ID mapping via shared file paths. SCUE handles the translation internally rather than waiting for upstream beat-link fixes. Medium-term opportunity: contribute DlpProvider as clean upstream extension.
+Consequences: USB scanner must read both export.pdb and exportLibrary.db when both are present. Device classification needs `uses_dlp` flag (Opus Quad, XDJ-AZ, CDJ-3000X, OMNIS-DUO). All metadata resolution paths must be namespace-aware. Estimated effort: 2-4 days.
+
+## ADR-017: Enable beat-link Finders via 8.1.0-SNAPSHOT upgrade
+Date: 2026-03-20
+Status: SUPERSEDES ADR-012
+Context: Research confirmed beat-link 8.1.0-SNAPSHOT (used by BLT) has native XDJ-AZ support. The XDJ-AZ has a working dbserver (unlike Opus Quad). CrateDigger downloads exportLibrary.db via NFS, providing ID translation. All Finders work correctly. ADR-012's blanket disabling was correct for 8.0.0 but is no longer needed.
+Decision: Upgrade bridge from beat-link 8.0.0 to 8.1.0-SNAPSHOT. Enable MetadataFinder, WaveformFinder, BeatGridFinder, AnalysisTagFinder, CrateDigger, TimeFinder, and ArtFinder. Add --database-key CLI argument for DLP database decryption (required for exportLibrary.db). Retain rbox/pyrekordbox USB scanning as supplementary source (offline analysis, pre-scan before hardware is connected). Bridge version bumped to 2.0.0.
+Consequences: Bridge now emits track_metadata, beat_grid, waveform_detail, phrase_analysis, and cue_points messages. Python adapter already handles these. Database key must be configured for DLP hardware via SCUE_DLP_DATABASE_KEY env var. Opus Quad still requires metadata archives (no dbserver).
+
 ## ADR-008: Sequential batch analysis with in-memory job tracking
 Date: 2026-03
 Context: `run_analysis()` is CPU-bound (~3-4s/track with librosa/MLX). Parallel analysis would thrash memory. SCUE is a local tool — no persistence needed for job state.

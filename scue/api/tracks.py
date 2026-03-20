@@ -91,7 +91,146 @@ async def get_job_status(job_id: str) -> dict:
     return job_to_dict(job)
 
 
-# NOTE: /{fingerprint} must come AFTER all fixed-path routes (/jobs, /scan, etc.)
+@router.get("/resolve/{source_player}/{source_slot}/{rekordbox_id}")
+async def resolve_track(
+    source_player: str,
+    source_slot: str,
+    rekordbox_id: int,
+) -> dict:
+    """Resolve a composite key (source_player, source_slot, rekordbox_id) to a fingerprint.
+
+    Used by the frontend to look up track analysis from bridge-reported IDs (ADR-015).
+    """
+    cache = _get_cache()
+    fingerprint = cache.lookup_fingerprint(
+        rekordbox_id, source_player=source_player, source_slot=source_slot,
+    )
+    if fingerprint is None:
+        raise HTTPException(
+            404,
+            f"No track linked for {source_player}/{source_slot}/{rekordbox_id}",
+        )
+    # Include title + artist from cache for quick display before full analysis loads
+    track_meta = cache.get_track(fingerprint)
+    title = track_meta.get("title", "") if track_meta else ""
+    artist = track_meta.get("artist", "") if track_meta else ""
+    return {
+        "fingerprint": fingerprint,
+        "title": title,
+        "artist": artist,
+    }
+
+
+@router.get("/{fingerprint}/events")
+async def get_track_events(fingerprint: str) -> dict:
+    """Get detected events and drum patterns for a track.
+
+    Returns tonal events (riser, faller, stab) as individual objects
+    and percussion as compact DrumPattern objects.
+    """
+    from ..layer1.detectors.events import drum_pattern_to_dict
+    from ..layer1.models import event_to_dict
+
+    store = _get_store()
+    analysis = store.load_latest(fingerprint)
+    if analysis is None:
+        raise HTTPException(404, f"Track not found: {fingerprint[:16]}")
+
+    return {
+        "fingerprint": fingerprint,
+        "events": [event_to_dict(e) for e in analysis.events],
+        "drum_patterns": [drum_pattern_to_dict(p) for p in analysis.drum_patterns],
+        "total_events": len(analysis.events),
+        "total_patterns": len(analysis.drum_patterns),
+        "event_types": list(set(e.type for e in analysis.events)),
+    }
+
+
+@router.get("/{fingerprint}/pioneer-waveform")
+async def get_pioneer_waveform(fingerprint: str) -> dict:
+    """Get Pioneer ANLZ waveform data for a track.
+
+    Returns decoded PWV5 (color detail), PWV3 (monochrome detail),
+    and/or PWV7 (3-band detail) waveform arrays if available from USB scan.
+
+    Waveforms are pre-computed by rekordbox and read from USB ANLZ files.
+    This enables instant waveform display before SCUE analysis completes.
+    """
+    cache = _get_cache()
+
+    # Look up the rekordbox_id → try to find pioneer metadata
+    # We need to find which (source_player, source_slot, rekordbox_id) maps to this fingerprint
+    pioneer_meta = cache.get_pioneer_waveforms_by_fingerprint(fingerprint)
+    if pioneer_meta is None:
+        raise HTTPException(404, f"No Pioneer waveform data for track: {fingerprint[:16]}")
+
+    result: dict = {
+        "fingerprint": fingerprint,
+        "available": [],
+    }
+
+    # Decode PWV5: color detail (2 bytes per entry, big-endian u16)
+    # Bits: [15:13]=R, [12:10]=G, [9:7]=B, [6:2]=H, [1:0]=unused
+    pwv5_bytes = pioneer_meta.get("waveform_pwv5", b"")
+    if pwv5_bytes:
+        entries = []
+        for i in range(0, len(pwv5_bytes) - 1, 2):
+            val = (pwv5_bytes[i] << 8) | pwv5_bytes[i + 1]
+            entries.append({
+                "r": (val >> 13) & 0x07,
+                "g": (val >> 10) & 0x07,
+                "b": (val >> 7) & 0x07,
+                "height": (val >> 2) & 0x1F,
+            })
+        result["pwv5"] = {
+            "entries_per_second": 150,
+            "total_entries": len(entries),
+            "data": entries,
+        }
+        result["available"].append("pwv5")
+
+    # Decode PWV3: monochrome detail (1 byte per entry)
+    # Bits: [7:5]=intensity, [4:0]=height
+    pwv3_bytes = pioneer_meta.get("waveform_pwv3", b"")
+    if pwv3_bytes:
+        entries = []
+        for b in pwv3_bytes:
+            entries.append({
+                "height": b & 0x1F,
+                "intensity": (b >> 5) & 0x07,
+            })
+        result["pwv3"] = {
+            "entries_per_second": 150,
+            "total_entries": len(entries),
+            "data": entries,
+        }
+        result["available"].append("pwv3")
+
+    # Decode PWV7: 3-band detail (3 bytes per entry)
+    # Bytes: [0]=mid, [1]=high, [2]=low
+    pwv7_bytes = pioneer_meta.get("waveform_pwv7", b"")
+    if pwv7_bytes:
+        entries = []
+        for i in range(0, len(pwv7_bytes) - 2, 3):
+            entries.append({
+                "mid": pwv7_bytes[i],
+                "high": pwv7_bytes[i + 1],
+                "low": pwv7_bytes[i + 2],
+            })
+        result["pwv7"] = {
+            "entries_per_second": 150,
+            "total_entries": len(entries),
+            "data": entries,
+        }
+        result["available"].append("pwv7")
+
+    if not result["available"]:
+        raise HTTPException(404, f"No Pioneer waveform data for track: {fingerprint[:16]}")
+
+    return result
+
+
+# NOTE: /{fingerprint} must come AFTER all fixed-path routes (/jobs, /scan, /resolve, etc.)
 # to avoid FastAPI matching "jobs" or "scan" as a fingerprint value.
 @router.get("/{fingerprint}")
 async def get_track(fingerprint: str) -> dict:

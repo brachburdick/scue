@@ -2,11 +2,11 @@
 
 ## Overview
 
-SCUE needs access to the Pro DJ Link protocol to receive real-time playback data (BPM, pitch, beat position, play/pause state, on-air status) from Pioneer DJ hardware. The open-source [beat-link](https://github.com/Deep-Symmetry/beat-link) Java library (~30K lines) implements this protocol. Rather than porting it to Python, SCUE runs beat-link as a managed subprocess that streams typed JSON messages over a local WebSocket.
+SCUE needs access to the Pro DJ Link protocol to receive real-time playback data and track metadata from Pioneer DJ hardware. The open-source [beat-link](https://github.com/Deep-Symmetry/beat-link) Java library (~30K lines) implements this protocol. Rather than porting it to Python, SCUE runs beat-link as a managed subprocess that streams typed JSON messages over a local WebSocket.
 
-**Per ADR-012 (v1.1.0):** The bridge provides **real-time playback data only**. Track metadata (title, artist, key), beatgrids, waveforms, phrase analysis, and cue points are **not** emitted by the bridge. Metadata resolution is handled by the Python side via `rbox` (for DLP hardware) or future extensions (for legacy hardware). This was driven by the discovery that beat-link's MetadataFinder returns incorrect data on Device Library Plus hardware (XDJ-AZ, Opus Quad, CDJ-3000X) due to DLP vs DeviceSQL ID namespace conflicts.
+**Per ADR-017 (v2.0.0, supersedes ADR-012):** The bridge provides **real-time playback data AND Finder data**. beat-link 8.1.0-SNAPSHOT has native XDJ-AZ support via CrateDigger NFS downloads and SQLite ID translation. All Finders are enabled: MetadataFinder, WaveformFinder, BeatGridFinder, AnalysisTagFinder, CrateDigger, TimeFinder, ArtFinder. The bridge emits track_metadata, beat_grid, waveform_detail, phrase_analysis, and cue_points messages.
 
-This document specifies the Java bridge application. The Python consumer side is already built and tested (`scue/bridge/`). The JAR is built and deployed at `lib/beat-link-bridge.jar` (v1.1.0).
+This document specifies the Java bridge application. The Python consumer side is already built and tested (`scue/bridge/`). The JAR is built and deployed at `lib/beat-link-bridge.jar` (v2.0.0).
 
 ## Architecture
 
@@ -41,11 +41,11 @@ Pioneer Hardware (CDJ/XDJ/DJM on Pro DJ Link network)
 6. Stream messages to all connected WebSocket clients
 7. Accept a `--port <N>` CLI argument for the WebSocket port
 
-**Not started (per ADR-012):** MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder. These are stripped from the JAR.
+**All Finders enabled (ADR-017):** MetadataFinder, BeatGridFinder, WaveformFinder, AnalysisTagFinder, CrateDigger, TimeFinder, ArtFinder. These require `--database-key` for DLP hardware decryption.
 
 ## beat-link API Entry Points
 
-The bridge uses only these beat-link classes (v1.1.0 lean bridge per ADR-012):
+The bridge uses these beat-link classes (v2.0.0 per ADR-017):
 
 | Class | Purpose |
 |-------|---------|
@@ -55,12 +55,18 @@ The bridge uses only these beat-link classes (v1.1.0 lean bridge per ADR-012):
 | `org.deepsymmetry.beatlink.CdjStatus` | Per-player playback state (BPM, pitch, beat, play/pause, on-air, rekordbox_id) |
 | `org.deepsymmetry.beatlink.BeatFinder` | Real-time beat events |
 | `org.deepsymmetry.beatlink.Beat` | Beat event data |
-
-**Stripped (per ADR-012):** MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder. These are incompatible with Device Library Plus hardware and cause incorrect metadata on XDJ-AZ, Opus Quad, CDJ-3000X, OMNIS-DUO.
+| `org.deepsymmetry.beatlink.data.TimeFinder` | Playback position interpolation |
+| `org.deepsymmetry.beatlink.data.MetadataFinder` | Track metadata (title, artist, BPM, key, cues) |
+| `org.deepsymmetry.beatlink.data.BeatGridFinder` | Pioneer beat grids |
+| `org.deepsymmetry.beatlink.data.WaveformFinder` | Waveform preview and detail data |
+| `org.deepsymmetry.beatlink.data.AnalysisTagFinder` | PSSI phrase analysis (song structure) |
+| `org.deepsymmetry.beatlink.data.ArtFinder` | Album artwork |
+| `org.deepsymmetry.beatlink.data.OpusProvider` | DLP database key configuration |
+| `org.deepsymmetry.beatlink.data.CrateDigger` | NFS database downloads (exportLibrary.db for DLP hardware) |
 
 ## Message Types and JSON Schemas
 
-**v1.1.0 (ADR-012):** The bridge emits 5 message types. Track metadata, beatgrids, waveforms, phrase analysis, and cue points are resolved by the Python side, not the bridge.
+**v2.0.0 (ADR-017):** The bridge emits 10 message types including real-time data and Finder-resolved metadata/analysis.
 
 All messages follow this envelope:
 
@@ -175,15 +181,16 @@ Real-time beat events (~2Hz at 128 BPM). High frequency — keep payloads small.
 }
 ```
 
-### Messages NOT emitted by the bridge (per ADR-012)
+### Finder-emitted messages (ADR-017, v2.0.0)
 
-The following message types are defined in the Python adapter (`scue/bridge/messages.py`) for future use but are **not emitted by the v1.1.0 bridge JAR**. They will be populated by the Python side reading directly from USB databases:
+The following message types are emitted by the bridge when Finders resolve data for a loaded track:
 
-- `track_metadata` — resolved via `rbox` (DLP) or future bridge extensions (legacy)
-- `beat_grid` — resolved via `rbox` (DLP) or future bridge extensions (legacy)
-- `waveform_detail` — resolved via `rbox` (DLP) or future bridge extensions (legacy)
-- `phrase_analysis` — resolved via `rbox` (DLP) or future bridge extensions (legacy)
-- `cue_points` — resolved via `rbox` (DLP) or future bridge extensions (legacy)
+- `track_metadata` — emitted by MetadataFinder when track metadata is resolved
+- `beat_grid` — emitted by BeatGridFinder when beat grid data is available
+- `waveform_detail` — emitted by WaveformFinder (detail view, base64-encoded bytes)
+- `waveform_preview` — emitted by WaveformFinder (overview, base64-encoded bytes)
+- `phrase_analysis` — emitted by AnalysisTagFinder when PSSI song structure data is available
+- `cue_points` — emitted alongside track_metadata from MetadataFinder's cue list
 
 ## Message Ordering
 
@@ -259,7 +266,7 @@ beat-link has a strict initialization order. The bridge must follow this sequenc
 11. Emit bridge_status { connected: true, devices_online: N, network_interface: ..., interface_candidates: [...] }
 ```
 
-**Per ADR-012:** Steps 7-11 from the original spec (MetadataFinder, BeatGridFinder, WaveformFinder, CrateDigger, AnalysisTagFinder) are removed. Only BeatFinder is started.
+**Per ADR-017:** After BeatFinder starts, all Finders are started (TimeFinder, MetadataFinder, BeatGridFinder, WaveformFinder, AnalysisTagFinder, ArtFinder) and their listeners are registered.
 
 **Critical:** The WebSocket server must start BEFORE beat-link initialization (step 2 before step 4). This ensures the Python manager can connect and receive status messages even if beat-link fails to find hardware. The Python side uses the WebSocket connection itself as a health check — if it can't connect, the bridge process is dead. If it connects but receives `connected: false`, the bridge is alive but no hardware is present.
 
@@ -273,6 +280,7 @@ beat-link has a strict initialization order. The bridge must follow this sequenc
 | `--player-number <N>` | `5` | Player number to claim on the Pro DJ Link network. Must not conflict with connected CDJs (typically 1–4). Values 5–6 are conventional for software players. If the number is taken, startup will fail — log the error clearly. |
 | `--interface <name>` | (auto-detect) | Network interface name to bind to (e.g., `en5`, `eth0`). If the interface is not found or is down, falls back to auto-detection with a warning. |
 | `--log-level <LEVEL>` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| `--database-key <KEY>` | (none) | DLP database decryption key for exportLibrary.db. Required for XDJ-AZ and other DLP hardware. Pass via `SCUE_DLP_DATABASE_KEY` env var on the Python side. |
 | `--retry-interval <S>` | `10` | Seconds between network join retries when no hardware is found |
 
 ## Graceful Shutdown

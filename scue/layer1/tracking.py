@@ -10,14 +10,19 @@ None from on_player_update().
 """
 
 import logging
+from collections.abc import Callable
+from typing import Any
 
-from ..bridge.adapter import PlayerState
+from ..bridge.adapter import DeviceInfo, PlayerState
 from .cursor import build_cursor
 from .enrichment import run_enrichment_pass
 from .models import TrackAnalysis, TrackCursor
 from .storage import TrackStore, TrackCache
 
 log = logging.getLogger(__name__)
+
+# Callback type for looking up device info by player number
+DeviceLookup = Callable[[int], DeviceInfo | None]
 
 
 class PlaybackTracker:
@@ -30,9 +35,15 @@ class PlaybackTracker:
     4. Return cursor only for on-air player
     """
 
-    def __init__(self, store: TrackStore, cache: TrackCache) -> None:
+    def __init__(
+        self,
+        store: TrackStore,
+        cache: TrackCache,
+        device_lookup: DeviceLookup | None = None,
+    ) -> None:
         self._store = store
         self._cache = cache
+        self._device_lookup = device_lookup
         # Per-player state: rekordbox_id currently loaded
         self._player_track: dict[int, int] = {}
         # Per-player cached analysis (avoids repeated lookups)
@@ -104,13 +115,25 @@ class PlaybackTracker:
         pn = player.player_number
         rb_id = player.rekordbox_id
 
+        # Resolve source_player/source_slot for composite key lookup (ADR-015).
+        # The bridge reports which player hosts the media and which slot it's in.
+        # Convert int player number to string for the composite key.
+        src_player = str(player.track_source_player) if player.track_source_player else str(pn)
+        src_slot = player.track_source_slot or "usb"
+
         # Look up fingerprint from rekordbox_id via cache
-        fp = self._cache.lookup_fingerprint(rb_id)
+        fp = self._cache.lookup_fingerprint(rb_id, source_player=src_player, source_slot=src_slot)
+        if fp is None:
+            # Fallback: try DLP and DeviceSQL namespaces (USB scan uses these)
+            for ns in ("dlp", "devicesql"):
+                fp = self._cache.lookup_fingerprint(rb_id, source_player=ns, source_slot=src_slot)
+                if fp is not None:
+                    break
         if fp is None:
             log.info(
-                "Player %d: rekordbox_id=%d has no fingerprint mapping — "
+                "Player %d: rekordbox_id=%d (src=%s/%s) has no fingerprint mapping — "
                 "analysis unavailable until track is manually linked",
-                pn, rb_id,
+                pn, rb_id, src_player, src_slot,
             )
             return
 
@@ -122,7 +145,17 @@ class PlaybackTracker:
         # Trigger enrichment on first load with Pioneer data
         if fp not in self._enriched and player.bpm > 0:
             # Fetch cached Pioneer metadata from USB scan (ADR-012)
-            pioneer_meta = self._cache.get_pioneer_metadata(rb_id)
+            # Try the exact source first, then DLP/DeviceSQL namespaces
+            pioneer_meta = self._cache.get_pioneer_metadata(
+                rb_id, source_player=src_player, source_slot=src_slot,
+            )
+            if pioneer_meta is None:
+                for ns in ("dlp", "devicesql"):
+                    pioneer_meta = self._cache.get_pioneer_metadata(
+                        rb_id, source_player=ns, source_slot=src_slot,
+                    )
+                    if pioneer_meta is not None:
+                        break
 
             pioneer_key = player.key
             pioneer_beatgrid: list[float] | None = None

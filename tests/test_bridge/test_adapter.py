@@ -310,3 +310,105 @@ class TestClear:
         for msg in messages:
             adapter.handle_message(msg)
         assert len(adapter.devices) == 3
+
+
+class TestPlaybackPosition:
+    """Test playback_position_ms derivation from beat_number + beat_grid."""
+
+    def test_position_computed_from_beat_grid(self):
+        """After receiving beat_grid + player_status, playback_position_ms is derived."""
+        adapter = BridgeAdapter()
+
+        # Feed beat_grid first
+        beat_grid_msgs = load_fixture("beat_grid.json")
+        for msg in beat_grid_msgs:
+            adapter.handle_message(msg)
+
+        # Feed a player_status with beat_number matching a grid entry
+        messages = load_fixture("playback_session.json")
+        for msg in messages:
+            adapter.handle_message(msg)
+
+        player = adapter.get_player(1)
+        assert player is not None
+        # playback_session.json has beat_number values; with beat_grid loaded,
+        # playback_position_ms should be non-None
+        assert player.playback_position_ms is not None
+        assert player.playback_position_ms > 0
+
+    def test_position_none_without_beat_grid(self):
+        """Without beat_grid data, playback_position_ms is None."""
+        adapter = BridgeAdapter()
+
+        # Feed player_status WITHOUT beat_grid
+        messages = load_fixture("playback_session.json")
+        for msg in messages:
+            adapter.handle_message(msg)
+
+        player = adapter.get_player(1)
+        assert player is not None
+        # First status has beat_number=0 (cued), so position is None
+        # But even later statuses with beat_number>0 have no grid -> None
+        assert player.playback_position_ms is None
+
+    def test_position_none_for_beat_zero(self):
+        """beat_number=0 means no track / unknown, position should be None."""
+        adapter = BridgeAdapter()
+        player = PlayerState(player_number=1)
+        player.beat_grid = [{"beat_number": 1, "time_ms": 250.0, "bpm": 128.0}]
+
+        result = BridgeAdapter._compute_position_ms(player, 0)
+        assert result is None
+
+    def test_position_interpolation(self):
+        """Position interpolates between grid entries using BPM."""
+        player = PlayerState(player_number=1)
+        player.beat_grid = [
+            {"beat_number": 1, "time_ms": 250.0, "bpm": 120.0},
+            {"beat_number": 5, "time_ms": 2250.0, "bpm": 120.0},
+        ]
+        # Beat 3 = entry at beat 1 + 2 beats at 120 BPM (500ms/beat) = 250 + 1000 = 1250
+        result = BridgeAdapter._compute_position_ms(player, 3)
+        assert result is not None
+        assert abs(result - 1250.0) < 1.0
+
+
+class TestStatusDictPlayerFields:
+    """Test that to_status_dict() includes new player fields."""
+
+    def test_player_dict_includes_new_fields(self):
+        from scue.bridge.manager import BridgeManager
+
+        mgr = BridgeManager()
+        mgr._status = "running"
+
+        # Manually set up adapter state
+        player = PlayerState(player_number=1)
+        player.bpm = 128.0
+        player.playback_position_ms = 5000.0
+        player.track_source_player = 1
+        player.track_source_slot = "usb"
+        mgr._adapter._players[1] = player
+
+        status = mgr.to_status_dict()
+        p1 = status["players"]["1"]
+
+        assert p1["playback_position_ms"] == 5000.0
+        assert p1["track_source_player"] == 1
+        assert p1["track_source_slot"] == "usb"
+
+    def test_player_dict_null_position(self):
+        from scue.bridge.manager import BridgeManager
+
+        mgr = BridgeManager()
+        mgr._status = "running"
+
+        player = PlayerState(player_number=1)
+        player.bpm = 128.0
+        player.playback_position_ms = None
+        mgr._adapter._players[1] = player
+
+        status = mgr.to_status_dict()
+        p1 = status["players"]["1"]
+
+        assert p1["playback_position_ms"] is None

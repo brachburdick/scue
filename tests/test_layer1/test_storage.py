@@ -154,6 +154,38 @@ class TestTrackCache:
         assert tracks[0]["version"] == 2
         assert tracks[0]["bpm"] == 128.5
 
+    def test_composite_key_coexistence(self, tmp_path: Path) -> None:
+        """Two entries with same rekordbox_id but different source_player/source_slot coexist."""
+        cache = TrackCache(tmp_path / "cache" / "scue.db")
+
+        # Same rekordbox_id, different namespaces
+        cache.link_rekordbox_id(42, "fp_dlp", source_player="dlp", source_slot="usb")
+        cache.link_rekordbox_id(42, "fp_devicesql", source_player="devicesql", source_slot="usb")
+
+        # Both should resolve to different fingerprints
+        assert cache.lookup_fingerprint(42, source_player="dlp", source_slot="usb") == "fp_dlp"
+        assert cache.lookup_fingerprint(42, source_player="devicesql", source_slot="usb") == "fp_devicesql"
+
+        # Default source_player="1" should return None (not linked)
+        assert cache.lookup_fingerprint(42) is None
+
+    def test_composite_key_pioneer_metadata_coexistence(self, tmp_path: Path) -> None:
+        """Pioneer metadata entries with same rekordbox_id but different sources coexist."""
+        cache = TrackCache(tmp_path / "cache" / "scue.db")
+
+        cache.store_pioneer_metadata(42, {"title": "DLP Title", "bpm": 128.0, "scan_timestamp": 1.0},
+                                     source_player="dlp", source_slot="usb")
+        cache.store_pioneer_metadata(42, {"title": "DS Title", "bpm": 128.0, "scan_timestamp": 1.0},
+                                     source_player="devicesql", source_slot="usb")
+
+        dlp_meta = cache.get_pioneer_metadata(42, source_player="dlp", source_slot="usb")
+        ds_meta = cache.get_pioneer_metadata(42, source_player="devicesql", source_slot="usb")
+
+        assert dlp_meta is not None
+        assert ds_meta is not None
+        assert dlp_meta["title"] == "DLP Title"
+        assert ds_meta["title"] == "DS Title"
+
     def test_rebuild_from_store(self, tmp_path: Path) -> None:
         tracks_dir = tmp_path / "tracks"
         store = TrackStore(tracks_dir)

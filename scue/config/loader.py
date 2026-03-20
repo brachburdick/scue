@@ -61,6 +61,7 @@ class BridgeConfig:
 @dataclass
 class UsbConfig:
     db_relative_path: str = "PIONEER/rekordbox/exportLibrary.db"
+    pdb_relative_path: str = "PIONEER/rekordbox/export.pdb"
     anlz_relative_path: str = "PIONEER/USBANLZ"
 
 

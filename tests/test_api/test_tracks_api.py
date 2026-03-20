@@ -258,6 +258,71 @@ class TestScanDeduplication:
 
 
 # ---------------------------------------------------------------------------
+# Resolve Endpoint (ADR-015)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveEndpoint:
+    """Tests for GET /api/tracks/resolve/{source_player}/{source_slot}/{rekordbox_id}."""
+
+    def test_resolve_returns_fingerprint(self) -> None:
+        """Resolve with a linked track returns the fingerprint plus title/artist."""
+        store = _make_mock_store()
+        cache = _make_mock_cache()
+        cache.lookup_fingerprint.return_value = "abc123def456"
+        cache.get_track.return_value = {"title": "Strobe", "artist": "deadmau5"}
+        app = _build_app(store, cache)
+        client = TestClient(app)
+
+        resp = client.get("/api/tracks/resolve/dlp/usb/42")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["fingerprint"] == "abc123def456"
+        assert data["title"] == "Strobe"
+        assert data["artist"] == "deadmau5"
+        cache.lookup_fingerprint.assert_called_once_with(42, source_player="dlp", source_slot="usb")
+
+    def test_resolve_not_found(self) -> None:
+        """Resolve with an unlinked track returns 404."""
+        store = _make_mock_store()
+        cache = _make_mock_cache()
+        cache.lookup_fingerprint.return_value = None
+        app = _build_app(store, cache)
+        client = TestClient(app)
+
+        resp = client.get("/api/tracks/resolve/1/usb/99999")
+
+        assert resp.status_code == 404
+
+    def test_resolve_different_namespaces(self) -> None:
+        """Same rekordbox_id with different sources resolves differently."""
+        store = _make_mock_store()
+        cache = _make_mock_cache()
+
+        def _lookup(rb_id: int, source_player: str = "1", source_slot: str = "usb") -> str | None:
+            if source_player == "dlp":
+                return "fp_dlp"
+            if source_player == "devicesql":
+                return "fp_ds"
+            return None
+
+        cache.lookup_fingerprint.side_effect = _lookup
+        app = _build_app(store, cache)
+        client = TestClient(app)
+
+        resp_dlp = client.get("/api/tracks/resolve/dlp/usb/42")
+        resp_ds = client.get("/api/tracks/resolve/devicesql/usb/42")
+        resp_missing = client.get("/api/tracks/resolve/1/usb/42")
+
+        assert resp_dlp.status_code == 200
+        assert resp_dlp.json()["fingerprint"] == "fp_dlp"
+        assert resp_ds.status_code == 200
+        assert resp_ds.json()["fingerprint"] == "fp_ds"
+        assert resp_missing.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # Helpers — asyncio.to_thread substitute for sync test context
 # ---------------------------------------------------------------------------
 
