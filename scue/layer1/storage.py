@@ -151,6 +151,21 @@ def _migrate_pioneer_metadata(conn: sqlite3.Connection) -> None:
         conn.execute("DROP TABLE pioneer_metadata")
 
 
+def _migrate_tracks_add_folder(conn: sqlite3.Connection) -> None:
+    """Add folder column to tracks table if missing.
+
+    No data loss — new column gets empty default. Existing tracks appear at root.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='tracks'"
+    ).fetchone()
+    if row and "folder" not in row[0]:
+        logger.info("Migrating tracks table: adding folder column")
+        conn.execute(
+            "ALTER TABLE tracks ADD COLUMN folder TEXT NOT NULL DEFAULT ''"
+        )
+
+
 def _migrate_pioneer_metadata_waveforms(conn: sqlite3.Connection) -> None:
     """Add waveform columns to existing pioneer_metadata table if missing.
 
@@ -205,9 +220,12 @@ class TrackCache:
                     mood TEXT NOT NULL DEFAULT 'neutral',
                     key_name TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
+                    folder TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY (fingerprint, version)
                 )
             """)
+            # Migration: add folder column to existing tracks table
+            _migrate_tracks_add_folder(conn)
             # Migration: drop old single-column-PK track_ids if it exists
             _migrate_track_ids(conn)
             conn.execute("""
@@ -256,6 +274,47 @@ class TrackCache:
             """)
             _migrate_pioneer_metadata_waveforms(conn)
 
+            # Settings key-value store (persists across restarts)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
+
+            # Job persistence (survives server restarts)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS analysis_jobs (
+                    job_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    total INTEGER NOT NULL DEFAULT 0,
+                    completed INTEGER NOT NULL DEFAULT 0,
+                    failed INTEGER NOT NULL DEFAULT 0,
+                    current_file TEXT,
+                    current_step INTEGER NOT NULL DEFAULT 0,
+                    current_step_name TEXT NOT NULL DEFAULT '',
+                    total_steps INTEGER NOT NULL DEFAULT 10,
+                    scan_root TEXT NOT NULL DEFAULT '',
+                    destination_folder TEXT NOT NULL DEFAULT '',
+                    skip_waveform INTEGER NOT NULL DEFAULT 0,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS analysis_job_files (
+                    job_id TEXT NOT NULL,
+                    file_index INTEGER NOT NULL,
+                    path TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    error TEXT,
+                    PRIMARY KEY (job_id, file_index),
+                    FOREIGN KEY (job_id) REFERENCES analysis_jobs(job_id)
+                )
+            """)
+
     def _connect(self) -> sqlite3.Connection:
         """Get a database connection."""
         return sqlite3.connect(str(self.db_path))
@@ -270,8 +329,8 @@ class TrackCache:
             conn.execute("""
                 INSERT OR REPLACE INTO tracks
                 (fingerprint, version, source, audio_path, title, artist,
-                 bpm, duration, section_count, mood, key_name, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 bpm, duration, section_count, mood, key_name, created_at, folder)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 analysis.fingerprint,
                 analysis.version,
@@ -285,6 +344,7 @@ class TrackCache:
                 analysis.features.mood,
                 analysis.features.key,
                 analysis.created_at,
+                analysis.folder,
             ))
 
     def list_tracks(
@@ -298,7 +358,7 @@ class TrackCache:
 
         Returns flattened metadata dicts (not full TrackAnalysis).
         """
-        valid_sorts = {"created_at", "title", "artist", "bpm", "duration"}
+        valid_sorts = {"created_at", "title", "artist", "bpm", "duration", "folder"}
         if sort_by not in valid_sorts:
             sort_by = "created_at"
 
@@ -308,7 +368,7 @@ class TrackCache:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(f"""
                 SELECT fingerprint, version, source, audio_path, title, artist,
-                       bpm, duration, section_count, mood, key_name, created_at
+                       bpm, duration, section_count, mood, key_name, created_at, folder
                 FROM tracks
                 WHERE version = (
                     SELECT MAX(version) FROM tracks t2
@@ -603,6 +663,277 @@ class TrackCache:
             ).fetchall()
 
         return [dict(row) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Folder-aware queries
+    # ------------------------------------------------------------------
+
+    def list_tracks_in_folder(
+        self,
+        folder: str = "",
+        limit: int = 100,
+        offset: int = 0,
+        sort_by: str = "created_at",
+        sort_desc: bool = True,
+    ) -> list[dict]:
+        """List tracks at an exact folder level (not recursive)."""
+        valid_sorts = {"created_at", "title", "artist", "bpm", "duration", "folder"}
+        if sort_by not in valid_sorts:
+            sort_by = "created_at"
+        direction = "DESC" if sort_desc else "ASC"
+
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(f"""
+                SELECT fingerprint, version, source, audio_path, title, artist,
+                       bpm, duration, section_count, mood, key_name, created_at, folder
+                FROM tracks
+                WHERE folder = ?
+                  AND version = (
+                      SELECT MAX(version) FROM tracks t2
+                      WHERE t2.fingerprint = tracks.fingerprint
+                  )
+                ORDER BY {sort_by} {direction}
+                LIMIT ? OFFSET ?
+            """, (folder, limit, offset)).fetchall()
+
+        return [dict(row) for row in rows]
+
+    def list_subfolders(self, parent_folder: str = "") -> list[dict]:
+        """List immediate child folders under a parent folder.
+
+        Returns list of dicts with 'name', 'path', and 'track_count' keys.
+        """
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            # Get all distinct folders for latest versions
+            rows = conn.execute("""
+                SELECT folder, COUNT(DISTINCT fingerprint) as cnt
+                FROM tracks
+                WHERE version = (
+                    SELECT MAX(version) FROM tracks t2
+                    WHERE t2.fingerprint = tracks.fingerprint
+                )
+                AND folder != ''
+                GROUP BY folder
+            """).fetchall()
+
+        # Extract immediate children of parent_folder
+        prefix = (parent_folder + "/") if parent_folder else ""
+        child_counts: dict[str, int] = {}
+
+        for row in rows:
+            folder_path = row["folder"]
+            if parent_folder == "":
+                # Root level: get first segment
+                segment = folder_path.split("/")[0]
+                child_path = segment
+            elif folder_path.startswith(prefix):
+                # Under parent: get next segment
+                remainder = folder_path[len(prefix):]
+                if not remainder:
+                    continue  # exact match, not a child
+                segment = remainder.split("/")[0]
+                child_path = prefix + segment
+            else:
+                continue
+
+            child_counts[child_path] = child_counts.get(child_path, 0) + row["cnt"]
+
+        return [
+            {"name": path.rsplit("/", 1)[-1] if "/" in path else path,
+             "path": path,
+             "track_count": count}
+            for path, count in sorted(child_counts.items())
+        ]
+
+    def count_tracks_in_folder(self, folder: str = "") -> int:
+        """Count tracks at an exact folder level."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(DISTINCT fingerprint) FROM tracks WHERE folder = ?",
+                (folder,),
+            ).fetchone()
+        return row[0] if row else 0
+
+    def list_tracks_under_folder(
+        self,
+        folder: str = "",
+        limit: int = 100,
+        offset: int = 0,
+        sort_by: str = "created_at",
+        sort_desc: bool = True,
+    ) -> list[dict]:
+        """List all tracks under a folder recursively (includes subfolders)."""
+        valid_sorts = {"created_at", "title", "artist", "bpm", "duration", "folder"}
+        if sort_by not in valid_sorts:
+            sort_by = "created_at"
+        direction = "DESC" if sort_desc else "ASC"
+
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            if folder:
+                rows = conn.execute(f"""
+                    SELECT fingerprint, version, source, audio_path, title, artist,
+                           bpm, duration, section_count, mood, key_name, created_at, folder
+                    FROM tracks
+                    WHERE (folder = ? OR folder LIKE ? || '/%')
+                      AND version = (
+                          SELECT MAX(version) FROM tracks t2
+                          WHERE t2.fingerprint = tracks.fingerprint
+                      )
+                    ORDER BY {sort_by} {direction}
+                    LIMIT ? OFFSET ?
+                """, (folder, folder, limit, offset)).fetchall()
+            else:
+                # Root: return all tracks
+                rows = conn.execute(f"""
+                    SELECT fingerprint, version, source, audio_path, title, artist,
+                           bpm, duration, section_count, mood, key_name, created_at, folder
+                    FROM tracks
+                    WHERE version = (
+                        SELECT MAX(version) FROM tracks t2
+                        WHERE t2.fingerprint = tracks.fingerprint
+                    )
+                    ORDER BY {sort_by} {direction}
+                    LIMIT ? OFFSET ?
+                """, (limit, offset)).fetchall()
+
+        return [dict(row) for row in rows]
+
+    def update_track_folder(self, fingerprint: str, folder: str) -> None:
+        """Move a track to a different folder. Updates all versions in the cache."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE tracks SET folder = ? WHERE fingerprint = ?",
+                (folder, fingerprint),
+            )
+
+    # ------------------------------------------------------------------
+    # Settings (key-value store)
+    # ------------------------------------------------------------------
+
+    def get_setting(self, key: str) -> str | None:
+        """Get a setting value by key."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            ).fetchone()
+        return row[0] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Set a setting value."""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+
+    # ------------------------------------------------------------------
+    # Job persistence
+    # ------------------------------------------------------------------
+
+    def create_job(
+        self,
+        job_id: str,
+        paths: list[str],
+        scan_root: str = "",
+        destination_folder: str = "",
+        skip_waveform: bool = False,
+    ) -> None:
+        """Persist a new analysis job to SQLite."""
+        import time as _time
+        now = _time.time()
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO analysis_jobs
+                (job_id, status, total, completed, failed, current_file,
+                 current_step, current_step_name, total_steps,
+                 scan_root, destination_folder, skip_waveform, created_at, updated_at)
+                VALUES (?, 'pending', ?, 0, 0, NULL, 0, '', 10, ?, ?, ?, ?, ?)
+            """, (job_id, len(paths), scan_root, destination_folder,
+                  int(skip_waveform), now, now))
+
+            for i, p in enumerate(paths):
+                filename = p.rsplit("/", 1)[-1] if "/" in p else p
+                conn.execute("""
+                    INSERT INTO analysis_job_files
+                    (job_id, file_index, path, filename, fingerprint, status, error)
+                    VALUES (?, ?, ?, ?, '', 'pending', NULL)
+                """, (job_id, i, p, filename))
+
+    def update_job_progress(self, job_id: str, **fields: object) -> None:
+        """Update job-level fields (status, completed, failed, current_file, etc.)."""
+        import time as _time
+        allowed = {"status", "total", "completed", "failed", "current_file",
+                    "current_step", "current_step_name", "total_steps"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        updates["updated_at"] = _time.time()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [job_id]
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE analysis_jobs SET {set_clause} WHERE job_id = ?",
+                values,
+            )
+
+    def update_job_file(
+        self,
+        job_id: str,
+        file_index: int,
+        status: str,
+        fingerprint: str = "",
+        error: str | None = None,
+    ) -> None:
+        """Update a single file result within a job."""
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE analysis_job_files
+                SET status = ?, fingerprint = ?, error = ?
+                WHERE job_id = ? AND file_index = ?
+            """, (status, fingerprint, error, job_id, file_index))
+
+    def get_job(self, job_id: str) -> dict | None:
+        """Get a persisted job with its file results."""
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            job_row = conn.execute(
+                "SELECT * FROM analysis_jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+            if not job_row:
+                return None
+
+            file_rows = conn.execute(
+                "SELECT * FROM analysis_job_files WHERE job_id = ? ORDER BY file_index",
+                (job_id,),
+            ).fetchall()
+
+        return {
+            **dict(job_row),
+            "results": [dict(r) for r in file_rows],
+        }
+
+    def get_incomplete_jobs(self) -> list[dict]:
+        """Get all jobs that haven't finished (for resume on startup)."""
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM analysis_jobs WHERE status IN ('pending', 'running')"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_job_pending_files(self, job_id: str) -> list[dict]:
+        """Get pending (un-processed) files for a job."""
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM analysis_job_files WHERE job_id = ? AND status = 'pending' "
+                "ORDER BY file_index",
+                (job_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def rebuild_from_store(self, store: TrackStore) -> int:
         """Rebuild the entire cache from JSON files.

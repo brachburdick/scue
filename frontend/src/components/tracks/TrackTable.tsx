@@ -9,12 +9,90 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { TrackSummary } from "../../types";
+import type { TrackSummary, FolderInfo } from "../../types";
 import { formatDuration, formatBpm, formatDate, truncateFingerprint } from "../../utils/formatters";
+import { useFolderStore } from "../../stores/folderStore";
 
 const col = createColumnHelper<TrackSummary>();
 
-const columns = [
+function makeFlatColumns(onFolderClick: (folder: string) => void) {
+  return [
+    col.accessor("title", {
+      header: "Title",
+      cell: (info) => info.getValue() || "Untitled",
+      size: 220,
+    }),
+    col.accessor("artist", {
+      header: "Artist",
+      cell: (info) => info.getValue() || "Unknown",
+      size: 160,
+    }),
+    col.accessor("folder", {
+      header: "Folder",
+      cell: (info) => {
+        const folder = info.getValue();
+        if (!folder) return <span className="text-gray-600">—</span>;
+        return (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onFolderClick(folder);
+            }}
+            className="text-blue-400 hover:text-blue-300 text-xs truncate max-w-[140px] block"
+            title={folder}
+          >
+            {folder}
+          </button>
+        );
+      },
+      size: 150,
+    }),
+    col.accessor("bpm", {
+      header: "BPM",
+      cell: (info) => formatBpm(info.getValue()),
+      size: 70,
+    }),
+    col.accessor("key_name", {
+      header: "Key",
+      cell: (info) => info.getValue() || "—",
+      size: 60,
+    }),
+    col.accessor("duration", {
+      header: "Duration",
+      cell: (info) => formatDuration(info.getValue()),
+      size: 80,
+    }),
+    col.accessor("section_count", {
+      header: "Sections",
+      cell: (info) => info.getValue(),
+      size: 70,
+    }),
+    col.accessor("mood", {
+      header: "Mood",
+      cell: (info) => <MoodBadge mood={info.getValue()} />,
+      size: 90,
+    }),
+    col.accessor("source", {
+      header: "Source",
+      cell: (info) => <SourceBadge source={info.getValue()} />,
+      size: 80,
+    }),
+    col.accessor("created_at", {
+      header: "Analyzed",
+      cell: (info) => formatDate(info.getValue()),
+      size: 100,
+    }),
+    col.accessor("fingerprint", {
+      header: "ID",
+      cell: (info) => (
+        <span className="font-mono text-gray-500">{truncateFingerprint(info.getValue())}</span>
+      ),
+      size: 80,
+    }),
+  ];
+}
+
+const directoryColumns = [
   col.accessor("title", {
     header: "Title",
     cell: (info) => info.getValue() || "Untitled",
@@ -102,12 +180,24 @@ function SourceBadge({ source }: { source: string }) {
 interface TrackTableProps {
   data: TrackSummary[];
   globalFilter: string;
+  folders?: FolderInfo[];
+  onAnalyzeFolder?: (folderPath: string) => void;
 }
 
-export function TrackTable({ data, globalFilter }: TrackTableProps) {
+export function TrackTable({ data, globalFilter, folders = [], onAnalyzeFolder }: TrackTableProps) {
+  const { viewMode, navigateToFolder } = useFolderStore();
+
   const [sorting, setSorting] = useState<SortingState>([
     { id: "created_at", desc: true },
   ]);
+
+  const columns = useMemo(
+    () =>
+      viewMode === "flat"
+        ? makeFlatColumns(navigateToFolder)
+        : directoryColumns,
+    [viewMode, navigateToFolder],
+  );
 
   const globalFilterFn = useMemo(
     () =>
@@ -138,8 +228,12 @@ export function TrackTable({ data, globalFilter }: TrackTableProps) {
 
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // Account for folder rows in virtualizer count
+  const folderRowCount = viewMode === "directory" ? folders.length : 0;
+  const totalRows = folderRowCount + rows.length;
+
   const virtualizer = useVirtualizer({
-    count: rows.length,
+    count: totalRows,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 10,
@@ -151,7 +245,7 @@ export function TrackTable({ data, globalFilter }: TrackTableProps) {
     <div
       ref={parentRef}
       className="overflow-auto rounded border border-gray-800"
-      style={{ maxHeight: "calc(100vh - 220px)" }}
+      style={{ maxHeight: "calc(100vh - 260px)" }}
     >
       <table className="w-full text-sm">
         <thead className="sticky top-0 z-10">
@@ -174,10 +268,10 @@ export function TrackTable({ data, globalFilter }: TrackTableProps) {
           ))}
         </thead>
         <tbody>
-          {rows.length === 0 ? (
+          {totalRows === 0 ? (
             <tr>
               <td colSpan={columns.length} className="px-3 py-8 text-center text-gray-500">
-                No tracks found
+                {viewMode === "directory" ? "Empty folder" : "No tracks found"}
               </td>
             </tr>
           ) : (
@@ -191,7 +285,48 @@ export function TrackTable({ data, globalFilter }: TrackTableProps) {
                 </tr>
               )}
               {virtualItems.map((virtualRow) => {
-                const row = rows[virtualRow.index];
+                const idx = virtualRow.index;
+
+                // Folder rows come first in directory mode
+                if (viewMode === "directory" && idx < folderRowCount) {
+                  const folder = folders[idx];
+                  return (
+                    <tr
+                      key={`folder-${folder.path}`}
+                      className="border-b border-gray-800/50 hover:bg-gray-800/40 cursor-pointer transition-colors"
+                      style={{ height: ROW_HEIGHT }}
+                      onClick={() => navigateToFolder(folder.path)}
+                    >
+                      <td className="px-3 py-2 text-blue-400" colSpan={2}>
+                        <span className="mr-2">📁</span>
+                        {folder.name}
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 text-xs" colSpan={columns.length - 3}>
+                        {folder.track_count} track{folder.track_count !== 1 ? "s" : ""}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {onAnalyzeFolder && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onAnalyzeFolder(folder.path);
+                            }}
+                            className="text-xs text-gray-500 hover:text-blue-400"
+                            title="Analyze all tracks in this folder"
+                          >
+                            Analyze
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                }
+
+                // Track rows
+                const trackIdx = idx - folderRowCount;
+                const row = rows[trackIdx];
+                if (!row) return null;
+
                 return (
                   <tr
                     key={row.id}

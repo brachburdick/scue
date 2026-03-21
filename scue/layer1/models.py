@@ -108,6 +108,7 @@ class TrackAnalysis:
     audio_path: str                 # path to the audio file at analysis time
     title: str = ""                 # from file metadata or filename
     artist: str = ""                # from file metadata
+    folder: str = ""                # virtual folder path within SCUE (e.g. "artist1/techno/dark")
 
     # Beatgrid
     bpm: float = 0.0
@@ -333,6 +334,7 @@ def analysis_to_dict(analysis: TrackAnalysis) -> dict:
         "audio_path": analysis.audio_path,
         "title": analysis.title,
         "artist": analysis.artist,
+        "folder": analysis.folder,
         "bpm": analysis.bpm,
         "beats": analysis.beats,
         "downbeats": analysis.downbeats,
@@ -364,6 +366,7 @@ def analysis_from_dict(data: dict) -> TrackAnalysis:
         audio_path=data["audio_path"],
         title=data.get("title", ""),
         artist=data.get("artist", ""),
+        folder=data.get("folder", ""),
         bpm=data.get("bpm", 0.0),
         beats=data.get("beats", []),
         downbeats=data.get("downbeats", []),

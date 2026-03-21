@@ -19,6 +19,9 @@ export type {
   JobStatus,
   BrowseEntry,
   BrowseResponse,
+  FolderInfo,
+  FolderContentsResponse,
+  LastScanPathResponse,
 } from "./analyze";
 
 export type {

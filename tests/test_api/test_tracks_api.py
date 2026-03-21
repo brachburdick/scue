@@ -59,6 +59,8 @@ def _make_mock_cache() -> MagicMock:
     cache = MagicMock()
     cache.list_tracks.return_value = []
     cache.count_tracks.return_value = 0
+    cache.get_job.return_value = None  # unknown job IDs should return None
+    cache.get_setting.return_value = None  # no saved settings by default
     return cache
 
 

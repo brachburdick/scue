@@ -16,8 +16,8 @@ export function useWaveformView(duration: number): WaveformView {
   const [viewStart, setViewStart] = useState(0);
   const [viewEnd, setViewEnd] = useState(duration);
 
-  // Update when duration changes (new track loaded)
-  if (viewEnd > duration && duration > 0) {
+  // Update when duration changes (new track loaded or initial load)
+  if (duration > 0 && (viewEnd === 0 || viewEnd > duration)) {
     setViewEnd(duration);
     if (viewStart > duration) setViewStart(0);
   }

@@ -70,6 +70,7 @@ export interface TrackSummary {
   mood: string;
   key_name: string;
   created_at: number;
+  folder: string;
 }
 
 /** Full track analysis returned by GET /api/tracks/{fingerprint} (from JSON). */

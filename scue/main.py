@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from .api.bridge import init_bridge_api, router as bridge_router
 from .api.filesystem import init_filesystem_api, router as filesystem_router
 from .api.network import init_network_api, router as network_router
-from .api.tracks import init_tracks_api, router as tracks_router
+from .api.tracks import init_tracks_api, resume_incomplete_jobs, router as tracks_router
 from .api.usb import init_usb_api, router as usb_router
 from .api.ws import init_ws, router as ws_router
 from .api.ws_manager import WSManager
@@ -110,6 +110,9 @@ async def startup() -> None:
 
     await _bridge_manager.start()
     logger.info("Bridge status: %s", _bridge_manager.status)
+
+    # Resume any incomplete analysis jobs from a previous session
+    await resume_incomplete_jobs()
 
     logger.info("SCUE started")
 

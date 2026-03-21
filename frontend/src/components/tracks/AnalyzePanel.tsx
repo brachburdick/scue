@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAnalyzeStore } from "../../stores/analyzeStore";
-import { scanDirectory, startBatchAnalysis, useJobStatus } from "../../api/analyze";
+import {
+  scanDirectory,
+  startBatchAnalysis,
+  useJobStatus,
+  getLastScanPath,
+} from "../../api/analyze";
 import { FolderBrowser } from "../shared/FolderBrowser";
 
 export function AnalyzePanel() {
@@ -9,15 +14,34 @@ export function AnalyzePanel() {
   const { data: job, error: jobError } = useJobStatus(store.jobId);
   const queryClient = useQueryClient();
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
 
-  // Auto-refresh track list when job completes, then auto-dismiss
+  // Pre-fill scan path from last used path on mount
   useEffect(() => {
-    if (job?.status === "complete" || job?.status === "failed") {
-      queryClient.invalidateQueries({ queryKey: ["tracks"] });
-      const timer = setTimeout(() => store.reset(), 2000);
-      return () => clearTimeout(timer);
+    if (!store.scanPath) {
+      getLastScanPath()
+        .then((resp) => {
+          if (resp.path) store.setScanPath(resp.path);
+        })
+        .catch(() => {});
     }
-  }, [job?.status, queryClient, store]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-refresh track list when job completes
+  useEffect(() => {
+    if (!job) return;
+    const isDone = job.status === "complete" || job.status === "complete_with_errors";
+    if (isDone) {
+      queryClient.invalidateQueries({ queryKey: ["tracks"] });
+      queryClient.invalidateQueries({ queryKey: ["folder-contents"] });
+      // Only auto-dismiss on clean complete (no errors)
+      if (job.status === "complete" && job.failed === 0) {
+        const timer = setTimeout(() => store.reset(), 2000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [job?.status, job?.failed, queryClient, store]);
 
   const handleScan = async () => {
     if (!store.scanPath.trim()) return;
@@ -37,7 +61,12 @@ export function AnalyzePanel() {
     if (!store.scanResult) return;
     const paths = store.scanResult.new_files.map((f) => f.path);
     try {
-      const { job_id } = await startBatchAnalysis(paths);
+      const { job_id } = await startBatchAnalysis(
+        paths,
+        false,
+        store.scanResult.scan_root,
+        store.destinationFolder,
+      );
       store.setJobId(job_id);
     } catch (e) {
       store.setScanError(e instanceof Error ? e.message : String(e));
@@ -46,6 +75,7 @@ export function AnalyzePanel() {
 
   const handleReset = () => {
     store.reset();
+    setShowErrors(false);
   };
 
   // Phase 3: Job running or complete (or errored)
@@ -72,7 +102,13 @@ export function AnalyzePanel() {
     if (!job) return null;
 
     const pct = job.total > 0 ? Math.round((job.completed / job.total) * 100) : 0;
-    const isDone = job.status === "complete" || job.status === "failed";
+    const isDone =
+      job.status === "complete" ||
+      job.status === "complete_with_errors" ||
+      job.status === "failed";
+
+    const hasErrors = job.failed > 0;
+    const failedFiles = job.results?.filter((r) => r.status === "error") ?? [];
 
     // Per-step progress within the current file
     const stepPct = job.total_steps > 0
@@ -80,13 +116,19 @@ export function AnalyzePanel() {
       : 0;
 
     return (
-      <div className="mb-6 rounded border border-gray-800 bg-gray-900/50 p-4">
+      <div
+        className={`mb-6 rounded border p-4 ${
+          hasErrors && isDone
+            ? "border-amber-800 bg-amber-900/10"
+            : "border-gray-800 bg-gray-900/50"
+        }`}
+      >
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium">
             {isDone
-              ? job.failed > 0
-                ? `Done \u2014 ${job.completed} succeeded, ${job.failed} failed`
-                : `Done \u2014 ${job.completed} tracks analyzed`
+              ? hasErrors
+                ? `Done — ${job.completed} succeeded, ${job.failed} failed`
+                : `Done — ${job.completed} tracks analyzed`
               : `Analyzing: ${job.current_file ?? "..."}`}
           </span>
           {isDone && (
@@ -103,7 +145,7 @@ export function AnalyzePanel() {
         <div className="w-full bg-gray-800 rounded-full h-2 mb-1">
           <div
             className={`h-2 rounded-full transition-all ${
-              job.failed > 0 ? "bg-red-500" : "bg-blue-500"
+              hasErrors ? "bg-amber-500" : "bg-blue-500"
             }`}
             style={{ width: `${pct}%` }}
           />
@@ -131,6 +173,31 @@ export function AnalyzePanel() {
             />
           </div>
         )}
+
+        {/* Error details (expandable) */}
+        {isDone && hasErrors && (
+          <div className="mt-3">
+            <button
+              onClick={() => setShowErrors(!showErrors)}
+              className="text-xs text-amber-400 hover:text-amber-300"
+            >
+              {showErrors ? "Hide" : "Show"} {failedFiles.length} error
+              {failedFiles.length !== 1 ? "s" : ""}
+            </button>
+            {showErrors && (
+              <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                {failedFiles.map((f) => (
+                  <div key={f.path} className="text-xs text-gray-400 font-mono">
+                    <span className="text-red-400">{f.filename}</span>
+                    {f.error && (
+                      <span className="text-gray-500 ml-2">— {f.error}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -148,6 +215,23 @@ export function AnalyzePanel() {
             </span>
           )}
         </p>
+
+        {/* Destination folder picker */}
+        {new_files.length > 0 && (
+          <div className="mb-3 flex items-center gap-2">
+            <label className="text-xs text-gray-400 whitespace-nowrap">
+              Destination folder:
+            </label>
+            <input
+              type="text"
+              placeholder="(root)"
+              value={store.destinationFolder}
+              onChange={(e) => store.setDestinationFolder(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 placeholder-gray-600 focus:outline-none focus:border-gray-500 w-60"
+            />
+          </div>
+        )}
+
         {new_files.length > 0 ? (
           <button
             onClick={handleAnalyze}
