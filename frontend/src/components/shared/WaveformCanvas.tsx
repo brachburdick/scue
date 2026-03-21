@@ -4,11 +4,17 @@ import type { RGBWaveform, Section } from "../../types";
 // --- Color constants ---
 
 /**
- * Pioneer-style color mixing (per spec):
- *   r = high * 255   (highs → red/magenta)
- *   g = mid  * 180   (mids  → green)
- *   b = low  * 255   (bass  → blue)
- * When all bands are high, the result trends toward white.
+ * Pioneer-style RGB color mapping:
+ *   R = low  (bass → red)
+ *   G = mid  (mids → green)
+ *   B = high (highs → blue)
+ *
+ * Color is normalized by the max channel so it represents the frequency
+ * *ratio*, while bar height represents overall *amplitude*. This means
+ * a quiet bass-heavy section is short but red, not short and dark.
+ *
+ * Result: kick = red, hi-hat = blue, vocal = green/cyan,
+ *         kick+hat = magenta, full spectrum = white/pink.
  */
 
 /** Section overlay colors by label */
@@ -192,23 +198,33 @@ export function WaveformCanvas({
       const samplesPerPixel = sampleCount / w;
       const centerY = h / 2;
 
+      // Pioneer-style: color = frequency ratio, height = amplitude.
+      // Normalize color channels by the max so the blend always shows
+      // which bands dominate, regardless of overall loudness.
+      function blendColor(low: number, mid: number, high: number) {
+        const amplitude = Math.max(low, mid, high);
+        if (amplitude < 0.001) return null;
+        // R=low (bass), G=mid, B=high — matches Pioneer CDJ color mapping
+        const r = Math.min(255, Math.round((low / amplitude) * 255));
+        const g = Math.min(255, Math.round((mid / amplitude) * 255));
+        const b = Math.min(255, Math.round((high / amplitude) * 255));
+        return { r, g, b, amplitude };
+      }
+
       if (samplesPerPixel <= 1) {
         // One bar per sample
         for (let i = startSample; i < endSample; i++) {
-          const low = waveform.low[i] ?? 0;
-          const mid = waveform.mid[i] ?? 0;
-          const high = waveform.high[i] ?? 0;
-          const amplitude = Math.max(low, mid, high);
-          const barH = amplitude * centerY;
-
-          const r = Math.min(255, Math.round(high * 255));
-          const g = Math.min(255, Math.round(mid * 180));
-          const b = Math.min(255, Math.round(low * 255));
-
+          const result = blendColor(
+            waveform.low[i] ?? 0,
+            waveform.mid[i] ?? 0,
+            waveform.high[i] ?? 0,
+          );
+          if (!result) continue;
+          const barH = result.amplitude * centerY;
           const x = timeToX(i / samplesPerSec, viewStart, viewEnd, w);
           const barWidth = Math.max(1, w / sampleCount);
 
-          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillStyle = `rgb(${result.r},${result.g},${result.b})`;
           ctx.fillRect(x, centerY - barH, barWidth, barH * 2);
         }
       } else {
@@ -226,15 +242,11 @@ export function WaveformCanvas({
             if ((waveform.high[i] ?? 0) > maxHigh) maxHigh = waveform.high[i];
           }
 
-          const amplitude = Math.max(maxLow, maxMid, maxHigh);
-          if (amplitude < 0.001) continue;
-          const barH = amplitude * centerY;
+          const result = blendColor(maxLow, maxMid, maxHigh);
+          if (!result) continue;
+          const barH = result.amplitude * centerY;
 
-          const r = Math.min(255, Math.round(maxHigh * 255));
-          const g = Math.min(255, Math.round(maxMid * 180));
-          const b = Math.min(255, Math.round(maxLow * 255));
-
-          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillStyle = `rgb(${result.r},${result.g},${result.b})`;
           ctx.fillRect(px, centerY - barH, 1, barH * 2);
         }
       }

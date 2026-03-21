@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCUE Bridge Recorder</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Mono', monospace;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  .card {
+    background: #14141f;
+    border: 1px solid #2a2a3a;
+    border-radius: 16px;
+    padding: 40px;
+    width: 400px;
+    text-align: center;
+  }
+  h1 { font-size: 14px; color: #666; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 32px; }
+  .btn {
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    border: 3px solid #333;
+    background: #1a1a2a;
+    color: #888;
+    font-size: 16px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 28px;
+  }
+  .btn:hover { border-color: #06b6d4; color: #06b6d4; }
+  .btn.recording {
+    border-color: #ef4444;
+    background: #1a0a0a;
+    color: #ef4444;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  .btn.recording:hover { border-color: #f87171; color: #f87171; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3); }
+    50% { box-shadow: 0 0 0 16px rgba(239, 68, 68, 0); }
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat { background: #0e0e18; border-radius: 8px; padding: 12px; }
+  .stat-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+  .stat-value { font-size: 24px; color: #06b6d4; margin-top: 4px; }
+  .stat-value.recording { color: #ef4444; }
+  .name-input {
+    width: 100%;
+    background: #0e0e18;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: #e0e0e0;
+    font-family: inherit;
+    font-size: 13px;
+    margin-bottom: 24px;
+    text-align: center;
+  }
+  .name-input::placeholder { color: #444; }
+  .name-input:focus { outline: none; border-color: #06b6d4; }
+  .path {
+    font-size: 11px;
+    color: #444;
+    word-break: break-all;
+    margin-top: 12px;
+    min-height: 16px;
+  }
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ef4444;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Bridge Recorder</h1>
+  <input class="name-input" id="name" type="text" placeholder="recording name (optional)">
+  <div>
+    <button class="btn" id="btn" onclick="toggle()">REC</button>
+  </div>
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">Messages</div>
+      <div class="stat-value" id="msgs">0</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Duration</div>
+      <div class="stat-value" id="dur">0:00</div>
+    </div>
+  </div>
+  <div class="path" id="path"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '/api/bridge/record';
+const btn = document.getElementById('btn');
+const msgs = document.getElementById('msgs');
+const dur = document.getElementById('dur');
+const pathEl = document.getElementById('path');
+const nameInput = document.getElementById('name');
+const toast = document.getElementById('toast');
+let polling = null;
+
+function fmt(s) {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.style.display = 'block';
+  setTimeout(() => toast.style.display = 'none', 3000);
+}
+
+async function poll() {
+  try {
+    const r = await fetch(`${API}/status`);
+    const d = await r.json();
+    msgs.textContent = d.messages.toLocaleString();
+    dur.textContent = fmt(d.elapsed_seconds);
+    msgs.className = d.is_recording ? 'stat-value recording' : 'stat-value';
+    dur.className = d.is_recording ? 'stat-value recording' : 'stat-value';
+    if (d.path) pathEl.textContent = d.path.split('/').slice(-3).join('/');
+    if (!d.is_recording && polling) {
+      clearInterval(polling);
+      polling = null;
+      btn.textContent = 'REC';
+      btn.classList.remove('recording');
+      nameInput.disabled = false;
+    }
+  } catch(e) { /* server down */ }
+}
+
+async function toggle() {
+  const isRec = btn.classList.contains('recording');
+  try {
+    if (!isRec) {
+      const name = nameInput.value.trim() || undefined;
+      const body = name ? { name } : {};
+      const r = await fetch(`${API}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) { const e = await r.json(); showToast(e.detail || 'Failed to start'); return; }
+      const d = await r.json();
+      pathEl.textContent = d.path.split('/').slice(-3).join('/');
+      btn.textContent = 'STOP';
+      btn.classList.add('recording');
+      nameInput.disabled = true;
+      polling = setInterval(poll, 500);
+    } else {
+      const r = await fetch(`${API}/stop`, { method: 'POST' });
+      const d = await r.json();
+      msgs.textContent = d.messages.toLocaleString();
+      dur.textContent = fmt(d.duration_seconds);
+      msgs.className = 'stat-value';
+      dur.className = 'stat-value';
+      pathEl.textContent = d.path.split('/').slice(-3).join('/');
+      btn.textContent = 'REC';
+      btn.classList.remove('recording');
+      nameInput.disabled = false;
+      if (polling) { clearInterval(polling); polling = null; }
+    }
+  } catch(e) { showToast('Server unreachable'); }
+}
+
+// check if already recording on page load
+poll();
+</script>
+</body>
+</html>

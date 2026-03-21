@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from .api.bridge import init_bridge_api, router as bridge_router
 from .api.filesystem import init_filesystem_api, router as filesystem_router
@@ -125,3 +126,10 @@ async def shutdown() -> None:
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok", "version": "0.1.0"}
+
+
+@app.get("/tools/recorder")
+async def serve_recorder() -> FileResponse:
+    """Serve the bridge recorder dev tool."""
+    recorder_path = Path(__file__).parent.parent / "tools" / "recorder.html"
+    return FileResponse(recorder_path, media_type="text/html")

@@ -29,6 +29,7 @@ scue/layer1/anlz_parser.py
 scue/layer1/cursor.py
 scue/layer1/divergence.py
 scue/layer1/enrichment.py
+scue/layer1/eval_detectors.py
 scue/layer1/fingerprint.py
 scue/layer1/models.py
 scue/layer1/storage.py
@@ -36,10 +37,14 @@ scue/layer1/tracking.py
 scue/layer1/usb_scanner.py
 scue/layer1/waveform.py
 scue/layer1/detectors/__init__.py
+scue/layer1/detectors/events.py
 scue/layer1/detectors/features.py
 scue/layer1/detectors/flow_model.py
+scue/layer1/detectors/percussion_heuristic.py
+scue/layer1/detectors/percussion_rf.py
 scue/layer1/detectors/sections.py
 scue/layer1/detectors/snap.py
+scue/layer1/detectors/tonal.py
 scue/layer2/__init__.py
 scue/layer2/generators/__init__.py
 scue/layer3/__init__.py

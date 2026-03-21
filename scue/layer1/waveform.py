@@ -1,8 +1,14 @@
 """RGB waveform computation for track visualization.
 
-Produces a 3-band waveform (R=bass, G=mids, B=highs) at 60 FPS for
-the frontend track detail view. Each band is the RMS energy of a
-frequency sub-band, normalized to 0.0–1.0.
+Produces a 3-band waveform (low/mid/high) at 150 FPS for the frontend
+track detail view. Each band is the RMS energy of a frequency sub-band,
+normalized globally (all bands share the same max) to preserve the
+actual frequency balance of the music.
+
+Frequency crossovers match Pioneer mixer EQ points:
+  LOW:  20–200 Hz
+  MID:  200–2500 Hz
+  HIGH: 2500 Hz–Nyquist
 """
 
 from __future__ import annotations
@@ -15,13 +21,13 @@ from .models import RGBWaveform
 
 logger = logging.getLogger(__name__)
 
-# Frequency band boundaries (Hz)
-LOW_BAND = (0, 250)
-MID_BAND = (250, 4000)
-HIGH_BAND = (4000, 11025)  # up to Nyquist at 22050 Hz
+# Frequency band boundaries (Hz) — aligned with Pioneer mixer EQ crossovers
+LOW_BAND = (20, 200)
+MID_BAND = (200, 2500)
+HIGH_BAND = (2500, 22050)
 
-# Output sample rate (frames per second)
-WAVEFORM_FPS = 60
+# Output sample rate — matches Pioneer detail waveform resolution (150 entries/sec)
+WAVEFORM_FPS = 150
 
 
 def compute_rgb_waveform(
@@ -65,14 +71,6 @@ def compute_rgb_waveform(
     mid = _band_rms(*MID_BAND)
     high = _band_rms(*HIGH_BAND)
 
-    # Normalize each band to 0.0–1.0
-    def _normalize(arr: np.ndarray) -> list[float]:
-        max_val = arr.max()
-        if max_val == 0:
-            return [0.0] * len(arr)
-        normalized = arr / max_val
-        return normalized.tolist()
-
     # Resample to exact output frame count
     def _resample(arr: np.ndarray, target_len: int) -> np.ndarray:
         if len(arr) == target_len:
@@ -83,6 +81,15 @@ def compute_rgb_waveform(
     low_resampled = _resample(low, n_output_frames)
     mid_resampled = _resample(mid, n_output_frames)
     high_resampled = _resample(high, n_output_frames)
+
+    # Global normalization — all bands share the same max so relative
+    # frequency balance is preserved (a bass-heavy track stays bass-heavy)
+    global_max = max(low_resampled.max(), mid_resampled.max(), high_resampled.max())
+
+    def _normalize(arr: np.ndarray) -> list[float]:
+        if global_max == 0:
+            return [0.0] * len(arr)
+        return (arr / global_max).tolist()
 
     return RGBWaveform(
         sample_rate=fps,

@@ -35,3 +35,13 @@ spec/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Test audio fixtures (binary, not in git)
+tests/fixtures/audio/**/*.wav
+tests/fixtures/audio/**/*.mp3
+tests/fixtures/audio/**/*.flac
+tests/fixtures/audio/**/*.aiff
+tests/fixtures/audio/**/*.aif
+tests/fixtures/audio/**/*.ogg
+tests/fixtures/audio/**/*.m4a
+tests/fixtures/audio/**/*.aac

@@ -100,6 +100,26 @@ Problem: `rbox.Anlz()` causes a Rust `panic!()` on certain ANLZ files from XDJ-A
 Fix/Pattern: Two-tier pure-Python ANLZ parsing (ADR-013): Tier 1: pyrekordbox `AnlzFile.parse_file()`. Tier 2: custom `anlz_parser.py` (zero deps, beat grid + cues only). Both are pure Python — exceptions, not panics. rbox kept for `exportLibrary.db` reading only.
 Prevention: Never use Rust-backed parsers for untrusted binary formats without subprocess isolation. Pure Python is slower but cannot abort the process. If a Rust library must be used, wrap it in a subprocess.
 
+### RGB waveform looked like 3-band stacked instead of Pioneer-style blended color
+Date: 2026-03-20
+Context: Comparing SCUE waveform rendering side-by-side with Pioneer CDJ display.
+Problem: Three compounding errors made the waveform look nothing like Pioneer's:
+1. **3-layer stacking vs single blend:** Renderer drew each frequency band as a separate colored layer (red, green, blue) stacked/overlapping. Pioneer draws ONE bar per column with a blended color.
+2. **Inverted color mapping:** SCUE had R=high, B=low. Pioneer uses R=low (bass), G=mid, B=high. A kick drum showed blue instead of red.
+3. **Per-band normalization destroyed frequency balance:** Each band was independently normalized to 0.0–1.0, so a bass-heavy track appeared to have equal bass and treble. Pioneer uses global normalization (or absolute energy levels) to preserve the actual frequency balance.
+4. **Crossover points too wide:** LOW 0–250, MID 250–4000, HIGH 4000–11025 Hz. Pioneer aligns with mixer EQ: LOW 20–200, MID 200–2500, HIGH 2500+ Hz. The high crossover at 4kHz caused vocals to appear green (mid) instead of blue (high).
+Fix/Pattern: See ADR-018 in DECISIONS.md. Backend: global normalization, Pioneer-aligned crossovers, 150fps. Frontend: single blended bar per column, color = frequency ratio (each channel / max channel), height = amplitude.
+Prevention: When emulating a visual from existing hardware, do side-by-side comparison EARLY. Read the actual data format spec (Deep Symmetry ANLZ docs) before guessing at rendering. The research file at `support/research/pioneer-rgb-waveform-technical-deep-dive.md` has the complete Pioneer waveform format reference.
+
+---
+
+### async def vs def in FastAPI background tasks — event loop blocking
+Date: 2026-03-20
+Context: Track analysis via `POST /api/tracks/analyze` caused the UI to freeze indefinitely.
+Problem: `_run_analysis_task` was defined as `async def`. FastAPI runs `async def` background tasks on the event loop. Since `run_analysis()` is CPU-bound (6-10s per track), it blocked ALL request handling — the progress polling endpoint never responded. The batch path (`_run_batch_analysis`) correctly used `asyncio.to_thread()` but the single-track path did not.
+Fix/Pattern: Changed `_run_analysis_task` from `async def` to plain `def`. FastAPI runs sync background tasks in its thread pool automatically. Alternative: keep `async def` but wrap the CPU work in `await asyncio.to_thread(run_analysis, ...)`.
+Prevention: In FastAPI, `async def` means "I will yield the event loop." If your function does CPU work without awaiting, use `def` (thread pool) or `asyncio.to_thread()`. The batch path already knew this — the single-track path was added earlier without the same pattern.
+
 ---
 
 ## Layer 2 — Cue Generation
@@ -259,3 +279,14 @@ Prevention:
 - Any circuit-breaker pattern (failure count → fallback) must guard against "partial success" resetting the counter. If the code can briefly succeed before crashing, add a minimum stable uptime check.
 - Always provide a recovery path from any fallback/degraded state. A terminal state with no recovery requires manual intervention.
 - Health check silence conditions must be clearly scoped: are we checking bridge liveness or hardware data presence? They are different failure modes.
+
+---
+
+## Housekeeping — Data Organization
+
+### Music library directory structure mismatch between source and rekordbox USB export
+Date: 2026-03-20
+Context: Populating test fixtures with example tracks. Source library is `/Users/brach/Documents/RoyaltyFreeMusicSamples/post-hibernation/` (flat directory of MP3s). Rekordbox USB export backup is `/Users/brach/Documents/skald usb backup 3.16.26/Contents/` (organized by Artist/UnknownAlbum/).
+Problem: The two locations use completely different directory structures for the same songs. Post-hibernation is flat, the USB backup is organized by artist with an `UnknownAlbum` subfolder for each. Cross-referencing requires manual name matching. This will be a recurring friction point for any tooling that needs both raw and rekordbox-processed versions of the same track.
+Fix/Pattern: TODO — unify the directory organization. Options: (1) restructure the source library to match rekordbox's artist-based layout, (2) create a mapping index (JSON/SQLite) that links source paths to USB export paths by fingerprint or filename, (3) normalize both into a single canonical structure.
+Prevention: When this is addressed, ensure the chosen structure works for both SCUE's test fixture population and any future batch processing workflows.

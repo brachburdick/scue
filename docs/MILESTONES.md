@@ -196,9 +196,55 @@ Completed: 2026-03-16
 - [x] FolderBrowser modal: breadcrumb navigation, directory/audio-file listing
 - [x] Auto-dismiss on completion: resets to path input after 2s delay
 - [x] Zustand store for analyze flow state (analyzeStore.ts)
+- [x] Per-step progress reporting: shows current analysis step (1-10) with mini progress bar during single-file analysis (added during M7)
 ### Milestone FE-5 — Track Management + Projects
 ### Milestone FE-6 — Enrichment + Logs + Network Pages
-### Milestone 7 — Event Detection (Layer 1A, Tier 2)
+### ~~Milestone 7 — Event Detection (Layer 1A, Tier 2)~~ → IN PROGRESS (2026-03-20)
+**Status:** PARTIALLY COMPLETE — core framework, 5 detectors, pipeline integration, eval harness, API, and dev tuning page all implemented. Needs real-world tuning against ground truth.
+
+#### Deliverables
+- [x] `DetectorProtocol` — pluggable interface for swappable detection strategies
+- [x] `DrumPattern` — compact percussion storage (16th-note slot arrays per bar, ~10KB vs ~300KB per track)
+- [x] `DetectorConfig` — YAML-driven config with active strategies, params, section priors (`config/detectors.yaml`)
+- [x] Heuristic percussion detector — beat-synchronous slot classification using sub-band energy, onset gating, spectral centroid
+- [x] Random Forest percussion detector — 7-dim feature vectors per slot, heuristic fallback when model file missing
+- [x] Riser detector — spectral centroid slope + R² threshold over sliding windows
+- [x] Faller detector — falling centroid + RMS decay + spectral flatness discrimination
+- [x] Stab detector — HPSS harmonic ratio at onset points + centroid + duration filter
+- [x] HPSS (Harmonic-Percussive Source Separation) added to AudioFeatures extraction
+- [x] Pipeline integration — event detection as step 9/10 in `run_analysis()`
+- [x] Eval harness — `eval_detectors.py` with precision/recall/F1 scoring, A/B strategy comparison
+- [x] `GET /api/tracks/{fingerprint}/events` — API endpoint for events + drum patterns
+- [x] Detector Tuning Page — dev-facing UI at `/dev/detectors` with TrackPicker, EventTimeline (waveform + event overlay), EventControls (toggles, confidence slider), EventStats
+- [x] Sidebar "Dev" section with Detectors link
+- [x] Per-step progress reporting through full stack (backend → API → frontend)
+- [ ] Ground truth JSON annotations for reference tracks
+- [ ] RF model training from ground truth
+- [ ] Real-world tuning pass (adjust thresholds, compare heuristic vs RF)
+
+#### Key Files
+- `scue/layer1/detectors/events.py` — framework: DrumPattern, DetectorResult, DetectorConfig, DetectorProtocol
+- `scue/layer1/detectors/percussion_heuristic.py` — heuristic percussion detector
+- `scue/layer1/detectors/percussion_rf.py` — RF percussion detector
+- `scue/layer1/detectors/tonal.py` — riser, faller, stab detectors
+- `scue/layer1/eval_detectors.py` — eval harness CLI
+- `config/detectors.yaml` — detector configuration
+- `frontend/src/pages/DetectorTuningPage.tsx` — dev tuning page
+- `frontend/src/components/detectors/` — EventTimeline, EventControls, EventStats
+- `frontend/src/types/events.ts` — frontend event types
+
+#### Bug Fixes During M7
+- **Event loop blocking:** `_run_analysis_task` was `async def`, blocking the event loop during CPU-bound analysis. Changed to `def` so FastAPI runs it in thread pool.
+- **EventTimeline waveform rendering:** Drew three stacked color layers (ADR-018 anti-pattern). Rewrote to Pioneer-correct single blended bar approach.
+
+### Test Audio Fixture Infrastructure (2026-03-20)
+**Status:** COMPLETE — directory structure and manifest created. Assets not yet populated.
+
+- [x] `tests/fixtures/audio/` directory with 7 subdirectories (full-tracks, loops, one-shots, stems, edge-cases, pioneer, formats)
+- [x] Audio file extensions gitignored (wav, mp3, flac, aiff, ogg, m4a, aac)
+- [x] `MANIFEST.md` — comprehensive inventory of needed test assets, categorized by content type, what each exercises in the pipeline, format/fidelity matrix, and population priority
+- [ ] Populate assets (full-tracks, loops, one-shots, stems, edge-cases, pioneer exports, format variants)
+
 ### Milestone 8 — Full Cue Vocabulary
 ### Milestone 9 — OSC Visual Output (Layer 4B)
 ### Milestone 10 — Real-Time User Override UI (Layer 4C)

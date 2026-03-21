@@ -122,6 +122,22 @@ Layout: two-column grid (lg breakpoint).
 RouteStatusBanner and ActionBar are placed **above** InterfaceSelector so route fix
 controls are immediately visible without scrolling.
 
+## Detector Tuning Page (src/pages/DetectorTuningPage.tsx)
+Route: `/dev/detectors` — sidebar label "Detectors" under "Dev" section header.
+
+Dev-facing page for testing and tuning M7 event detection algorithms. Not user-facing.
+
+Components:
+- `TrackPicker` — reuses track table for selection (no fingerprint text input)
+- `EventTimeline` — canvas with waveform + event marker overlay. Waveform uses Pioneer-correct
+  single blended bar rendering (ADR-018). DrumPatterns are expanded client-side into MusicalEvents.
+- `EventControls` — per-event-type color-coded toggles + confidence threshold slider
+- `EventStats` — per-type counts, events/bar density, average confidence
+
+Types: `src/types/events.ts` — `MusicalEvent`, `DrumPattern`, `TrackEventsResponse`, `EVENT_COLORS`
+
+API: `GET /api/tracks/{fingerprint}/events` returns events + drum_patterns for a track.
+
 ## Bug tracking
 When fixing any frontend bug, append an entry to `docs/bugs/frontend.md` with: symptom,
 root cause, fix, and affected file(s). No fix is too small to record.

@@ -134,6 +134,32 @@ Fix: Derive WS URL from `window.location` for both host and port, or configure v
 File(s): frontend/src/api/ws.ts (~line 14)
 Source: External code review 2026-03-20
 
+### [FIXED] Analysis blocks event loop, UI freezes during track analysis
+Date: 2026-03-20
+Fixed: 2026-03-20
+Milestone: M7
+Symptom: Starting track analysis causes the UI to indefinitely load. The server becomes unresponsive — polling requests get no response, making the progress bar appear stuck.
+Root cause: `_run_analysis_task` in `tracks.py` was defined as `async def`, which FastAPI runs on the event loop. Since `run_analysis()` is CPU-bound (6-10s per track), it blocks the event loop, preventing all HTTP request handling. The batch path (`_run_batch_analysis`) correctly used `asyncio.to_thread()` but the single-track path did not.
+Fix: Changed `_run_analysis_task` from `async def` to `def` so FastAPI runs it in the thread pool. Also added per-step progress reporting (progress_callback) and frontend error handling for lost jobs (404 during polling).
+File(s): scue/api/tracks.py, scue/layer1/analysis.py, scue/api/jobs.py, frontend/src/components/tracks/AnalyzePanel.tsx, frontend/src/types/analyze.ts
+
+### [FIXED] EventTimeline renders waveform as stacked layers instead of blended color
+Date: 2026-03-20
+Fixed: 2026-03-20
+Milestone: M7
+Symptom: Waveform on the detector tuning page looked wrong compared to Pioneer CDJs — three distinct colored layers stacked instead of a single blended color per column.
+Root cause: EventTimeline.tsx drew separate red/green/blue rectangles for bass/mids/highs (the exact anti-pattern documented in ADR-018). WaveformCanvas.tsx had already been fixed but EventTimeline was written from scratch without following the same approach.
+Fix: Rewrote waveform rendering in EventTimeline to match Pioneer RGB approach: single blended bar per column where height = amplitude and color = frequency ratio (R=low, G=mid, B=high).
+File(s): frontend/src/components/detectors/EventTimeline.tsx
+
+### Live Deck Monitor shows "Unknown track" for analyzed tracks with no retry option
+Date: 2026-03-20
+Milestone: FE-Live-Deck-Monitor
+Symptom: Tracks that have been analyzed via the Tracks page show as "Unknown track" on the Live Deck Monitor with no way to retry or see what data the bridge is reporting.
+Root cause: Two issues: (1) Analysis alone doesn't populate the `track_ids` table — only USB scanning creates the `(source_player, source_slot, rekordbox_id) → fingerprint` mapping. (2) The not-found empty state showed minimal info and no retry button.
+Fix: Updated DeckEmptyState to show full bridge diagnostic data (all CDJ-reported fields in a labeled table) and added a "Retry resolution" button that invalidates the TanStack Query cache. Updated messaging to point users to USB scanning. Root linking gap (analysis not populating track_ids) deferred — requires design work on matching strategy.
+File(s): frontend/src/components/live/DeckEmptyState.tsx, frontend/src/components/live/DeckPanel.tsx
+
 ### HTML entity strings rendered as literal text in sort indicators
 Date: 2026-03-16
 Milestone: FE-3

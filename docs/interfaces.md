@@ -172,6 +172,49 @@ Endpoints in `scue/api/network.py` for interface enumeration and route managemen
 
 Frontend hooks: `frontend/src/api/network.ts` (TanStack Query).
 
+## Backend -> Frontend: Events REST API
+
+Endpoints in `scue/api/tracks.py` for event detection data (M7).
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/tracks/{fingerprint}/events` | GET | Get detected events + drum patterns for a track |
+
+### Response shape
+
+```json
+{
+  "fingerprint": "abc123...",
+  "events": [
+    {
+      "type": "riser",
+      "timestamp": 30.5,
+      "duration": 4.2,
+      "intensity": 0.85,
+      "payload": { "slope": 120.5, "r_squared": 0.92, "section": "build" }
+    }
+  ],
+  "drum_patterns": [
+    {
+      "bar_start": 0,
+      "bar_end": 4,
+      "kick": [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],
+      "snare": [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+      "clap": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      "hihat_type": "8ths",
+      "hihat_density": 0.5,
+      "hihat_open_ratio": 0.0,
+      "confidence": 0.7
+    }
+  ],
+  "total_events": 42,
+  "total_patterns": 16,
+  "event_types": ["kick", "snare", "riser", "stab"]
+}
+```
+
+Frontend types: `frontend/src/types/events.ts` (`MusicalEvent`, `DrumPattern`, `TrackEventsResponse`).
+
 ## Change Protocol
 
 Any change to these contracts requires:

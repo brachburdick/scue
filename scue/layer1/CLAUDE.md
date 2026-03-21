@@ -15,6 +15,9 @@ Receives live data from the beat-link bridge (Layer 0) via the bridge adapter.
 - The Pioneer enrichment pass (enrichment.py) runs once per track on first deck load. It NEVER overwrites the original analysis — it creates a new versioned entry.
 - Divergence between SCUE and Pioneer data is ALWAYS logged via divergence.py.
 - Section segmentation pipeline order: ML boundary detection → 8-bar snapping → EDM flow model labeling.
+- Event detection (M7) runs after section scoring as step 9/10 in the pipeline. See `detectors/` subpackage.
+- Detectors are pluggable via `DetectorProtocol`. Config in `config/detectors.yaml`. Active strategies: percussion (heuristic or RF), riser, faller, stab.
+- Percussion uses compact `DrumPattern` storage (16th-note slot arrays per bar). Use `expand_patterns()` to convert to individual `MusicalEvent` objects at runtime.
 - All timestamps in TrackAnalysis are in seconds relative to track start, at the original BPM.
 
 ## Testing

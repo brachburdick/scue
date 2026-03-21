@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { PlayerInfo } from "../../types/bridge";
 import { useResolveTrack } from "../../api/tracks";
 import { useTrackAnalysis } from "../../api/tracks";
@@ -14,9 +16,16 @@ export interface DeckPanelProps {
 }
 
 export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps) {
+  const queryClient = useQueryClient();
   const rbId = player?.rekordbox_id ?? null;
   const srcPlayer = player?.track_source_player ?? 0;
   const srcSlot = player?.track_source_slot ?? "";
+
+  const handleRetryResolve = useCallback(() => {
+    queryClient.invalidateQueries({
+      queryKey: ["resolve-track", srcPlayer, srcSlot, rbId],
+    });
+  }, [queryClient, srcPlayer, srcSlot, rbId]);
 
   const resolve = useResolveTrack(srcPlayer, srcSlot, rbId && rbId > 0 ? rbId : null);
   const fingerprint = resolve.data?.fingerprint ?? null;
@@ -88,6 +97,8 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
             rekordboxId={rbId}
             sourcePlayer={srcPlayer}
             sourceSlot={srcSlot}
+            player={player}
+            onRetry={handleRetryResolve}
           />
           <DeckMetadata player={player} analysis={null} />
         </>

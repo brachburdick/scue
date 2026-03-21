@@ -1,4 +1,4 @@
-"""Bridge API — status, settings, and restart endpoints."""
+"""Bridge API — status, settings, restart, and recording endpoints."""
 
 import logging
 from pathlib import Path
@@ -6,6 +6,8 @@ from pathlib import Path
 import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+from ..bridge.recorder import MessageRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,7 @@ BRIDGE_CONFIG_PATH = Path("config/bridge.yaml")
 
 # Set by main.py at startup
 _bridge_manager = None
+_recorder = MessageRecorder()
 
 
 def init_bridge_api(bridge_manager) -> None:
@@ -102,3 +105,62 @@ async def restart_bridge() -> dict:
 
     await _bridge_manager.restart()
     return _bridge_manager.to_status_dict()
+
+
+# ---------------------------------------------------------------------------
+# Bridge Message Recording
+# ---------------------------------------------------------------------------
+
+
+class RecordRequest(BaseModel):
+    name: str | None = None
+
+
+@router.post("/record/start")
+async def start_recording(body: RecordRequest | None = None) -> dict:
+    """Start recording bridge messages to a fixture file."""
+    if _recorder.is_recording:
+        raise HTTPException(400, "Already recording")
+    if _bridge_manager is None:
+        raise HTTPException(503, "Bridge manager not initialized")
+
+    name = body.name if body else None
+    path = _recorder.start(name)
+
+    # Wire the recorder into the bridge manager's external callback
+    _prev_callback = _bridge_manager._external_on_message
+
+    def _recording_callback(msg):
+        _recorder.record(msg)
+        if _prev_callback is not None:
+            _prev_callback(msg)
+
+    _bridge_manager._external_on_message = _recording_callback
+
+    return {"status": "recording", "path": path}
+
+
+@router.post("/record/stop")
+async def stop_recording() -> dict:
+    """Stop recording and return summary."""
+    if not _recorder.is_recording:
+        raise HTTPException(400, "Not recording")
+
+    summary = _recorder.stop()
+
+    # Restore the original callback
+    if _bridge_manager is not None:
+        _bridge_manager._external_on_message = None
+
+    return summary
+
+
+@router.get("/record/status")
+async def record_status() -> dict:
+    """Check recording status."""
+    return {
+        "is_recording": _recorder.is_recording,
+        "messages": _recorder.message_count,
+        "elapsed_seconds": round(_recorder.elapsed_seconds, 1),
+        "path": _recorder.recording_path,
+    }

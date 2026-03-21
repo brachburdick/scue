@@ -86,6 +86,24 @@ Context: Research confirmed beat-link 8.1.0-SNAPSHOT (used by BLT) has native XD
 Decision: Upgrade bridge from beat-link 8.0.0 to 8.1.0-SNAPSHOT. Enable MetadataFinder, WaveformFinder, BeatGridFinder, AnalysisTagFinder, CrateDigger, TimeFinder, and ArtFinder. Add --database-key CLI argument for DLP database decryption (required for exportLibrary.db). Retain rbox/pyrekordbox USB scanning as supplementary source (offline analysis, pre-scan before hardware is connected). Bridge version bumped to 2.0.0.
 Consequences: Bridge now emits track_metadata, beat_grid, waveform_detail, phrase_analysis, and cue_points messages. Python adapter already handles these. Database key must be configured for DLP hardware via SCUE_DLP_DATABASE_KEY env var. Opus Quad still requires metadata archives (no dbserver).
 
+## ADR-018: Pioneer-accurate RGB waveform rendering
+Date: 2026-03-20
+Context: SCUE's RGB waveform rendering looked visually wrong compared to Pioneer CDJs. Side-by-side comparison revealed three root causes: (1) the renderer drew three separate colored layers (red/green/blue stacked on top of each other) instead of blending into a single color per column, (2) the color channel mapping was inverted (R=highs, B=lows — opposite of Pioneer's R=lows, B=highs), (3) each frequency band was normalized independently to 0.0–1.0, destroying the actual frequency balance (a bass-heavy track appeared to have equal bass and treble).
+
+Decision: Rewrite waveform computation and rendering to match Pioneer's approach:
+
+**Backend (`layer1/waveform.py`):**
+- Frequency crossovers aligned to Pioneer mixer EQ points: LOW 20–200 Hz, MID 200–2500 Hz, HIGH 2500 Hz+ (was 0–250, 250–4000, 4000–11025)
+- Output resolution bumped from 60 fps to 150 entries/sec (matches Pioneer PWV5/PWV7 detail resolution)
+- Global normalization: all three bands share the same max value, preserving relative frequency balance across the track
+
+**Frontend (`WaveformCanvas.tsx`):**
+- Single blended bar per column instead of three stacked layers. Height = amplitude (`max(low, mid, high)`), color = frequency ratio (each channel divided by amplitude)
+- Color mapping corrected: R = low/bass, G = mid, B = high/treble (matches Pioneer PWV5)
+- Result: kick = red, hi-hat = blue, vocal = green/cyan, kick+hat = magenta, full spectrum = white/pink
+
+Consequences: All existing cached waveform data must be re-analyzed to pick up the new crossover points, global normalization, and 150fps resolution. Existing waveforms will still render (the frontend handles any sample_rate) but will show the old frequency balance until re-analyzed. The `RGBWaveform` type contract (low/mid/high float arrays + sample_rate + duration) is unchanged — this is a rendering and computation fix, not a schema change.
+
 ## ADR-008: Sequential batch analysis with in-memory job tracking
 Date: 2026-03
 Context: `run_analysis()` is CPU-bound (~3-4s/track with librosa/MLX). Parallel analysis would thrash memory. SCUE is a local tool — no persistence needed for job state.

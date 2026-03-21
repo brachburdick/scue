@@ -89,6 +89,31 @@ involve Layer 3 (effect engine) or Layer 4 (output/hardware), always check DMX o
 Verify fixture addresses, universe assignments, and whether the DMX frame buffer reflects
 expected values before moving to Diagnose.
 
+## Windows Compatibility (Goal)
+SCUE is macOS-first but targets Windows compatibility. The goal is to avoid a massive rewrite
+later — not to maintain OS parity at every step.
+
+**Guiding rule:** Do not introduce new macOS-only dependencies without a known Windows alternative.
+
+**Known platform-specific areas:**
+- `allin1-mlx` — MLX is Apple Silicon only. Will need PyTorch/ONNX backend on Windows.
+- macOS route fixing (`tools/install-route-fix.sh`, launchd, sudoers) — already platform-guarded.
+- JVM flags (`-Dapple.awt.UIElement`, `-Xdock:name`) — need platform conditional.
+- Shell scripts are bash-only — `gradlew.bat` covers the Java build; route scripts are macOS-only.
+
+**Phases:**
+0. Audit + document (done). Avoid new platform-locked deps.
+1. Get app running on Windows (frontend + backend + bridge).
+2. Platform-specific feature parity (route fixing alternative, MLX alternative).
+3. CI/packaging for Windows.
+
+## Test Audio Fixtures
+Audio test assets live in `tests/fixtures/audio/` (gitignored — binary files, not checked in).
+See `tests/fixtures/audio/MANIFEST.md` for the full inventory of what's needed and why.
+
+Categories: full-tracks, loops, one-shots, stems, edge-cases, pioneer enrichment, format variants.
+Synthetic generators exist in `tests/test_layer1/test_analysis_edge_cases.py`.
+
 ## Known Issues & Patterns
 See LEARNINGS.md — read it before starting work.
 See docs/bugs/ — per-layer bug logs for historical fixes.
