@@ -5,7 +5,7 @@
 - **Problem:** Live Deck Monitor shows empty waveform for tracks without SCUE analysis. Pioneer decks already have waveform data (ANLZ) available via Pro DJ Link.
 - **Desired outcome:** When a track loads on a deck, if no SCUE analysis exists, display the Pioneer waveform with playhead + auto-scroll — same UX as SCUE waveforms.
 - **Non-goals:** Loop visualization (follow-up task). Replacing SCUE analysis. USB-scan path (separate spec: feat-pioneer-waveform-reading). Modifying WaveformCanvas.
-- **Hard constraints:** WaveformFinder broken on DLP hardware (ADR-014). Must degrade gracefully. Pioneer waveform sent once per track load (not per status update). Output must match RGBWaveform shape.
+- **Hard constraints:** WaveformFinder works on XDJ-AZ via beat-link 8.1.0-SNAPSHOT (ADR-017). Still broken on Opus Quad (no dbserver). Must degrade gracefully on unsupported hardware. Pioneer waveform sent once per track load (not per status update). Output must match RGBWaveform shape.
 - **References:** ADR-014, feat-FE-live-deck-monitor spec, feat-pioneer-waveform-reading spec
 
 ## Specification
@@ -75,7 +75,7 @@ DeckPanel changes:
 
 ### Edge cases
 
-- WaveformFinder never fires (DLP hardware): pioneer_waveform stays null, no badge, existing behavior
+- WaveformFinder never fires (Opus Quad — no dbserver): pioneer_waveform stays null, no badge, existing behavior
 - Mono waveform: all three bands same value, renders as blue-ish monochrome
 - Track changes: version increments, hook refetches, old waveform replaced
 - Bridge restarts: adapter.clear() resets pioneer_waveform state

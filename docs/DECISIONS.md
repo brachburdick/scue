@@ -61,11 +61,12 @@ Decision: Replace rbox's ANLZ parsing with a two-tier pure-Python strategy:
 rbox's `OneLibrary` is retained for `exportLibrary.db` reading — it works correctly and is the only Python library that supports the DLP/OneLibrary USB database format. pyrekordbox's `Rekordbox6Database` targets the desktop `master.db`, not the USB database.
 Consequences: New dependency: `pyrekordbox>=0.4.4` (added to `[usb]` optional deps alongside rbox). ANLZ reading is now re-enabled in the USB scanner — no more Rust panic risk. All ANLZ parsing runs in pure Python with normal exception handling.
 
-## ADR-014: USB ANLZ waveform reading as universal path via pyrekordbox
+## ADR-014: USB ANLZ waveform reading via pyrekordbox (supplementary source)
 Date: 2026-03-20
-Context: WaveformFinder is broken on ALL DLP hardware (XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X) due to a hard dependency on MetadataFinder + DLP ID namespace mismatch. Even on legacy hardware where WaveformFinder works, it adds startup complexity and network overhead. Research confirmed pyrekordbox v0.4.4 can read ALL 7 ANLZ waveform tags (PWAV, PWV2-7) from USB across all hardware variants.
-Decision: Use pyrekordbox to read Pioneer ANLZ waveform data directly from USB as the universal waveform source for instant display. This eliminates the need for WaveformFinder entirely and provides a single code path for all hardware. Pioneer waveforms (PWV5/PWV7: ~45K entries at ~150/sec) provide sufficient resolution for visual display. SCUE's librosa-analyzed RGB waveform remains the primary source for cue generation (higher precision, frequency-aware). Two rendering paths in WaveformCanvas: SCUE RGB (primary) and Pioneer ANLZ (instant fallback when SCUE analysis hasn't run yet).
-Consequences: Extend usb_scanner.py to read PWV3/PWV5/PWV7 tags during USB scan. Store Pioneer waveform data in pioneer_metadata cache. WaveformCanvas gains a Pioneer rendering mode. ADR-012's blanket disabling of WaveformFinder is confirmed correct — not collateral damage, but the right call.
+Updated: 2026-03-21 — WaveformFinder was broken on all DLP hardware in beat-link 8.0.0. Fixed in 8.1.0-SNAPSHOT for XDJ-AZ (ADR-017). Still broken on Opus Quad (no dbserver). USB ANLZ reading retained as offline fallback.
+Context: WaveformFinder was broken on all DLP hardware in beat-link 8.0.0 due to MetadataFinder dependency + DLP ID namespace mismatch. Research confirmed pyrekordbox v0.4.4 can read all 7 ANLZ waveform tags (PWAV, PWV2-7) from USB across all hardware variants.
+Decision: Use pyrekordbox to read Pioneer ANLZ waveform data from USB as a supplementary waveform source. Waveform priority: (1) WaveformFinder via beat-link 8.1.0-SNAPSHOT (live, works on XDJ-AZ + all legacy hardware), (2) USB ANLZ reading via pyrekordbox (offline, works when no hardware connected, needed for Opus Quad), (3) SCUE librosa RGB waveform (highest precision, used for cue generation). Two rendering paths in WaveformCanvas: SCUE RGB (primary) and Pioneer ANLZ (instant fallback when SCUE analysis hasn't run yet).
+Consequences: Extend usb_scanner.py to read PWV3/PWV5/PWV7 tags during USB scan. Store Pioneer waveform data in pioneer_metadata cache. WaveformCanvas gains a Pioneer rendering mode.
 
 ## ADR-015: Composite primary key for track_ids table (multi-USB safety)
 Date: 2026-03-20

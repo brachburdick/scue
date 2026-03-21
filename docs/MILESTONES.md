@@ -62,7 +62,7 @@ Completed: 2026-03-16
 
 ### Key Conclusions
 
-**Waveform data:** Pioneer ANLZ waveforms are instantly available via pyrekordbox for ALL hardware (PWV7 on CDJ-3000+, PWV5 on NXS2, PWV3 on older). WaveformFinder is broken on ALL DLP hardware (confirmed: hard MetadataFinder dependency + ID namespace mismatch). USB ANLZ reading is the universal path. See ADR-014.
+**Waveform data:** Primary source: WaveformFinder via beat-link 8.1.0-SNAPSHOT (live, works on XDJ-AZ + all legacy; still broken on Opus Quad which has no dbserver). Fallback: USB ANLZ waveforms via pyrekordbox for all hardware (PWV7 on CDJ-3000+, PWV5 on NXS2, PWV3 on older). See ADR-014 (updated), ADR-017.
 
 **DLP Track IDs:** Volatile across USB re-exports, collide across multiple USBs (mathematically guaranteed). Composite key `(source_player, source_slot, rekordbox_id)` is REQUIRED. Current `track_ids` table has a multi-USB bug. See ADR-015.
 
