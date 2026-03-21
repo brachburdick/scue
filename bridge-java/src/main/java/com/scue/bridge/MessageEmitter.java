@@ -106,7 +106,8 @@ public class MessageEmitter {
                                   int beatWithinBar, int beatNumber,
                                   String playbackState, boolean isOnAir,
                                   int trackSourcePlayer, String trackSourceSlot,
-                                  String trackType, int rekordboxId) {
+                                  String trackType, int rekordboxId,
+                                  Double playbackPositionMs) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("bpm", bpm);
         payload.put("pitch", pitch);
@@ -118,6 +119,7 @@ public class MessageEmitter {
         payload.put("track_source_slot", trackSourceSlot);
         payload.put("track_type", trackType);
         payload.put("rekordbox_id", rekordboxId);
+        payload.put("playback_position_ms", playbackPositionMs);
         emit("player_status", playerNumber, payload);
     }
 

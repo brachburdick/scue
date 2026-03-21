@@ -86,6 +86,7 @@ class PlayerStatusPayload:
     track_source_slot: str = ""  # "sd" | "usb" | "cd" | "collection"
     track_type: str = ""
     rekordbox_id: int = 0
+    playback_position_ms: float | None = None  # ms from track start, None when unknown
 
 
 @dataclass

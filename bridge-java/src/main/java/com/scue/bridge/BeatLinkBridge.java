@@ -558,9 +558,22 @@ public class BeatLinkBridge {
             ? status.getTrackType().name().toLowerCase()
             : "unknown";
         int rekordboxId = status.getRekordboxId();
+        // Playback position in ms from track start via TimeFinder interpolation.
+        Double playbackPositionMs = null;
+        if (!noTrack) {
+            try {
+                long posMs = TimeFinder.getInstance().getTimeFor(status);
+                if (posMs >= 0) {
+                    playbackPositionMs = (double) posMs;
+                }
+            } catch (Exception e) {
+                // TimeFinder not running or no beatgrid — position unavailable
+            }
+        }
 
         emitter.emitPlayerStatus(pn, bpm, pitchPct, beatInBar, beatNum,
-            playState, onAir, srcPlayer, srcSlot, trackType, rekordboxId);
+            playState, onAir, srcPlayer, srcSlot, trackType, rekordboxId,
+            playbackPositionMs);
 
         // Track-change detection: log when rekordbox ID changes.
         // The Python side uses this ID to look up metadata in the rbox database.
