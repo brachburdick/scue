@@ -76,6 +76,7 @@ export interface PlayerInfo {
   playback_position_ms: number | null;
   track_source_player: number;
   track_source_slot: string;
+  pioneer_waveform_version: number;
 }
 
 export interface BridgeState {

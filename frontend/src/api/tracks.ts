@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "./client";
-import type { TrackAnalysis, TrackListResponse } from "../types";
+import type { RGBWaveform, TrackAnalysis, TrackListResponse } from "../types";
 
 export interface TrackListParams {
   limit?: number;
@@ -54,5 +54,18 @@ export function useResolveTrack(
         `/tracks/resolve/${sourcePlayer}/${sourceSlot}/${rekordboxId}`,
       ),
     enabled: rekordboxId !== null && rekordboxId > 0,
+  });
+}
+
+export function usePioneerWaveform(
+  playerNumber: number,
+  version: number,
+) {
+  return useQuery<RGBWaveform>({
+    queryKey: ["pioneer-waveform", playerNumber, version],
+    queryFn: () =>
+      apiFetch<RGBWaveform>(`/bridge/pioneer-waveform/${playerNumber}`),
+    enabled: version > 0,
+    staleTime: Infinity,
   });
 }

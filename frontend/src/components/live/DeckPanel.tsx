@@ -1,8 +1,7 @@
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { PlayerInfo } from "../../types/bridge";
-import { useResolveTrack } from "../../api/tracks";
-import { useTrackAnalysis } from "../../api/tracks";
+import { usePioneerWaveform, useResolveTrack, useTrackAnalysis } from "../../api/tracks";
 import { DeckWaveform } from "./DeckWaveform";
 import { DeckMetadata } from "./DeckMetadata";
 import { DeckEmptyState } from "./DeckEmptyState";
@@ -30,6 +29,8 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
   const resolve = useResolveTrack(srcPlayer, srcSlot, rbId && rbId > 0 ? rbId : null);
   const fingerprint = resolve.data?.fingerprint ?? null;
   const analysis = useTrackAnalysis(fingerprint);
+  const pioneerWfVersion = player?.pioneer_waveform_version ?? 0;
+  const pioneerWf = usePioneerWaveform(deckNumber, pioneerWfVersion);
 
   // Header
   const stateLabel = player?.playback_state ?? "";
@@ -87,8 +88,26 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
       return <DeckEmptyState kind="resolving" deckNumber={deckNumber} />;
     }
 
-    // D4: Not found
+    // D4: Not found — try Pioneer waveform fallback
     if (resolve.isError || (!resolve.isLoading && !fingerprint)) {
+      if (pioneerWf.data) {
+        return (
+          <>
+            <div className="relative">
+              <DeckWaveform
+                waveform={pioneerWf.data}
+                sections={[]}
+                duration={pioneerWf.data.duration}
+                positionMs={player.playback_position_ms}
+              />
+              <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-900/70 text-blue-300 border border-blue-700/50">
+                Pioneer
+              </span>
+            </div>
+            <DeckMetadata player={player} analysis={null} />
+          </>
+        );
+      }
       return (
         <>
           <DeckEmptyState
@@ -112,8 +131,27 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
 
     const track = analysis.data ?? null;
 
-    // D7: No waveform
+    // D7: No SCUE waveform — try Pioneer waveform fallback
     if (track && !track.waveform) {
+      if (pioneerWf.data) {
+        return (
+          <>
+            <div className="relative">
+              <DeckWaveform
+                waveform={pioneerWf.data}
+                sections={track.sections}
+                duration={track.duration}
+                positionMs={player.playback_position_ms}
+              />
+              <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-900/70 text-blue-300 border border-blue-700/50">
+                Pioneer
+              </span>
+            </div>
+            <DeckMetadata player={player} analysis={track} />
+            <SectionIndicator sections={track.sections} positionMs={player.playback_position_ms} />
+          </>
+        );
+      }
       return (
         <>
           <DeckEmptyState kind="no-waveform" deckNumber={deckNumber} />
