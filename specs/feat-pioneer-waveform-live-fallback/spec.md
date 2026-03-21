@@ -165,3 +165,4 @@ These are not yet captured by the bridge. A future task should:
   - Added playhead + auto-scroll section confirming existing pipeline handles this by design
   - Added follow-up section for loop visualization with beat-link API details
   - Added acceptance criterion 8 for D7 fallback
+- 2026-03-21: Bug fix (e3e8101): `emitTrackWaveform()` used `ThreeBandLayer` overload for all color waveforms, but XDJ-AZ sends BLUE-style waveforms which don't support that overload. Fixed to branch on `detail.style`: THREE_BAND uses per-band heights, BLUE/RGB uses `segmentColor()` + `segmentHeight()`. Verified live on XDJ-AZ.

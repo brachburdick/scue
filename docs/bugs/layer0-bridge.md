@@ -225,6 +225,14 @@ Fix: Either spawn a reader thread to drain stdout, or use `subprocess.DEVNULL` i
 File(s): scue/bridge/manager.py (~line 361-362)
 Source: External code review 2026-03-20
 
+### emitTrackWaveform crashes on BLUE/RGB waveform styles
+Date: 2026-03-21
+Milestone: N/A (FE-LIVE-DECK-PIONEER-WF)
+Symptom: Pioneer waveform fallback threw UnsupportedOperationException during live QA on XDJ-AZ. No waveform rendered on either deck. Error was invisible because bridge subprocess stderr pipe is not drained.
+Root cause: `emitTrackWaveform()` in BeatLinkBridge.java called `segmentHeight(i, 31, ThreeBandLayer.LOW/MID/HIGH)` for all color waveforms. This three-argument overload only works when `WaveformDetail.style` is `THREE_BAND`. The XDJ-AZ sends `BLUE`-style waveforms, and beat-link throws `UnsupportedOperationException` for the `ThreeBandLayer` overload on non-THREE_BAND styles.
+Fix: Added style check before extracting waveform data. THREE_BAND uses per-band `segmentHeight(i, max, ThreeBandLayer)`. BLUE/RGB uses `segmentColor(i, max)` for color + `segmentHeight(i, max)` for height, scaling RGB channels by height. Mono path unchanged.
+File(s): bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java
+
 ### rbox ANLZ parser panics on XDJ-AZ exported files
 Date: 2026-03-16
 Milestone: M-0B
