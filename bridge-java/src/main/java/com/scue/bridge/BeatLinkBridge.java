@@ -761,13 +761,24 @@ public class BeatLinkBridge {
         boolean isColor = detail.isColor;
         byte[] packed = new byte[frameCount * 3];
 
-        if (isColor) {
+        if (detail.style == WaveformFinder.WaveformStyle.THREE_BAND) {
+            // THREE_BAND: per-band heights available via ThreeBandLayer overload
             for (int i = 0; i < frameCount; i++) {
                 packed[i * 3]     = (byte) detail.segmentHeight(i, 31, WaveformFinder.ThreeBandLayer.LOW);
                 packed[i * 3 + 1] = (byte) detail.segmentHeight(i, 31, WaveformFinder.ThreeBandLayer.MID);
                 packed[i * 3 + 2] = (byte) detail.segmentHeight(i, 31, WaveformFinder.ThreeBandLayer.HIGH);
             }
+        } else if (isColor) {
+            // BLUE or RGB style: extract RGB from segmentColor, scale to 0-31 range
+            for (int i = 0; i < frameCount; i++) {
+                int h = detail.segmentHeight(i, 31);
+                java.awt.Color c = detail.segmentColor(i, 31);
+                packed[i * 3]     = (byte) Math.round(h * c.getRed()   / 255.0);
+                packed[i * 3 + 1] = (byte) Math.round(h * c.getGreen() / 255.0);
+                packed[i * 3 + 2] = (byte) Math.round(h * c.getBlue()  / 255.0);
+            }
         } else {
+            // Mono: same height for all three bands
             for (int i = 0; i < frameCount; i++) {
                 byte h = (byte) detail.segmentHeight(i, 31);
                 packed[i * 3]     = h;
@@ -778,8 +789,8 @@ public class BeatLinkBridge {
 
         String base64 = Base64.getEncoder().encodeToString(packed);
         emitter.emitTrackWaveform(player, base64, frameCount, totalTimeMs, isColor);
-        log.info("Track waveform emitted for player {}: {} frames, {}ms, color={}",
-                 player, frameCount, totalTimeMs, isColor);
+        log.info("Track waveform emitted for player {}: {} frames, {}ms, color={}, style={}",
+                 player, frameCount, totalTimeMs, isColor, detail.style);
     }
 
     private void emitWaveformDetail(int player, WaveformDetail detail) {
