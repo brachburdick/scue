@@ -26,11 +26,13 @@ WAVEFORM_DETAIL = "waveform_detail"
 PHRASE_ANALYSIS = "phrase_analysis"
 CUE_POINTS = "cue_points"
 BEAT = "beat"
+TRACK_WAVEFORM = "track_waveform"
 
 ALL_TYPES = frozenset({
     DEVICE_FOUND, DEVICE_LOST, BRIDGE_STATUS,
     PLAYER_STATUS, TRACK_METADATA, BEAT_GRID,
     WAVEFORM_DETAIL, PHRASE_ANALYSIS, CUE_POINTS, BEAT,
+    TRACK_WAVEFORM,
 })
 
 
@@ -163,6 +165,15 @@ class CuePointsPayload:
 
 
 @dataclass
+class TrackWaveformPayload:
+    """Payload for track_waveform messages — decoded Pioneer waveform RGB data."""
+    data: str  # base64 of interleaved low/mid/high bytes (3 bytes per sample, 0-31)
+    frame_count: int
+    total_time_ms: int
+    is_color: bool = True
+
+
+@dataclass
 class BeatPayload:
     """Payload for beat (real-time) messages."""
     beat_within_bar: int
@@ -183,6 +194,7 @@ PAYLOAD_TYPES: dict[str, type] = {
     PHRASE_ANALYSIS: PhraseAnalysisPayload,
     CUE_POINTS: CuePointsPayload,
     BEAT: BeatPayload,
+    TRACK_WAVEFORM: TrackWaveformPayload,
 }
 
 

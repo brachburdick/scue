@@ -155,6 +155,24 @@ async def stop_recording() -> dict:
     return summary
 
 
+# ---------------------------------------------------------------------------
+# Pioneer Waveform
+# ---------------------------------------------------------------------------
+
+
+@router.get("/pioneer-waveform/{player_number}")
+async def get_pioneer_waveform(player_number: int) -> dict:
+    """Return Pioneer waveform data for a player as RGBWaveform-shaped dict."""
+    if _bridge_manager is None:
+        raise HTTPException(status_code=503, detail="Bridge manager not initialized")
+
+    player = _bridge_manager.adapter.get_player(player_number)
+    if player is None or player.pioneer_waveform is None:
+        raise HTTPException(status_code=404, detail="No Pioneer waveform available")
+
+    return player.pioneer_waveform
+
+
 @router.get("/record/status")
 async def record_status() -> dict:
     """Check recording status."""

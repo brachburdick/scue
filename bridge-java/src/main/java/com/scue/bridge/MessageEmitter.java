@@ -178,6 +178,16 @@ public class MessageEmitter {
         emit("phrase_analysis", playerNumber, payload);
     }
 
+    public void emitTrackWaveform(int playerNumber, String base64Data,
+                                   int frameCount, long totalTimeMs, boolean isColor) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("data", base64Data);
+        payload.put("frame_count", frameCount);
+        payload.put("total_time_ms", totalTimeMs);
+        payload.put("is_color", isColor);
+        emit("track_waveform", playerNumber, payload);
+    }
+
     public void emitCuePoints(int playerNumber,
                                List<Map<String, Object>> cuePoints,
                                List<Map<String, Object>> memoryPoints,

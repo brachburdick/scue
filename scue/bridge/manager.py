@@ -702,6 +702,7 @@ class BridgeManager:
                     "playback_position_ms": p.playback_position_ms,
                     "track_source_player": p.track_source_player,
                     "track_source_slot": p.track_source_slot,
+                    "pioneer_waveform_version": p.pioneer_waveform_version,
                 }
                 for pn, p in self._adapter.players.items()
             },

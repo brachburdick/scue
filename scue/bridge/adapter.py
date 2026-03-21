@@ -23,6 +23,7 @@ from .messages import (
     PHRASE_ANALYSIS,
     PLAYER_STATUS,
     TRACK_METADATA,
+    TRACK_WAVEFORM,
     WAVEFORM_DETAIL,
     BridgeMessage,
     parse_typed_payload,
@@ -33,6 +34,7 @@ from .messages import (
     PhraseAnalysisPayload,
     PlayerStatusPayload,
     TrackMetadataPayload,
+    TrackWaveformPayload,
     WaveformDetailPayload,
 )
 
@@ -93,9 +95,13 @@ class PlayerState:
     memory_points: list[dict] = field(default_factory=list)
     hot_cues: list[dict] = field(default_factory=list)
 
-    # Waveform
+    # Waveform (raw from beat-link)
     has_waveform: bool = False
     waveform_data: str = ""  # base64-encoded waveform bytes
+
+    # Pioneer waveform (decoded RGB, ready for frontend)
+    pioneer_waveform: dict | None = None  # RGBWaveform shape: {low, mid, high, sample_rate, duration}
+    pioneer_waveform_version: int = 0
 
     # Timing
     last_update: float = 0.0
@@ -328,6 +334,46 @@ class BridgeAdapter:
         player.waveform_data = payload.data
         player.last_update = msg.timestamp
 
+    def _handle_track_waveform(self, msg: BridgeMessage) -> None:
+        """Decode Pioneer waveform into RGBWaveform-shaped dict."""
+        if msg.player_number is None:
+            return
+
+        payload = parse_typed_payload(msg)
+        if not isinstance(payload, TrackWaveformPayload):
+            return
+
+        import base64
+        raw = base64.b64decode(payload.data)
+        n_samples = payload.frame_count
+        if len(raw) != n_samples * 3:
+            logger.warning(
+                "track_waveform size mismatch: expected %d bytes, got %d",
+                n_samples * 3, len(raw),
+            )
+            return
+
+        low = [raw[i * 3] / 31.0 for i in range(n_samples)]
+        mid = [raw[i * 3 + 1] / 31.0 for i in range(n_samples)]
+        high = [raw[i * 3 + 2] / 31.0 for i in range(n_samples)]
+        duration = payload.total_time_ms / 1000.0
+        sample_rate = n_samples / duration if duration > 0 else 150.0
+
+        player = self._ensure_player(msg.player_number)
+        player.pioneer_waveform = {
+            "low": low,
+            "mid": mid,
+            "high": high,
+            "sample_rate": sample_rate,
+            "duration": duration,
+        }
+        player.pioneer_waveform_version += 1
+        player.last_update = msg.timestamp
+        logger.info(
+            "Pioneer waveform decoded for player %d: %d samples, %.1fs, color=%s",
+            msg.player_number, n_samples, duration, payload.is_color,
+        )
+
     def _handle_phrase_analysis(self, msg: BridgeMessage) -> None:
         if msg.player_number is None:
             return
@@ -469,6 +515,7 @@ class BridgeAdapter:
         TRACK_METADATA: _handle_track_metadata,
         BEAT_GRID: _handle_beat_grid,
         WAVEFORM_DETAIL: _handle_waveform_detail,
+        TRACK_WAVEFORM: _handle_track_waveform,
         PHRASE_ANALYSIS: _handle_phrase_analysis,
         CUE_POINTS: _handle_cue_points,
         BEAT: _handle_beat,

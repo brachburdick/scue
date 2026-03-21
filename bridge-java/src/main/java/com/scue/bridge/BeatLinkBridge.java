@@ -679,6 +679,7 @@ public class BeatLinkBridge {
                 try {
                     if (update.detail != null) {
                         emitWaveformDetail(update.player, update.detail);
+                        emitTrackWaveform(update.player, update.detail);
                     }
                 } catch (Exception e) {
                     log.error("Error in waveform detail listener: {}", e.getMessage(), e);
@@ -752,6 +753,33 @@ public class BeatLinkBridge {
 
         emitter.emitWaveformPreview(player, base64, totalBeats);
         log.info("Waveform preview emitted for player {}: {} bytes", player, bytes.length);
+    }
+
+    private void emitTrackWaveform(int player, WaveformDetail detail) {
+        int frameCount = detail.getFrameCount();
+        long totalTimeMs = detail.getTotalTime();
+        boolean isColor = detail.isColor;
+        byte[] packed = new byte[frameCount * 3];
+
+        if (isColor) {
+            for (int i = 0; i < frameCount; i++) {
+                packed[i * 3]     = (byte) detail.segmentHeight(i, 31, WaveformFinder.ThreeBandLayer.LOW);
+                packed[i * 3 + 1] = (byte) detail.segmentHeight(i, 31, WaveformFinder.ThreeBandLayer.MID);
+                packed[i * 3 + 2] = (byte) detail.segmentHeight(i, 31, WaveformFinder.ThreeBandLayer.HIGH);
+            }
+        } else {
+            for (int i = 0; i < frameCount; i++) {
+                byte h = (byte) detail.segmentHeight(i, 31);
+                packed[i * 3]     = h;
+                packed[i * 3 + 1] = h;
+                packed[i * 3 + 2] = h;
+            }
+        }
+
+        String base64 = Base64.getEncoder().encodeToString(packed);
+        emitter.emitTrackWaveform(player, base64, frameCount, totalTimeMs, isColor);
+        log.info("Track waveform emitted for player {}: {} frames, {}ms, color={}",
+                 player, frameCount, totalTimeMs, isColor);
     }
 
     private void emitWaveformDetail(int player, WaveformDetail detail) {
