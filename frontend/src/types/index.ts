@@ -48,3 +48,30 @@ export type {
   ConsoleSource,
   ConsoleSeverity,
 } from "./console";
+
+export type {
+  GroundTruthEvent,
+  GroundTruthResponse,
+  GroundTruthListItem,
+  GroundTruthListResponse,
+  ScoreCardResult,
+  ScoreResponse,
+  SnapResolution,
+  PlacementMode,
+} from "./groundTruth";
+
+export type {
+  FiredEvent,
+  EventPreview,
+  PhraseInfo,
+  ActiveEventState,
+  ActiveEventOptions,
+} from "./activeEvents";
+
+export type {
+  WaveformRenderParams,
+  WaveformPreset,
+  WaveformPresetsResponse,
+} from "./waveformPreset";
+
+export { DEFAULT_RENDER_PARAMS } from "./waveformPreset";

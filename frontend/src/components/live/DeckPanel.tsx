@@ -1,11 +1,13 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { PlayerInfo } from "../../types/bridge";
-import { usePioneerWaveform, useResolveTrack, useTrackAnalysis } from "../../api/tracks";
+import type { MusicalEvent } from "../../types/events";
+import { usePioneerWaveform, useResolveTrack, useTrackAnalysis, useTrackEvents } from "../../api/tracks";
+import { useActiveEvents } from "../../hooks/useActiveEvents";
 import { DeckWaveform } from "./DeckWaveform";
 import { DeckMetadata } from "./DeckMetadata";
 import { DeckEmptyState } from "./DeckEmptyState";
-import { SectionIndicator } from "../shared/SectionIndicator";
+import { LiveEventDisplay } from "../shared/LiveEventDisplay.tsx";
 import type { EmptyStateKind } from "./DeckEmptyState";
 
 export interface DeckPanelProps {
@@ -31,6 +33,52 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
   const analysis = useTrackAnalysis(fingerprint);
   const pioneerWfVersion = player?.pioneer_waveform_version ?? 0;
   const pioneerWf = usePioneerWaveform(deckNumber, pioneerWfVersion);
+  const eventsQuery = useTrackEvents(fingerprint);
+
+  // Expand drum patterns for live event display
+  const track = analysis.data ?? null;
+  const expandedEvents: MusicalEvent[] = useMemo(() => {
+    if (!eventsQuery.data || !track) return [];
+    const tonal = eventsQuery.data.events ?? [];
+    const percussion: MusicalEvent[] = [];
+    const beats = (track.beats ?? []) as number[];
+    const downbeats = (track.downbeats ?? []) as number[];
+    if (beats.length >= 2 && downbeats.length > 0 && eventsQuery.data.drum_patterns) {
+      const avgBeatDur = (beats[beats.length - 1] - beats[0]) / (beats.length - 1);
+      const sixteenthDur = avgBeatDur / 4;
+      for (const pattern of eventsQuery.data.drum_patterns) {
+        for (let bar = pattern.bar_start; bar < pattern.bar_end; bar++) {
+          if (bar >= downbeats.length) break;
+          const barTime = downbeats[bar];
+          const localBar = bar - pattern.bar_start;
+          const slotOffset = localBar * 16;
+          for (let slot = 0; slot < 16; slot++) {
+            const absSlot = slotOffset + slot;
+            const t = barTime + slot * sixteenthDur;
+            if (absSlot < pattern.kick.length && pattern.kick[absSlot])
+              percussion.push({ type: "kick", timestamp: t, duration: null, intensity: 0.8, payload: {} });
+            if (absSlot < pattern.snare.length && pattern.snare[absSlot])
+              percussion.push({ type: "snare", timestamp: t, duration: null, intensity: 0.7, payload: {} });
+            if (absSlot < pattern.clap.length && pattern.clap[absSlot])
+              percussion.push({ type: "clap", timestamp: t, duration: null, intensity: 0.6, payload: {} });
+          }
+        }
+      }
+    }
+    return [...tonal, ...percussion].sort((a, b) => a.timestamp - b.timestamp);
+  }, [eventsQuery.data, track]);
+
+  // Shared playback context
+  const positionSec = player?.playback_position_ms != null
+    ? player.playback_position_ms / 1000
+    : null;
+  const activeState = useActiveEvents(
+    positionSec,
+    expandedEvents,
+    track?.sections ?? [],
+    (track?.beats ?? []) as number[],
+    (track?.downbeats ?? []) as number[],
+  );
 
   // Header
   const stateLabel = player?.playback_state ?? "";
@@ -129,8 +177,6 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
       return <DeckEmptyState kind="loading-analysis" deckNumber={deckNumber} />;
     }
 
-    const track = analysis.data ?? null;
-
     // D7: No SCUE waveform — try Pioneer waveform fallback
     if (track && !track.waveform) {
       if (pioneerWf.data) {
@@ -148,7 +194,7 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
               </span>
             </div>
             <DeckMetadata player={player} analysis={track} />
-            <SectionIndicator sections={track.sections} positionMs={player.playback_position_ms} />
+            <LiveEventDisplay state={activeState} layout="vertical" className="mt-1" />
           </>
         );
       }
@@ -156,12 +202,12 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
         <>
           <DeckEmptyState kind="no-waveform" deckNumber={deckNumber} />
           <DeckMetadata player={player} analysis={track} />
-          <SectionIndicator sections={track.sections} positionMs={player.playback_position_ms} />
+          <LiveEventDisplay state={activeState} layout="vertical" className="mt-1" />
         </>
       );
     }
 
-    // D6: Full data (D8 handled by SectionIndicator showing "No sections")
+    // D6: Full data (D8 handled by LiveEventDisplay showing "No playback" / section)
     if (track && track.waveform) {
       return (
         <>
@@ -172,7 +218,7 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
             positionMs={player.playback_position_ms}
           />
           <DeckMetadata player={player} analysis={track} />
-          <SectionIndicator sections={track.sections} positionMs={player.playback_position_ms} />
+          <LiveEventDisplay state={activeState} layout="vertical" className="mt-1" />
         </>
       );
     }

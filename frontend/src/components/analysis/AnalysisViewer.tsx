@@ -5,6 +5,7 @@ import { WaveformCanvas } from "../shared/WaveformCanvas";
 import { PlaceholderPanel } from "../shared/PlaceholderPanel";
 import { SectionList } from "./SectionList";
 import { TrackMetadataPanel } from "./TrackMetadataPanel";
+import { useWaveformPresetStore } from "../../stores/waveformPresetStore";
 
 interface AnalysisViewerProps {
   fingerprint: string;
@@ -12,6 +13,7 @@ interface AnalysisViewerProps {
 
 export function AnalysisViewer({ fingerprint }: AnalysisViewerProps) {
   const { data: analysis, isLoading, error } = useTrackAnalysis(fingerprint);
+  const activeRenderParams = useWaveformPresetStore((s) => s.activePreset?.params);
 
   const duration = analysis?.duration ?? 0;
   const { viewStart, viewEnd, setView, zoomToSection } = useWaveformView(duration);
@@ -67,6 +69,8 @@ export function AnalysisViewer({ fingerprint }: AnalysisViewerProps) {
           sections={analysis.sections}
           energyCurve={analysis.features.energy_curve}
           duration={analysis.duration}
+          beats={analysis.beats}
+          downbeats={analysis.downbeats}
           highlightedSection={highlightedSection}
           selectedSection={selectedSection}
           onSectionHover={handleWaveformSectionHover}
@@ -74,6 +78,7 @@ export function AnalysisViewer({ fingerprint }: AnalysisViewerProps) {
           viewStart={viewStart}
           viewEnd={viewEnd}
           onViewChange={setView}
+          renderParams={activeRenderParams}
         />
       ) : (
         <div className="h-40 flex items-center justify-center bg-gray-950 rounded border border-gray-800">

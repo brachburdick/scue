@@ -245,6 +245,36 @@ Completed: 2026-03-16
 - [x] `MANIFEST.md` — comprehensive inventory of needed test assets, categorized by content type, what each exercises in the pipeline, format/fidelity matrix, and population priority
 - [ ] Populate assets (full-tracks, loops, one-shots, stems, edge-cases, pioneer exports, format variants)
 
+### ~~Waveform Rendering Tuning Page~~ → COMPLETE (2026-03-24)
+**Status:** COMPLETE — research, spec, and implementation all done.
+
+Dev page at `/dev/waveforms` for real-time tuning of waveform rendering parameters: frequency weighting, amplitude compression, normalization strategy, and color mapping. Includes preset management (YAML storage, CRUD API) and Pioneer ANLZ reference comparison. Active preset applied app-wide to all waveform components.
+
+- [x] Research: psychoacoustics, Pioneer waveform encoding, perceptual weighting (research/findings-waveform-frequency-color-rendering.md)
+- [x] Skill doc: waveform rendering domain knowledge (skills/waveform-rendering.md)
+- [x] Feature spec (specs/feat-waveform-tuning-page/spec.md)
+- [x] Backend: preset CRUD API (6 endpoints) + YAML storage (`scue/api/waveform_presets.py`)
+- [x] Frontend: WaveformTuningPage, ParameterControls (3 groups), PresetBar (save/save-as/load/activate/delete)
+- [x] Frontend: modified WaveformCanvas accepting optional `WaveformRenderParams` with full rendering pipeline (per-band normalization, amplitude scaling, 3 color modes, gain/saturation/brightness)
+- [x] Frontend: Pioneer reference waveform renderer (from ANLZ PWV5 data, scroll/zoom synced)
+- [x] Frontend: waveformPresetStore (Zustand) with draftParams for tuning page, activePreset for app-wide use
+- [x] Integration: AnalysisViewer + DeckWaveform read active preset from store
+- [x] Seed presets: SCUE Default, Pioneer RGB Match, Pioneer 3-Band, High Detail (`config/waveform-presets.yaml`)
+- [x] ADR-019: Frontend-time waveform rendering parameters (docs/DECISIONS.md)
+- [x] TypeScript strict mode passes
+
+#### Key Files
+- `specs/feat-waveform-tuning-page/spec.md` — full specification
+- `scue/api/waveform_presets.py` — backend preset CRUD API
+- `config/waveform-presets.yaml` — preset storage (4 seed presets)
+- `frontend/src/pages/WaveformTuningPage.tsx` — main page
+- `frontend/src/components/waveformTuning/` — ParameterControls, PresetBar, PioneerReferenceWaveform
+- `frontend/src/stores/waveformPresetStore.ts` — Zustand preset store
+- `frontend/src/types/waveformPreset.ts` — WaveformRenderParams, WaveformPreset types
+- `frontend/src/components/shared/WaveformCanvas.tsx` — modified renderer (accepts renderParams)
+
+---
+
 ### Milestone 8 — Full Cue Vocabulary
 ### Milestone 9 — OSC Visual Output (Layer 4B)
 ### Milestone 10 — Real-Time User Override UI (Layer 4C)

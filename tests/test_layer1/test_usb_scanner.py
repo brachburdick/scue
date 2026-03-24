@@ -13,6 +13,15 @@ from fastapi.testclient import TestClient
 
 from scue.api.tracks import router as tracks_router
 from scue.layer1.models import Section, TrackAnalysis, TrackFeatures
+
+
+def _has_rbox() -> bool:
+    """Check if rbox is installed (optional USB dependency)."""
+    try:
+        import rbox  # noqa: F401
+        return True
+    except ImportError:
+        return False
 from scue.layer1.storage import TrackCache, TrackStore
 from scue.layer1.usb_scanner import (
     MatchedTrack,
@@ -541,6 +550,10 @@ class TestReadUsbLibrary:
             with pytest.raises(ImportError, match="rbox is required"):
                 read_usb_library(db_path)
 
+    @pytest.mark.skipif(
+        not _has_rbox(),
+        reason="rbox not installed — FileNotFoundError only reachable when rbox is available",
+    )
     def test_file_not_found(self, tmp_path: Path) -> None:
         """Raises FileNotFoundError for missing db file."""
         with pytest.raises(FileNotFoundError):

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { WaveformCanvas } from "../shared/WaveformCanvas";
 import type { RGBWaveform, Section } from "../../types";
+import { useWaveformPresetStore } from "../../stores/waveformPresetStore";
 
 const WINDOW_SECONDS = 12;
 
@@ -10,9 +11,13 @@ export interface DeckWaveformProps {
   duration: number;
   /** Current playback position in milliseconds, or null when stopped. */
   positionMs: number | null;
+  /** Beatgrid data for overlay lines */
+  beats?: number[];
+  downbeats?: number[];
 }
 
-export function DeckWaveform({ waveform, sections, duration, positionMs }: DeckWaveformProps) {
+export function DeckWaveform({ waveform, sections, duration, positionMs, beats, downbeats }: DeckWaveformProps) {
+  const activeRenderParams = useWaveformPresetStore((s) => s.activePreset?.params);
   const cursorSec = positionMs !== null ? positionMs / 1000 : null;
 
   const { viewStart, viewEnd } = useMemo(() => {
@@ -38,11 +43,14 @@ export function DeckWaveform({ waveform, sections, duration, positionMs }: DeckW
       waveform={waveform}
       sections={sections}
       duration={duration}
+      beats={beats}
+      downbeats={downbeats}
       viewStart={viewStart}
       viewEnd={viewEnd}
       cursorPosition={cursorSec}
       highlightedSection={currentSectionIndex}
       selectedSection={null}
+      renderParams={activeRenderParams}
     />
   );
 }

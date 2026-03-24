@@ -105,8 +105,26 @@ Decision: Rewrite waveform computation and rendering to match Pioneer's approach
 
 Consequences: All existing cached waveform data must be re-analyzed to pick up the new crossover points, global normalization, and 150fps resolution. Existing waveforms will still render (the frontend handles any sample_rate) but will show the old frequency balance until re-analyzed. The `RGBWaveform` type contract (low/mid/high float arrays + sample_rate + duration) is unchanged — this is a rendering and computation fix, not a schema change.
 
+## ADR-019: Frontend-time waveform rendering parameters (preset system)
+Date: 2026-03-24
+Context: ADR-018 established Pioneer-accurate RGB rendering but with hardcoded parameters. Different tracks and genres benefit from different normalization, amplitude scaling, and color mapping. Rather than re-running backend analysis for each parameter change, rendering parameters should be tunable in real time.
+
+Decision: All waveform rendering parameters (per-band gain, normalization strategy, amplitude scaling, color mode, saturation, brightness) are applied at **frontend render time** in `WaveformCanvas.tsx`, not during backend analysis. The stored `RGBWaveform` data (low/mid/high float arrays) is never modified — parameters transform the data during canvas drawing.
+
+Presets are stored in `config/waveform-presets.yaml` (following ADR-003 YAML convention) and served via REST API at `/api/waveform-presets` (6 endpoints: list, get-active, create, update, delete, activate). One preset is "active" at a time, applied app-wide to all waveform components (AnalysisViewer, DeckWaveform, DetectorTuningPage) via a Zustand store (`waveformPresetStore`).
+
+The tuning page at `/dev/waveforms` provides live preview with a `draftParams` layer that overrides the active preset locally, without affecting other pages until saved and activated.
+
+Consequences: Parameter changes are instant (no re-analysis). Crossover frequency changes are the exception — they affect backend STFT band splitting and show an approximation only until re-analyzed. Four seed presets ship: SCUE Default (baseline), Pioneer RGB Match (per-band norm + sqrt), Pioneer 3-Band (overlap color mode), High Detail (log amplitude). The `WaveformRenderParams` type is the contract between the preset API, store, and renderer.
+
 ## ADR-008: Sequential batch analysis with in-memory job tracking
 Date: 2026-03
 Context: `run_analysis()` is CPU-bound (~3-4s/track with librosa/MLX). Parallel analysis would thrash memory. SCUE is a local tool — no persistence needed for job state.
 Decision: Batch analysis processes files sequentially via `asyncio.to_thread()` to keep the event loop responsive. Job state is tracked in-memory (`scue/api/jobs.py`). Frontend polls every 1s and auto-stops on completion.
 Consequences: Job state is lost on server restart (acceptable for local tool). If persistence is needed later, jobs can be backed by SQLite.
+
+## ADR-020: Re-analysis with Pioneer beatgrid (full re-run, not just rescale)
+Date: 2026-03-24
+Context: The enrichment pass (ADR-001) replaces the librosa beatgrid with Pioneer's but only rescales/snaps section timestamps and event timestamps proportionally. It does NOT re-run section segmentation (snap + flow model), confidence scoring, or event detection. A more accurate Pioneer beatgrid should improve downstream analysis — percussion detectors align 16th-note slots to beats, so a better grid means kicks/snares land where expected (e.g., house four-on-the-floor, dubstep half-time).
+Decision: Add `run_reanalysis_pass()` in `scue/layer1/reanalysis.py` that re-runs steps 6-9 of the analysis pipeline (snap, classify, score, detect) using the Pioneer beatgrid. The result is stored as TrackAnalysis v3 with `source="pioneer_reanalyzed"`. Original (v1) and enriched (v2) are never overwritten. Strata storage is extended with an `analysis_source` dimension: `{fp}.{tier}.{source}.json`. The engine accepts `analysis_version` to run Strata on any specific version. All three variants are comparable side-by-side in the UI.
+Consequences: Reanalysis requires the audio file (~5-10s for AudioFeatures extraction). Strata files now include source in the filename — backward compat via fallback to legacy `{fp}.{tier}.json`. The `load_all` response shape becomes nested `{tier: {source: formula}}`.

@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback } from "react";
-import type { RGBWaveform, Section } from "../../types";
+import type { RGBWaveform, Section, WaveformRenderParams } from "../../types";
+import { drawBeatgridLines } from "./drawBeatgridLines";
 
 // --- Color constants ---
 
@@ -64,11 +65,18 @@ export interface WaveformCanvasProps {
 
   cursorPosition?: number | null;
 
+  /** Beatgrid data for overlay lines */
+  beats?: number[];
+  downbeats?: number[];
+
   viewStart: number;
   viewEnd: number;
   onViewChange?: (start: number, end: number) => void;
 
   height?: number;
+
+  /** Optional rendering params from waveform preset system */
+  renderParams?: WaveformRenderParams;
 }
 
 // --- Helpers ---
@@ -86,6 +94,41 @@ function sectionIndexAtTime(sections: Section[], time: number): number | null {
   return idx >= 0 ? idx : null;
 }
 
+/** Parse a hex color string to {r, g, b} 0-255 */
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const h = hex.replace("#", "");
+  return {
+    r: parseInt(h.substring(0, 2), 16) || 255,
+    g: parseInt(h.substring(2, 4), 16) || 0,
+    b: parseInt(h.substring(4, 6), 16) || 0,
+  };
+}
+
+/** Apply amplitude scaling function */
+function applyAmplitudeScale(
+  value: number,
+  scale: string,
+  gamma: number,
+  logStrength: number,
+): number {
+  if (value <= 0) return 0;
+  switch (scale) {
+    case "sqrt":
+      return Math.sqrt(value);
+    case "log":
+      return Math.log(1 + logStrength * value) / Math.log(1 + logStrength);
+    case "gamma":
+      return Math.pow(value, gamma);
+    default: // linear
+      return value;
+  }
+}
+
+/** Clamp value between 0 and 1 */
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
 // --- Component ---
 
 export function WaveformCanvas({
@@ -99,10 +142,13 @@ export function WaveformCanvas({
   onSectionClick,
   onTimeClick,
   cursorPosition,
+  beats,
+  downbeats,
   viewStart,
   viewEnd,
   onViewChange,
   height = 160,
+  renderParams,
 }: WaveformCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -198,34 +244,201 @@ export function WaveformCanvas({
       const samplesPerPixel = sampleCount / w;
       const centerY = h / 2;
 
-      // Pioneer-style: color = frequency ratio, height = amplitude.
-      // Normalize color channels by the max so the blend always shows
-      // which bands dominate, regardless of overall loudness.
-      function blendColor(low: number, mid: number, high: number) {
+      // Extract render params (or use defaults)
+      const p = renderParams;
+      const lowGain = p?.lowGain ?? 1.0;
+      const midGain = p?.midGain ?? 1.0;
+      const highGain = p?.highGain ?? 1.0;
+      const normMode = p?.normalization ?? "global";
+      const ampScale = p?.amplitudeScale ?? "linear";
+      const gammaVal = p?.gamma ?? 1.0;
+      const logStr = p?.logStrength ?? 10;
+      const noiseFloor = p?.noiseFloor ?? 0.001;
+      const peakNorm = p?.peakNormalize ?? true;
+      const colorMode = p?.colorMode ?? "rgb_blend";
+      const satMul = p?.saturation ?? 1.0;
+      const briMul = p?.brightness ?? 1.0;
+      const minBri = p?.minBrightness ?? 0.0;
+
+      // Parse custom colors for three_band_overlap or custom rgb_blend
+      const lowRgb = p ? hexToRgb(p.lowColor) : { r: 255, g: 0, b: 0 };
+      const midRgb = p ? hexToRgb(p.midColor) : { r: 0, g: 255, b: 0 };
+      const highRgb = p ? hexToRgb(p.highColor) : { r: 0, g: 0, b: 255 };
+
+      // Pre-compute per-band peak for per_band normalization
+      let lowPeak = 0, midPeak = 0, highPeak = 0;
+      if (normMode === "per_band" || normMode === "weighted") {
+        for (let i = startSample; i < endSample; i++) {
+          const lv = (waveform.low[i] ?? 0) * lowGain;
+          const mv = (waveform.mid[i] ?? 0) * midGain;
+          const hv = (waveform.high[i] ?? 0) * highGain;
+          if (lv > lowPeak) lowPeak = lv;
+          if (mv > midPeak) midPeak = mv;
+          if (hv > highPeak) highPeak = hv;
+        }
+        // Prevent division by zero
+        if (lowPeak === 0) lowPeak = 1;
+        if (midPeak === 0) midPeak = 1;
+        if (highPeak === 0) highPeak = 1;
+      }
+
+      // Global peak for peak normalization
+      let globalPeak = 0;
+      if (peakNorm) {
+        for (let i = startSample; i < endSample; i++) {
+          let lv = (waveform.low[i] ?? 0) * lowGain;
+          let mv = (waveform.mid[i] ?? 0) * midGain;
+          let hv = (waveform.high[i] ?? 0) * highGain;
+          if (normMode === "per_band" || normMode === "weighted") {
+            lv /= lowPeak;
+            mv /= midPeak;
+            hv /= highPeak;
+          }
+          const amp = Math.max(lv, mv, hv);
+          if (amp > globalPeak) globalPeak = amp;
+        }
+        if (globalPeak === 0) globalPeak = 1;
+      }
+
+      /** Process one sample/pixel's band values into draw instructions */
+      function processBar(rawLow: number, rawMid: number, rawHigh: number) {
+        // Step 2: apply gain
+        let low = rawLow * lowGain;
+        let mid = rawMid * midGain;
+        let high = rawHigh * highGain;
+
+        // Step 4: normalization
+        if (normMode === "per_band" || normMode === "weighted") {
+          low /= lowPeak;
+          mid /= midPeak;
+          high /= highPeak;
+        }
+
+        // Step 5: compute amplitude
         const amplitude = Math.max(low, mid, high);
+
+        // Step 7: noise floor
+        if (amplitude < noiseFloor) return null;
+
+        // Peak normalization
+        let normAmp = peakNorm ? amplitude / globalPeak : amplitude;
+
+        // Step 6: amplitude scaling
+        normAmp = applyAmplitudeScale(normAmp, ampScale, gammaVal, logStr);
+
+        if (colorMode === "three_band_overlap") {
+          // Each band gets independent height
+          let lh = peakNorm ? low / globalPeak : low;
+          let mh = peakNorm ? mid / globalPeak : mid;
+          let hh = peakNorm ? high / globalPeak : high;
+          lh = applyAmplitudeScale(lh, ampScale, gammaVal, logStr);
+          mh = applyAmplitudeScale(mh, ampScale, gammaVal, logStr);
+          hh = applyAmplitudeScale(hh, ampScale, gammaVal, logStr);
+
+          // Apply brightness + minBrightness
+          lh = clamp01(lh * briMul + minBri);
+          mh = clamp01(mh * briMul + minBri);
+          hh = clamp01(hh * briMul + minBri);
+
+          return {
+            mode: "overlap" as const,
+            layers: [
+              { h: lh, r: lowRgb.r, g: lowRgb.g, b: lowRgb.b },
+              { h: mh, r: midRgb.r, g: midRgb.g, b: midRgb.b },
+              { h: hh, r: highRgb.r, g: highRgb.g, b: highRgb.b },
+            ],
+          };
+        }
+
+        if (colorMode === "mono_blue") {
+          // Brightness from spectral centroid approximation
+          const total = low + mid + high;
+          const centroid = total > 0 ? (mid + high * 2) / (total * 2) : 0;
+          const bri = clamp01(centroid * briMul + minBri);
+          const barH = clamp01(normAmp * briMul);
+          return {
+            mode: "single" as const,
+            r: Math.round(bri * 100),
+            g: Math.round(bri * 150),
+            b: Math.round(100 + bri * 155),
+            barH,
+          };
+        }
+
+        // rgb_blend (default)
         if (amplitude < 0.001) return null;
-        // R=low (bass), G=mid, B=high — matches Pioneer CDJ color mapping
-        const r = Math.min(255, Math.round((low / amplitude) * 255));
-        const g = Math.min(255, Math.round((mid / amplitude) * 255));
-        const b = Math.min(255, Math.round((high / amplitude) * 255));
-        return { r, g, b, amplitude };
+        let r = low / amplitude;
+        let g = mid / amplitude;
+        let b = high / amplitude;
+
+        // Apply saturation
+        if (satMul !== 1.0) {
+          const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+          r = clamp01(gray + satMul * (r - gray));
+          g = clamp01(gray + satMul * (g - gray));
+          b = clamp01(gray + satMul * (b - gray));
+        }
+
+        // Apply brightness + minBrightness
+        r = clamp01(r * briMul + minBri);
+        g = clamp01(g * briMul + minBri);
+        b = clamp01(b * briMul + minBri);
+
+        // Map to custom colors if not default RGB
+        let fr: number, fg: number, fb: number;
+        if (p) {
+          fr = Math.round(r * lowRgb.r + g * midRgb.r + b * highRgb.r);
+          fg = Math.round(r * lowRgb.g + g * midRgb.g + b * highRgb.g);
+          fb = Math.round(r * lowRgb.b + g * midRgb.b + b * highRgb.b);
+          // Clamp
+          fr = Math.min(255, fr);
+          fg = Math.min(255, fg);
+          fb = Math.min(255, fb);
+        } else {
+          fr = Math.min(255, Math.round(r * 255));
+          fg = Math.min(255, Math.round(g * 255));
+          fb = Math.min(255, Math.round(b * 255));
+        }
+
+        const barH = clamp01(normAmp * briMul);
+
+        return { mode: "single" as const, r: fr, g: fg, b: fb, barH };
+      }
+
+      function drawBar(
+        ctx: CanvasRenderingContext2D,
+        x: number,
+        barWidth: number,
+        result: NonNullable<ReturnType<typeof processBar>>,
+      ) {
+        if (result.mode === "overlap") {
+          // Paint layers back to front (low, mid, high)
+          for (const layer of result.layers) {
+            const bh = layer.h * centerY;
+            if (bh < 0.5) continue;
+            ctx.fillStyle = `rgb(${layer.r},${layer.g},${layer.b})`;
+            ctx.fillRect(x, centerY - bh, barWidth, bh * 2);
+          }
+        } else {
+          const bh = result.barH * centerY;
+          if (bh < 0.5) return;
+          ctx.fillStyle = `rgb(${result.r},${result.g},${result.b})`;
+          ctx.fillRect(x, centerY - bh, barWidth, bh * 2);
+        }
       }
 
       if (samplesPerPixel <= 1) {
         // One bar per sample
         for (let i = startSample; i < endSample; i++) {
-          const result = blendColor(
+          const result = processBar(
             waveform.low[i] ?? 0,
             waveform.mid[i] ?? 0,
             waveform.high[i] ?? 0,
           );
           if (!result) continue;
-          const barH = result.amplitude * centerY;
           const x = timeToX(i / samplesPerSec, viewStart, viewEnd, w);
           const barWidth = Math.max(1, w / sampleCount);
-
-          ctx.fillStyle = `rgb(${result.r},${result.g},${result.b})`;
-          ctx.fillRect(x, centerY - barH, barWidth, barH * 2);
+          drawBar(ctx, x, barWidth, result);
         }
       } else {
         // Downsample: one bar per pixel
@@ -242,14 +455,16 @@ export function WaveformCanvas({
             if ((waveform.high[i] ?? 0) > maxHigh) maxHigh = waveform.high[i];
           }
 
-          const result = blendColor(maxLow, maxMid, maxHigh);
+          const result = processBar(maxLow, maxMid, maxHigh);
           if (!result) continue;
-          const barH = result.amplitude * centerY;
-
-          ctx.fillStyle = `rgb(${result.r},${result.g},${result.b})`;
-          ctx.fillRect(px, centerY - barH, 1, barH * 2);
+          drawBar(ctx, px, 1, result);
         }
       }
+    }
+
+    // --- Beatgrid lines (on top of waveform, below overlays) ---
+    if (beats?.length || downbeats?.length) {
+      drawBeatgridLines(ctx, beats ?? [], downbeats ?? [], viewStart, viewEnd, w, h);
     }
 
     // --- Energy curve overlay ---
@@ -299,7 +514,7 @@ export function WaveformCanvas({
       ctx.lineTo(cx, h);
       ctx.stroke();
     }
-  }, [waveform, sections, energyCurve, duration, highlightedSection, selectedSection, cursorPosition, viewStart, viewEnd, height]);
+  }, [waveform, sections, energyCurve, duration, highlightedSection, selectedSection, cursorPosition, beats, downbeats, viewStart, viewEnd, height, renderParams]);
 
   // Observe resize
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 
 const navItems = [
+  { to: "/strata", label: "Strata" },
   { to: "/analysis", label: "Analysis" },
   { to: "/live", label: "Live Monitor" },
   { label: "Data", header: true },
@@ -12,6 +13,8 @@ const navItems = [
   { to: "/network", label: "Network" },
   { label: "Dev", header: true },
   { to: "/dev/detectors", label: "Detectors" },
+  { to: "/dev/annotate", label: "Annotate" },
+  { to: "/dev/waveforms", label: "Waveforms" },
 ] as const;
 
 export function Sidebar() {

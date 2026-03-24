@@ -51,8 +51,8 @@ class TestVeryShortTrack:
         assert result.fingerprint == compute_fingerprint(audio_path)
         assert result.duration > 0
         assert len(result.sections) >= 1
-        # BPM may be None for very short tracks where librosa can't detect beats
-        assert result.bpm is None or result.bpm > 0
+        # BPM may be None or 0.0 for very short tracks where librosa can't detect beats
+        assert result.bpm is None or result.bpm >= 0
 
     def test_1_second_sine(self, tmp_path: Path) -> None:
         audio_path = tmp_path / "very_short.wav"

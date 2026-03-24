@@ -164,7 +164,7 @@ def run_analysis(
     # Step 8: Compute confidence scores
     _progress(8, "Scoring confidence")
     logger.info("Step 8/10: Scoring confidence...")
-    scored_sections = _score_confidence(
+    scored_sections = score_confidence(
         classified_sections,
         structure.source,
     )
@@ -191,7 +191,7 @@ def run_analysis(
     # Step 9: Event detection (M7)
     _progress(9, "Detecting events")
     logger.info("Step 9/10: Detecting musical events...")
-    detected_events, drum_patterns = _run_event_detection(
+    detected_events, drum_patterns = run_event_detection(
         features, structure.beats, structure.downbeats, scored_sections,
     )
 
@@ -250,7 +250,7 @@ def run_analysis(
     return analysis
 
 
-def _score_confidence(
+def score_confidence(
     sections: list[Section],
     structure_source: str,
 ) -> list[Section]:
@@ -289,7 +289,7 @@ def _score_confidence(
     return result
 
 
-def _run_event_detection(
+def run_event_detection(
     features: AudioFeatures,
     beats: list[float],
     downbeats: list[float],

@@ -1,0 +1,110 @@
+{
+  "session_id": "4733ad72-8370-41e7-aed1-ac005e57a96a",
+  "timestamp": "2026-03-24T02:34:25Z",
+  "project_root": "/Users/brach/Documents/THE_FACTORY/projects/DjTools/scue",
+  "branch": "main",
+  "last_commit": "1f356d887d5cff062e6a75dcf07d04266f11a0b0 saving",
+  "modified_files": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "frontend/node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "frontend/src/App.tsx",
+    "frontend/src/components/layout/Sidebar.tsx",
+    "frontend/src/types/index.ts",
+    "scue/main.py",
+    "skills/beat-link-bridge.md",
+    "skills/pioneer-hardware.md",
+    "skills/python-fastapi.md",
+    "skills/react-typescript-frontend.md",
+    "tests/test_layer1/test_analysis_edge_cases.py",
+    "tests/test_layer1/test_usb_scanner.py"
+  ],
+  "staged_files": [],
+  "active_tasks": [
+    {
+      "id": "dual-db-scanning",
+      "status": "pending",
+      "taskType": "feature",
+      "summary": "MEDIUM: Dual-database USB scanning \u2014 read both export.pdb (DeviceSQL) and exportLibrary.db (DLP) from USB to handle mixed hardware setups. Build O(N) file-path mapping between ID namespaces at scan time."
+    },
+    {
+      "id": "deck-analysis-state",
+      "status": "pending",
+      "taskType": "feature",
+      "summary": "MEDIUM: Add DeckAnalysisState enum (available/pending/analyzing/unavailable) to TrackCursor for on-demand analysis fallback. Enables Live Deck Monitor to show appropriate loading states."
+    },
+    {
+      "id": "stale-scan-detection",
+      "status": "pending",
+      "taskType": "feature",
+      "summary": "MEDIUM: Stale-scan detection \u2014 compare rbox metadata against stored analysis to detect USB re-exports where DLP IDs have been reassigned."
+    },
+    {
+      "id": "m3-cue-stream",
+      "status": "ready",
+      "taskType": "feature",
+      "summary": "M3: Cue Stream (Layer 2) \u2014 section cues (section_change, anticipation, progress, energy_level). Spec complete. Blockers resolved (fe-analysis-viewer + fe-live-deck-monitor complete)."
+    },
+    {
+      "id": "constellation-fingerprint",
+      "status": "deferred",
+      "taskType": "investigation",
+      "summary": "DEFERRED to M7: Custom constellation-map fingerprint generation (~500-800 lines, 2-3 dev-days). Standard hashing first; tempo-invariant later. No suitable library exists."
+    },
+    {
+      "id": "audio-capture-prototype",
+      "status": "deferred",
+      "taskType": "investigation",
+      "summary": "DEFERRED: Layer 0.5 audio capture prototype \u2014 USB interface + sounddevice for mixing ratio detection via informed source separation. Feasible (~0.5ms per update) but not needed until multi-deck Phase 2."
+    },
+    {
+      "id": "fe2-console-log-wiring",
+      "status": "pending",
+      "taskType": "feature",
+      "summary": "FE-2 remaining: Console panel wired to real-time bridge log output (currently placeholder)"
+    },
+    {
+      "id": "followup-fe2-advisory1",
+      "status": "pending",
+      "taskType": "debug",
+      "summary": "FE-2-ADVISORY-1: Missing 'Reconnecting... (attempt N)' system entry during WS reconnection"
+    },
+    {
+      "id": "followup-fe2-advisory2",
+      "status": "pending",
+      "taskType": "debug",
+      "summary": "FE-2-ADVISORY-2: Chevron direction differs from spec (cosmetic)"
+    },
+    {
+      "id": "followup-fe2-advisory4",
+      "status": "pending",
+      "taskType": "refactor",
+      "summary": "FE-2-ADVISORY-4: No tests for consoleStore ring buffer or consoleMapper diff detection"
+    },
+    {
+      "id": "followup-blt1",
+      "status": "pending",
+      "taskType": "refactor",
+      "summary": "FE-BLT-FOLLOWUP-1: Faster interface detection polling (5s vs 30s) during waiting_for_hardware"
+    },
+    {
+      "id": "followup-blt2",
+      "status": "pending",
+      "taskType": "refactor",
+      "summary": "FE-BLT-FOLLOWUP-2: Beat-link discovery cycle optimization"
+    },
+    {
+      "id": "followup-blt3",
+      "status": "pending",
+      "taskType": "feature",
+      "summary": "FE-BLT-FOLLOWUP-3: Interface-aware waiting_for_hardware messaging (requires contract change)"
+    },
+    {
+      "id": "followup-blt-qa-gap1",
+      "status": "pending",
+      "taskType": "refactor",
+      "summary": "FE-BLT-QA-GAP-1: Mock tool / fixture data for DeviceInfo/PlayerInfo shapes for recovery testing"
+    }
+  ],
+  "working_directory": "/Users/brach/Documents/THE_FACTORY/projects/DjTools/scue"
+}

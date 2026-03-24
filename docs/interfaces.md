@@ -215,6 +215,85 @@ Endpoints in `scue/api/tracks.py` for event detection data (M7).
 
 Frontend types: `frontend/src/types/events.ts` (`MusicalEvent`, `DrumPattern`, `TrackEventsResponse`).
 
+## Frontend Internal: ActiveEventState (Shared Playback Context)
+
+The `useActiveEvents` hook computes a unified "what's happening at time T" state from any
+cursor source. Used by `<LiveEventDisplay />` on the annotation page and live deck monitor.
+
+```typescript
+// Input: each page provides its own cursor time
+useActiveEvents(
+  currentTime: number | null,       // seconds (from audio element or bridge WS)
+  events: EventInput[],              // MusicalEvent[] or GroundTruthEvent[]
+  sections: Section[],
+  beats: number[],
+  downbeats: number[],
+  options?: { recentWindow?: number; previewCount?: number }
+): ActiveEventState | null
+
+// Output
+interface ActiveEventState {
+  currentTime: number;
+  activeSections: Section[];         // cursor inside [start, end)
+  recentEvents: FiredEvent[];        // fired within recentWindow (default 300ms)
+  upcomingEvents: EventPreview[];    // next N events after cursor
+  phrase: PhraseInfo | null;         // bar/phrase position from beatgrid
+}
+```
+
+**Files:** `src/hooks/useActiveEvents.ts`, `src/types/activeEvents.ts`, `src/components/shared/LiveEventDisplay.tsx`
+
+**Design decision:** Shared hook + shared component, not a new Zustand store. Cursor sources
+are legitimately different per page (bridge WS vs HTML audio). The computation is pure and
+cheap (O(log n) binary search). See `specs/feat-live-event-display/spec.md`.
+
+## Backend -> Frontend: Waveform Presets REST API
+
+Endpoints in `scue/api/waveform_presets.py` for waveform rendering preset management.
+Presets stored in `config/waveform-presets.yaml`.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/waveform-presets` | GET | List all presets with active flag |
+| `/api/waveform-presets/active` | GET | Get the currently active preset |
+| `/api/waveform-presets` | POST | Create a new preset |
+| `/api/waveform-presets/{id}` | PUT | Update a preset's params or name |
+| `/api/waveform-presets/{id}` | DELETE | Delete a preset (cannot delete active) |
+| `/api/waveform-presets/{id}/activate` | POST | Set a preset as active |
+
+### List response shape
+
+```json
+{
+  "activePresetId": "default",
+  "presets": [
+    {
+      "id": "default",
+      "name": "SCUE Default",
+      "isActive": true,
+      "createdAt": "2026-03-24T00:00:00Z",
+      "updatedAt": "2026-03-24T00:00:00Z",
+      "params": {
+        "normalization": "global",
+        "lowGain": 1.0, "midGain": 1.0, "highGain": 1.0,
+        "frequencyWeighting": "none",
+        "lowCrossover": 200, "highCrossover": 2500,
+        "amplitudeScale": "linear",
+        "gamma": 1.0, "logStrength": 10,
+        "noiseFloor": 0.001, "peakNormalize": true,
+        "colorMode": "rgb_blend",
+        "lowColor": "#ff0000", "midColor": "#00ff00", "highColor": "#0000ff",
+        "saturation": 1.0, "brightness": 1.0, "minBrightness": 0.0
+      }
+    }
+  ]
+}
+```
+
+Frontend types: `frontend/src/types/waveformPreset.ts` (`WaveformPreset`, `WaveformRenderParams`, `WaveformPresetsResponse`).
+Store: `frontend/src/stores/waveformPresetStore.ts` (independent Zustand store).
+API hooks: `frontend/src/api/waveformPresets.ts` (TanStack Query).
+
 ## Change Protocol
 
 Any change to these contracts requires:

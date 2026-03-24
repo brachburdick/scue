@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import type { RGBWaveform, TrackAnalysis, TrackListResponse } from "../types";
+import type { TrackEventsResponse } from "../types/events";
 
 export interface TrackListParams {
   limit?: number;
@@ -67,5 +68,13 @@ export function usePioneerWaveform(
       apiFetch<RGBWaveform>(`/bridge/pioneer-waveform/${playerNumber}`),
     enabled: version > 0,
     staleTime: Infinity,
+  });
+}
+
+export function useTrackEvents(fingerprint: string | null) {
+  return useQuery<TrackEventsResponse>({
+    queryKey: ["track-events", fingerprint],
+    queryFn: () => apiFetch<TrackEventsResponse>(`/tracks/${fingerprint}/events`),
+    enabled: fingerprint !== null,
   });
 }

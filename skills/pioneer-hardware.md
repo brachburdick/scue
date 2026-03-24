@@ -46,6 +46,20 @@ Pioneer USB/SD → ANLZ files + exportLibrary.db → Parser → Enrichment → T
 - **XDJ-AZ track change detection:** Unlike CDJ-2000NXS2, XDJ-AZ does not transition `trackType` through `NO_TRACK` on track changes. Must combine multiple signals (CDJ status, track metadata change) for reliable detection.
 - **Pioneer data enrichment:** When enriching SCUE analysis with Pioneer data, NEVER overwrite — merge and log any divergence.
 
+## Hardware-Specific Reference
+
+### XDJ-AZ Specifics
+- Reports BLUE-style waveforms (single color channel), not THREE_BAND (RGB)
+- Reports garbage BPM (e.g., 658.63) when no track loaded — guard with `isTrackLoaded()`
+- Uses standard Pro DJ Link (not DLP/NFS like Opus Quad)
+- Network interface for DJ Link must be configured in `bridge.yaml` (not auto-detected)
+- macOS link-local route fix: `sudo route add -host 169.254.255.255 -interface <interface>`
+
+### Opus Quad / DLP Devices
+- No dbserver — requires CrateDigger NFS path for metadata/waveforms
+- WaveformFinder and other Finders that depend on dbserver won't work
+- Need alternative data access via NFS mount
+
 ## Anti-Patterns
 
 - Using rbox's Rust ANLZ parser for DLP files (use pure Python parser)

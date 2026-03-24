@@ -290,3 +290,12 @@ Context: Populating test fixtures with example tracks. Source library is `/Users
 Problem: The two locations use completely different directory structures for the same songs. Post-hibernation is flat, the USB backup is organized by artist with an `UnknownAlbum` subfolder for each. Cross-referencing requires manual name matching. This will be a recurring friction point for any tooling that needs both raw and rekordbox-processed versions of the same track.
 Fix/Pattern: TODO — unify the directory organization. Options: (1) restructure the source library to match rekordbox's artist-based layout, (2) create a mapping index (JSON/SQLite) that links source paths to USB export paths by fingerprint or filename, (3) normalize both into a single canonical structure.
 Prevention: When this is addressed, ensure the chosen structure works for both SCUE's test fixture population and any future batch processing workflows.
+
+## Tooling — Claude Preview / Launch Config
+
+### Preview tool uses project-level launch.json, not root-level
+Date: 2026-03-24
+Context: Starting dev servers via Claude Preview's `preview_start` tool.
+Problem: The root `THE_FACTORY/.claude/launch.json` names the SCUE servers `scue-backend` and `scue-frontend`, but the project-level `projects/DjTools/scue/.claude/launch.json` names them `backend` and `frontend`. The preview tool resolves names from the project-level file (since CWD is inside SCUE). Calling `preview_start("scue-backend")` fails with "No server named scue-backend found."
+Fix/Pattern: Use `backend` and `frontend` (the project-level names) when starting SCUE dev servers via the preview tool.
+Prevention: When creating launch configs, use short unambiguous names (`backend`, `frontend`) at the project level. The root-level config is for other tools (like the top-level CLAUDE.md). Don't prefix project names — the CWD context handles disambiguation.

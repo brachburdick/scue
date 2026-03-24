@@ -38,6 +38,38 @@ Pioneer CDJs/XDJs → Pro DJ Link (UDP) → beat-link (Java) → WebSocket → P
 - **XDJ-AZ track change detection:** `trackType` doesn't transition through `NO_TRACK` on XDJ-AZ. Must use multiple signals for detection.
 - **UDP broadcast reception on macOS:** Requires `IP_BOUND_IF` socket option.
 
+## API Reference (Key Classes)
+
+### CdjStatus (org.deepsymmetry.beatlink.CdjStatus)
+- `getEffectiveTempo()` → actual BPM as double (NOT BPM*100). Returns garbage (e.g., 658.63) when no track loaded — guard with `isTrackLoaded()` or `isPlaying()`
+- `getBeatNumber()` → current beat number in the track
+- `isPlaying()` → boolean, whether deck is actively playing
+- `isTrackLoaded()` → boolean (use to guard tempo/position calls)
+- `getTrackSourcePlayer()` → int, which player the track was loaded from
+- `getTrackSourceSlot()` → `CdjStatus.TrackSourceSlot` enum
+- `getRekordboxId()` → int, rekordbox track ID
+
+### TimeFinder (org.deepsymmetry.beatlink.data.TimeFinder)
+- `getTimeFor(CdjStatus)` → milliseconds position in track
+- UNRELIABLE over DLP/NFS connections — prefer computing position from beat_number + beatgrid Python-side
+- Must be started BEFORE MetadataFinder
+
+### Finder Start Order (critical)
+```
+TimeFinder → MetadataFinder → BeatGridFinder → WaveformFinder → AnalysisTagFinder
+```
+Dependencies flow left-to-right. Starting out of order causes silent failures.
+
+### WaveformFinder
+- XDJ-AZ produces BLUE-style waveforms (single color channel), NOT THREE_BAND (RGB)
+- `WaveformDetail.segmentHeight(i, max, ThreeBandLayer)` THROWS on BLUE-style — check style first
+- Opus Quad has no dbserver — WaveformFinder doesn't work via standard path (needs CrateDigger NFS)
+
+### pyrekordbox gotchas
+- Tempo field returns actual BPM (NOT BPM*100 like some Pioneer formats)
+- Time fields return seconds (NOT milliseconds)
+- `anlz.get("beat_grid")` returns a tuple, not a tag directly — unpack it
+
 ## Anti-Patterns
 
 - Using bare `python` to run bridge-related code (use `.venv/bin/python`)

@@ -7,10 +7,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from .api.audio import init_audio_api, router as audio_router
 from .api.bridge import init_bridge_api, router as bridge_router
 from .api.filesystem import init_filesystem_api, router as filesystem_router
+from .api.ground_truth import init_ground_truth_api, router as ground_truth_router
 from .api.network import init_network_api, router as network_router
+from .api.strata import init_strata_api, router as strata_router
 from .api.tracks import init_tracks_api, resume_incomplete_jobs, router as tracks_router
+from .api.waveform_presets import init_waveform_presets_api, router as waveform_presets_router
 from .api.usb import init_usb_api, router as usb_router
 from .api.ws import init_ws, router as ws_router
 from .api.ws_manager import WSManager
@@ -39,6 +43,10 @@ app.include_router(bridge_router)
 app.include_router(usb_router)
 app.include_router(network_router)
 app.include_router(ws_router)
+app.include_router(ground_truth_router)
+app.include_router(audio_router)
+app.include_router(strata_router)
+app.include_router(waveform_presets_router)
 
 
 _bridge_manager: BridgeManager | None = None
@@ -59,6 +67,20 @@ async def startup() -> None:
         audio_extensions=set(config.server.audio_extensions),
     )
     init_filesystem_api(audio_extensions=set(config.server.audio_extensions))
+
+    # Initialize waveform presets API
+    init_waveform_presets_api(Path("config/waveform-presets.yaml"))
+
+    # Initialize ground truth + audio APIs
+    gt_dir = Path("ground_truth")
+    init_ground_truth_api(gt_dir, tracks_dir)
+    init_audio_api(tracks_dir)
+
+    # Initialize Strata (arrangement analysis) API
+    from .layer1.strata.storage import StrataStore
+    strata_dir = Path("strata")
+    strata_store = StrataStore(strata_dir)
+    init_strata_api(strata_store, tracks_dir=tracks_dir, cache_path=cache_path)
 
     # Initialize Layer 1B: playback tracker
     store = TrackStore(tracks_dir)

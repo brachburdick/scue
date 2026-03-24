@@ -5,8 +5,15 @@ Automated lighting/laser/visual cue generation for live DJ sets.
 ## Key References
 -   Domain skills: `skills/`
 -   Feature specs & plans: `specs/feat-[name]/`
--   Research findings: `research/`
+-   Research findings: `research/` (also check portfolio-level `support/research/` at repo root)
 -   Protocol improvement proposals: `docs/agents/PROTOCOL_IMPROVEMENT.md`
+
+## ADR Convention
+When an ADR is superseded by a newer decision, add a banner at the top:
+```
+> **SUPERSEDED** by [ADR-0XX](link). The conclusions below may no longer apply.
+```
+When a dependency upgrade invalidates an ADR's assumptions, the upgrade commit should update or supersede the affected ADR.
 
 
 ## Stack
@@ -33,16 +40,30 @@ Decision log: docs/DECISIONS.md
 
 ## Commands
 ### Backend
-- `python -m pytest tests/test_bridge/` — bridge tests
-- `python -m pytest tests/test_layer1/` — Layer 1 tests
-- `python -m pytest tests/` — all tests
-- `uvicorn scue.main:app --reload` — run dev server
-- `python tools/mock_bridge.py` — replay captured bridge messages
+- `.venv/bin/python -m pytest tests/test_bridge/` — bridge tests
+- `.venv/bin/python -m pytest tests/test_layer1/` — Layer 1 tests
+- `.venv/bin/python -m pytest tests/` — all tests
+- `.venv/bin/uvicorn scue.main:app --reload` — run dev server
+- `.venv/bin/python tools/mock_bridge.py` — replay captured bridge messages
 
 ### Frontend
 - `cd frontend && npm run dev` — run frontend dev server
 - `cd frontend && npm run build` — production build
 - `cd frontend && npm run typecheck` — TypeScript type checking
+
+## Trigger Table
+
+| Task Pattern | Skill Location | Notes |
+|---|---|---|
+| SCUE session start / any SCUE work | `skills/codebase-orientation.md` | Load first. File map, data flows, gotchas. |
+| Audio analysis / beatgrid / rekordbox | `skills/audio-analysis.md` | Pioneer/Serato metadata |
+| Beat-link bridge / Pro DJ Link | `skills/beat-link-bridge.md` | Lifecycle, messages, API reference |
+| Pioneer hardware / CDJ / XDJ / DJM | `skills/pioneer-hardware.md` | Hardware variants, device specifics |
+| Frontend / React / TypeScript / Zustand | `skills/react-typescript-frontend.md` | SCUE component patterns |
+| Python / FastAPI / asyncio backend | `skills/python-fastapi.md` | Routers, testing, async patterns |
+| Waveform rendering / frequency color / amplitude scaling | `skills/waveform-rendering.md` | Psychoacoustics, Pioneer parity, preset system |
+| Editing WaveformCanvas / AnnotationTimeline / DeckWaveform | `skills/component-api-reference.md` | Props, draw pipeline, interactions |
+| Section review / boundary review / scoped review | `sections/SECTIONS.md` | Section map, contracts, coupling rules |
 
 ## Code Style
 ### Python
@@ -115,5 +136,7 @@ Categories: full-tracks, loops, one-shots, stems, edge-cases, pioneer enrichment
 Synthetic generators exist in `tests/test_layer1/test_analysis_edge_cases.py`.
 
 ## Known Issues & Patterns
-See LEARNINGS.md — read it before starting work.
+Read BOTH before starting work:
+- `LEARNINGS.md` — SCUE-specific project/domain knowledge (bridge, layers, hardware)
+- `../../LEARNINGS.md` — workspace/toolchain knowledge (Node, Vite, Tailwind, Python venv, Langfuse)
 See docs/bugs/ — per-layer bug logs for historical fixes.

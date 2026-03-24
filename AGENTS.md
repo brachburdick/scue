@@ -3,16 +3,11 @@
 Automated lighting/laser/visual cue generation for live DJ sets.
 
 ## Agent Workflow
--   Entry point for all agents: `AGENT_BOOTSTRAP.md`
--   Multi-agent workflow index: `docs/agents/README.md`
--   Role preambles: `docs/agents/preambles/` (COMMON_RULES, ORCHESTRATOR, ARCHITECT, RESEARCHER, DESIGNER, DEVELOPER, VALIDATOR)
--   Agent roster & scope definitions: `docs/agents/AGENT_ROSTER.md`
--   Handoff format contracts: `docs/agents/HANDOFF_CONTRACTS.md`
--   Artifact templates: `templates/` (handoff-packet, session-summary, spec, tasks, research-request, research-findings, validator-verdict)
--   Domain skill files: `skills/`
--   Feature specs, plans, tasks, sessions: `specs/feat-[name]/`
--   Research findings: `research/`
-
+- Entry point: project `CLAUDE.md` (loaded automatically by THE_FACTORY trigger table)
+- Codebase orientation: `skills/codebase-orientation.md` (loaded at session start for any SCUE work)
+- Domain skill files: `skills/` (loaded by trigger table based on task pattern)
+- Feature specs, plans, tasks, sessions: `specs/feat-[name]/`
+- Research findings: `research/`
 
 ## Stack
 - Python 3.11+, FastAPI, asyncio
