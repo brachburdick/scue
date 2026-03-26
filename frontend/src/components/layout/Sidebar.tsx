@@ -1,36 +1,70 @@
+import { useState } from "react";
 import { NavLink } from "react-router-dom";
 
-const navItems = [
+type NavItem =
+  | { to: string; label: string }
+  | { label: string; header: true; collapsible?: boolean };
+
+const navItems: NavItem[] = [
   { to: "/strata", label: "Strata" },
-  { to: "/analysis", label: "Analysis" },
   { to: "/live", label: "Live Monitor" },
   { label: "Data", header: true },
+  { to: "/ingestion", label: "Ingestion" },
   { to: "/data/db", label: "Tracks" },
   { to: "/data/bridge", label: "Bridge" },
   { to: "/data/enrichment", label: "Enrichment" },
   { label: "System", header: true },
   { to: "/logs", label: "Logs" },
   { to: "/network", label: "Network" },
-  { label: "Dev", header: true },
+  { label: "Archive", header: true, collapsible: true },
+  { to: "/analysis", label: "Analysis" },
   { to: "/dev/detectors", label: "Detectors" },
   { to: "/dev/annotate", label: "Annotate" },
   { to: "/dev/waveforms", label: "Waveforms" },
-] as const;
+];
 
 export function Sidebar() {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set(["Archive"]));
+
+  const toggleSection = (label: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  };
+
+  let currentSection: string | null = null;
+
   return (
     <nav className="w-48 shrink-0 border-r border-gray-800 bg-gray-950 py-4 flex flex-col gap-1">
       {navItems.map((item, i) => {
         if ("header" in item) {
+          currentSection = item.label;
+          const isCollapsible = item.collapsible === true;
+          const isCollapsed = collapsed.has(item.label);
           return (
             <div
               key={i}
-              className="px-4 pt-4 pb-1 text-xs font-semibold uppercase tracking-wider text-gray-500"
+              className={`px-4 pt-4 pb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 ${
+                isCollapsible ? "cursor-pointer select-none hover:text-gray-400 flex items-center gap-1" : ""
+              }`}
+              onClick={isCollapsible ? () => toggleSection(item.label) : undefined}
             >
+              {isCollapsible && (
+                <span className={`text-[10px] transition-transform ${isCollapsed ? "" : "rotate-90"}`}>
+                  ▶
+                </span>
+              )}
               {item.label}
             </div>
           );
         }
+
+        // Hide items under collapsed sections
+        if (currentSection && collapsed.has(currentSection)) return null;
+
         return (
           <NavLink
             key={item.to}

@@ -119,6 +119,11 @@ def analyze_stem(
         StemType.OTHER: "unknown",
     }
 
+    # 5. Compute RGB waveform for visualization
+    from ..waveform import compute_rgb_waveform
+    waveform = compute_rgb_waveform(signal, sr)
+    logger.info("Stem %s waveform: %d frames", stem_type.value, len(waveform.low))
+
     return StemAnalysis(
         stem_type=stem_type.value,
         audio_path=str(stem_path),
@@ -127,6 +132,7 @@ def analyze_stem(
         events=events,
         patterns=patterns,
         energy_curve=energy_curve,
+        waveform=waveform,
     )
 
 
@@ -208,84 +214,17 @@ def _detect_drum_events(
 ) -> tuple[list, list[AtomicEvent]]:
     """Run percussion detection on the isolated drum stem.
 
-    Uses the existing M7 heuristic detector infrastructure.
+    Uses multi-band onset detection (StemDrumDetector) — purpose-built for
+    isolated stems from demucs separation. Supports multi-label detection
+    (simultaneous kick+snare) and adaptive per-track thresholds.
 
     Returns:
-        Tuple of (M7 DrumPattern list, AtomicEvent list).
+        Tuple of (DrumPattern list, AtomicEvent list).
     """
-    from ..detectors.events import DetectorConfig, DrumPattern
-    from ..detectors.features import AudioFeatures, HOP_LENGTH, SR
-    from ..detectors.percussion_heuristic import PercussionHeuristicDetector
+    from ..detectors.percussion_stem import StemDrumDetector
 
-    import librosa
-
-    # Build AudioFeatures from the drum stem signal
-    features = AudioFeatures(signal=signal, sr=sr, hop_length=HOP_LENGTH)
-
-    # For percussion detection, the isolated drum stem IS the percussive component
-    features.y_percussive = signal
-
-    # Compute features the percussion detector needs
-    features.onset_strength = librosa.onset.onset_strength(y=signal, sr=sr, hop_length=HOP_LENGTH)
-    features.spectral_centroid = librosa.feature.spectral_centroid(
-        y=signal, sr=sr, hop_length=HOP_LENGTH,
-    )[0]
-
-    config = DetectorConfig(
-        active_strategies={"percussion": "heuristic"},
-        params={
-            "heuristic": {
-                # Lower thresholds for isolated stem (less interference)
-                "kick_low_band_threshold": 0.4,
-                "snare_mid_band_threshold": 0.35,
-                "hihat_high_band_threshold": 0.3,
-            }
-        },
-    )
-
-    detector = PercussionHeuristicDetector()
-    result = detector.detect(features, beats, downbeats, sections, config)
-
-    # Convert DrumPattern events to AtomicEvents
-    events: list[AtomicEvent] = []
-    for pattern in result.patterns:
-        for bar_idx in range(pattern.bar_start, pattern.bar_end):
-            local_bar = bar_idx - pattern.bar_start
-            offset = local_bar * 16
-            bar_time = downbeats[bar_idx] if bar_idx < len(downbeats) else 0.0
-
-            # Compute 16th note duration
-            if bar_idx + 1 < len(downbeats):
-                sixteenth = (downbeats[bar_idx + 1] - bar_time) / 16.0
-            elif len(beats) >= 2:
-                sixteenth = ((beats[-1] - beats[0]) / (len(beats) - 1)) / 4.0
-            else:
-                sixteenth = 0.03125  # ~120 BPM fallback
-
-            for slot in range(16):
-                abs_slot = offset + slot
-                timestamp = bar_time + slot * sixteenth
-
-                if abs_slot < len(pattern.kick) and pattern.kick[abs_slot]:
-                    events.append(AtomicEvent(
-                        type="kick", timestamp=timestamp, intensity=0.8,
-                        stem=StemType.DRUMS.value, beat_position=slot,
-                        bar_index=bar_idx, source="detector",
-                    ))
-                if abs_slot < len(pattern.snare) and pattern.snare[abs_slot]:
-                    events.append(AtomicEvent(
-                        type="snare", timestamp=timestamp, intensity=0.7,
-                        stem=StemType.DRUMS.value, beat_position=slot,
-                        bar_index=bar_idx, source="detector",
-                    ))
-                if abs_slot < len(pattern.clap) and pattern.clap[abs_slot]:
-                    events.append(AtomicEvent(
-                        type="clap", timestamp=timestamp, intensity=0.6,
-                        stem=StemType.DRUMS.value, beat_position=slot,
-                        bar_index=bar_idx, source="detector",
-                    ))
-
-    return result.patterns, events
+    detector = StemDrumDetector()
+    return detector.detect(signal, sr, beats, downbeats, sections)
 
 
 def _detect_bass_events(

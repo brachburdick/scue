@@ -77,7 +77,8 @@ Automated lighting/laser/visual cue generation for live DJ sets. 5-layer archite
 | `network.py` | REST: `GET /api/network/interfaces` (scored), `GET /api/network/route`, `POST /api/network/route/fix`, `GET /api/network/route/setup-status` |
 | `usb.py` | REST: `POST /api/usb/scan`, `GET /api/usb/status`, `GET /api/usb/pioneer-metadata` |
 | `filesystem.py` | REST: `GET /api/filesystem/browse` (server-side directory listing for folder picker UI) |
-| `ws.py` | WebSocket endpoint `/ws`. Sends `bridge_status` on every change + periodic `pioneer_status` every 2s. Dispatches `WSManager.broadcast()` |
+| `strata.py` | REST: Strata arrangement analysis CRUD + `GET /api/strata/live` (per-player live formulas from Pioneer hardware) |
+| `ws.py` | WebSocket endpoint `/ws`. Sends `bridge_status` on every change + periodic `pioneer_status` every 2s + `strata_live` on track load. Dispatches `WSManager.broadcast()` |
 | `ws_manager.py` | `WSManager`: manages WebSocket connections, broadcasts typed JSON to all connected frontend clients |
 | `jobs.py` | In-memory `AnalysisJob` tracker for batch analysis. Persisted to SQLite for restart survival |
 
@@ -115,6 +116,7 @@ Automated lighting/laser/visual cue generation for live DJ sets. 5-layer archite
 | `stores/analyzeStore.ts` | Batch analysis flow state (3-phase: path input -> scan -> progress) |
 | `stores/folderStore.ts` | Folder browser state for track organization |
 | `stores/uiStore.ts` | UI state (sidebar collapse, console toggle) |
+| `stores/strataLiveStore.ts` | Per-player live strata formulas from Pioneer hardware. Updated by strata_live WS messages |
 
 #### API / WebSocket
 | File | Responsibility |
@@ -199,6 +201,22 @@ Pioneer Hardware (Pro DJ Link UDP)
                   -> bridgeStore.setPioneerStatus() (pioneer_status messages)
                   -> consoleStore (all messages logged)
                     -> UI components re-render via Zustand selectors
+```
+
+### 1b. Bridge -> Live Strata (real-time arrangement analysis)
+```
+Pioneer phrase_analysis + beat_grid + track_waveform + cue_points
+  -> BridgeAdapter.handle_message() (accumulates on PlayerState)
+    -> PlaybackTracker.on_player_update() (tracking.py)
+      -> _try_build_live_strata() (retries until phrases + beat_grid available)
+        -> LiveStrataAnalyzer.build_from_pioneer() (live_analyzer.py)
+          -> ArrangementFormula (pipeline_tier="live", analysis_source="pioneer_live")
+            -> on_live_strata callback (main.py)
+              -> WSManager.broadcast({type: "strata_live"}) (fire-and-forget)
+                -> Frontend api/ws.ts -> strataLiveStore.setFormula()
+            -> GET /api/strata/live (REST polling fallback, 2s interval)
+              -> Frontend useLiveStrata() -> merges with WS store data
+                -> StrataPage (Live tier) -> ArrangementMap + playback cursor
 ```
 
 ### 2. Offline Analysis Pipeline

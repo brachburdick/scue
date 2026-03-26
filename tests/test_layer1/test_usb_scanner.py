@@ -33,6 +33,7 @@ from scue.layer1.usb_scanner import (
     _read_anlz_data,
     _try_custom_parser,
     _try_pyrekordbox,
+    _try_read_phrases,
     _try_read_waveforms,
     apply_pdb_only_scan,
     apply_scan_results,

@@ -38,19 +38,25 @@ const STATUS_CONFIG: Record<string, BannerConfig> = {
   waiting_for_hardware: { bg: "bg-blue-900/50", dotColor: "bg-blue-500", textColor: "text-blue-400", label: "Bridge: Waiting for Hardware" },
   not_initialized: { bg: "bg-gray-800", dotColor: "bg-gray-500", textColor: "text-gray-400", label: "Not Initialized" },
   ws_disconnected: { bg: "bg-gray-800", dotColor: "bg-gray-500", textColor: "text-gray-400", label: "Backend Unreachable" },
+  hw_disconnected: { bg: "bg-orange-900/50", dotColor: "bg-orange-500", textColor: "text-orange-400", label: "Hardware Disconnected" },
 };
 
 export function StatusBanner() {
   const status = useBridgeStore((s) => s.status);
   const wsConnected = useBridgeStore((s) => s.wsConnected);
   const isRecovering = useBridgeStore((s) => s.isRecovering);
+  const isHwDisconnected = useBridgeStore((s) => s.isHwDisconnected);
   const networkInterface = useBridgeStore((s) => s.networkInterface);
   const devices = useBridgeStore((s) => s.devices);
   const restartAttempt = useBridgeStore((s) => s.restartAttempt);
   const countdownSecondsRemaining = useBridgeStore((s) => s.countdownSecondsRemaining);
 
-  // S7 takes priority: WS disconnected overrides everything.
-  const effectiveKey = !wsConnected ? "ws_disconnected" : status;
+  // Priority: WS disconnected > hardware disconnected > bridge status.
+  const effectiveKey = !wsConnected
+    ? "ws_disconnected"
+    : isHwDisconnected
+      ? "hw_disconnected"
+      : status;
   const config = STATUS_CONFIG[effectiveKey] ?? STATUS_CONFIG.stopped;
   const deviceCount = Object.keys(devices).length;
   const iface = networkInterface ?? "unknown";
@@ -71,6 +77,9 @@ export function StatusBanner() {
         Bridge reconnected. Discovering devices on {iface}... <PulsingDot />
       </span>
     );
+  } else if (status === "running" && isHwDisconnected) {
+    // S8: hardware disconnected — running but no devices/traffic for 8s+
+    narrative = `Pioneer hardware disconnected from ${iface}. Reconnect a CDJ or DJM to resume.`;
   } else if (status === "running") {
     if (deviceCount > 0) {
       // S1

@@ -25,6 +25,22 @@ params:
     harmonic_ratio_threshold: 0.3   # harmonic/percussive energy ratio
     min_centroid_hz: 500            # minimum spectral centroid for stabs
     max_duration_ms: 200            # maximum stab duration
+  stem_percussion:
+    # Multi-band onset detection for isolated drum stems (Strata standard tier)
+    bands:
+      kick:  [20, 200]
+      snare: [200, 5000]
+      hihat: [5000, 16000]
+    sensitivity:                    # multiplier on median+std (higher = fewer detections)
+      kick: 1.5
+      snare: 1.5
+      hihat: 2.0
+    min_ioi_ms:                     # minimum inter-onset interval (ms)
+      kick: 60
+      snare: 60
+      hihat: 30
+    max_snap_error_ms: 25           # max ms from 16th-note grid to accept onset
+    adaptive_window_bars: 8         # bars used for adaptive threshold calibration
 
 # Section-aware priors: multipliers applied to detection confidence
 # based on the section label. Values > 1.0 boost, < 1.0 suppress.

@@ -12,16 +12,26 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * WebSocket server that broadcasts JSON messages to all connected Python clients.
+ * WebSocket server that broadcasts JSON messages to all connected Python clients
+ * and routes incoming command messages to the CommandHandler.
  */
 public class BridgeWebSocketServer extends WebSocketServer {
 
     private static final Logger log = LoggerFactory.getLogger(BridgeWebSocketServer.class);
     private final Set<WebSocket> clients = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private CommandHandler commandHandler;
 
     public BridgeWebSocketServer(int port) {
         super(new InetSocketAddress("localhost", port));
         setReuseAddr(true);
+    }
+
+    /**
+     * Set the command handler for processing incoming messages.
+     * Must be called after construction, before commands are expected.
+     */
+    public void setCommandHandler(CommandHandler handler) {
+        this.commandHandler = handler;
     }
 
     @Override
@@ -38,7 +48,11 @@ public class BridgeWebSocketServer extends WebSocketServer {
 
     @Override
     public void onMessage(WebSocket conn, String message) {
-        // We don't expect messages from clients
+        if (commandHandler != null) {
+            commandHandler.handleCommand(message);
+        } else {
+            log.warn("Received message but no CommandHandler registered: {}", message);
+        }
     }
 
     @Override

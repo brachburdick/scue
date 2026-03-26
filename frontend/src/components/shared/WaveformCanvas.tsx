@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from "react";
 import type { RGBWaveform, Section, WaveformRenderParams } from "../../types";
 import { drawBeatgridLines } from "./drawBeatgridLines";
+import { pioneerColor } from "../../utils/pioneerColor";
 
 // --- Color constants ---
 
@@ -77,6 +78,9 @@ export interface WaveformCanvasProps {
 
   /** Optional rendering params from waveform preset system */
   renderParams?: WaveformRenderParams;
+
+  /** Left padding in pixels (for alignment with ArrangementMap labels) */
+  leftPadding?: number;
 }
 
 // --- Helpers ---
@@ -149,6 +153,7 @@ export function WaveformCanvas({
   onViewChange,
   height = 160,
   renderParams,
+  leftPadding = 0,
 }: WaveformCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -158,6 +163,15 @@ export function WaveformCanvas({
   const dragStartX = useRef(0);
   const dragStartViewStart = useRef(0);
   const dragStartViewEnd = useRef(0);
+  // Refs for native wheel handler (avoids stale closures)
+  const viewStartRef = useRef(viewStart);
+  const viewEndRef = useRef(viewEnd);
+  const durationRef = useRef(duration);
+  const onViewChangeRef = useRef(onViewChange);
+  viewStartRef.current = viewStart;
+  viewEndRef.current = viewEnd;
+  durationRef.current = duration;
+  onViewChangeRef.current = onViewChange;
 
   // Render function
   const render = useCallback(() => {
@@ -179,15 +193,16 @@ export function WaveformCanvas({
     ctx.clearRect(0, 0, w, h);
 
     const viewDuration = viewEnd - viewStart;
-    if (viewDuration <= 0 || w <= 0) return;
+    const drawW = w - leftPadding;
+    if (viewDuration <= 0 || drawW <= 0) return;
 
     // --- Section overlays (behind waveform) ---
     if (sections) {
       for (let i = 0; i < sections.length; i++) {
         const sec = sections[i];
-        const x1 = Math.max(0, timeToX(sec.start, viewStart, viewEnd, w));
-        const x2 = Math.min(w, timeToX(sec.end, viewStart, viewEnd, w));
-        if (x2 <= 0 || x1 >= w) continue;
+        const x1 = Math.max(leftPadding, leftPadding + timeToX(sec.start, viewStart, viewEnd, drawW));
+        const x2 = Math.min(w, leftPadding + timeToX(sec.end, viewStart, viewEnd, drawW));
+        if (x2 <= leftPadding || x1 >= w) continue;
 
         const isHighlighted = highlightedSection === i || selectedSection === i;
         const fill = isHighlighted
@@ -241,7 +256,7 @@ export function WaveformCanvas({
     const sampleCount = endSample - startSample;
 
     if (sampleCount > 0) {
-      const samplesPerPixel = sampleCount / w;
+      const samplesPerPixel = sampleCount / drawW;
       const centerY = h / 2;
 
       // Extract render params (or use defaults)
@@ -365,6 +380,41 @@ export function WaveformCanvas({
           };
         }
 
+        // Pioneer color mode v4: direct RGB from band amplitudes
+        //
+        // Key insight from 22+ reference photos: Pioneer uses something close
+        // to standard RGB mapping (Low→R, Mid→G, High→B) with the raw band
+        // amplitudes driving color directly — NOT normalized to ratios.
+        //
+        // This naturally produces:
+        //   - Red:     bass-only (kicks)
+        //   - Orange:  bass+mid (warm sections)
+        //   - Cyan:    mid+high (synths+hats)
+        //   - Lavender/white: all three bands high
+        //   - Blue:    high-only (cymbals, air)
+        //   - Purple:  bass+high (sub+hats, no mid)
+        //
+        // Per-bar variance comes from NOT smoothing — each sample's raw
+        // band values directly determine its unique color.
+        if (colorMode === "pioneer") {
+          if (amplitude < 0.001) return null;
+
+          // Shared Pioneer color mapping — see utils/pioneerColor.ts
+          const { r, g, b } = pioneerColor(low, mid, high);
+
+          // Bar height = overall amplitude (separate from color)
+          const barH = clamp01(
+            applyAmplitudeScale(
+              peakNorm ? amplitude / globalPeak : amplitude,
+              ampScale,
+              gammaVal,
+              logStr,
+            ),
+          );
+
+          return { mode: "single" as const, r, g, b, barH };
+        }
+
         // rgb_blend (default)
         if (amplitude < 0.001) return null;
         let r = low / amplitude;
@@ -436,15 +486,15 @@ export function WaveformCanvas({
             waveform.high[i] ?? 0,
           );
           if (!result) continue;
-          const x = timeToX(i / samplesPerSec, viewStart, viewEnd, w);
-          const barWidth = Math.max(1, w / sampleCount);
+          const x = leftPadding + timeToX(i / samplesPerSec, viewStart, viewEnd, drawW);
+          const barWidth = Math.max(1, drawW / sampleCount);
           drawBar(ctx, x, barWidth, result);
         }
       } else {
         // Downsample: one bar per pixel
-        for (let px = 0; px < w; px++) {
-          const time0 = viewStart + (px / w) * viewDuration;
-          const time1 = viewStart + ((px + 1) / w) * viewDuration;
+        for (let px = 0; px < drawW; px++) {
+          const time0 = viewStart + (px / drawW) * viewDuration;
+          const time1 = viewStart + ((px + 1) / drawW) * viewDuration;
           const s0 = Math.max(startSample, Math.floor(time0 * samplesPerSec));
           const s1 = Math.min(endSample, Math.ceil(time1 * samplesPerSec));
 
@@ -457,14 +507,14 @@ export function WaveformCanvas({
 
           const result = processBar(maxLow, maxMid, maxHigh);
           if (!result) continue;
-          drawBar(ctx, px, 1, result);
+          drawBar(ctx, leftPadding + px, 1, result);
         }
       }
     }
 
     // --- Beatgrid lines (on top of waveform, below overlays) ---
     if (beats?.length || downbeats?.length) {
-      drawBeatgridLines(ctx, beats ?? [], downbeats ?? [], viewStart, viewEnd, w, h);
+      drawBeatgridLines(ctx, beats ?? [], downbeats ?? [], viewStart, viewEnd, drawW, h, leftPadding);
     }
 
     // --- Energy curve overlay ---
@@ -475,8 +525,8 @@ export function WaveformCanvas({
       ctx.lineWidth = 1.5;
 
       let first = true;
-      for (let px = 0; px < w; px++) {
-        const time = viewStart + (px / w) * viewDuration;
+      for (let px = 0; px < drawW; px++) {
+        const time = viewStart + (px / drawW) * viewDuration;
         const energyIdx = time * energySamplesPerSec;
         const i0 = Math.floor(energyIdx);
         const i1 = Math.min(i0 + 1, energyCurve.length - 1);
@@ -485,10 +535,10 @@ export function WaveformCanvas({
         const y = h - val * h;
 
         if (first) {
-          ctx.moveTo(px, y);
+          ctx.moveTo(leftPadding + px, y);
           first = false;
         } else {
-          ctx.lineTo(px, y);
+          ctx.lineTo(leftPadding + px, y);
         }
       }
       ctx.stroke();
@@ -496,7 +546,7 @@ export function WaveformCanvas({
 
     // --- Cursor line ---
     if (cursorPosition != null && cursorPosition >= viewStart && cursorPosition <= viewEnd) {
-      const cx = timeToX(cursorPosition, viewStart, viewEnd, w);
+      const cx = leftPadding + timeToX(cursorPosition, viewStart, viewEnd, drawW);
 
       // Glow
       ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
@@ -514,7 +564,7 @@ export function WaveformCanvas({
       ctx.lineTo(cx, h);
       ctx.stroke();
     }
-  }, [waveform, sections, energyCurve, duration, highlightedSection, selectedSection, cursorPosition, beats, downbeats, viewStart, viewEnd, height, renderParams]);
+  }, [waveform, sections, energyCurve, duration, highlightedSection, selectedSection, cursorPosition, beats, downbeats, viewStart, viewEnd, height, renderParams, leftPadding]);
 
   // Observe resize
   useEffect(() => {
@@ -546,7 +596,8 @@ export function WaveformCanvas({
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (isDragging.current && onViewChange) {
         const dx = e.clientX - dragStartX.current;
-        const pixelsPerSec = widthRef.current / (dragStartViewEnd.current - dragStartViewStart.current);
+        const drawW = widthRef.current - leftPadding;
+        const pixelsPerSec = drawW / (dragStartViewEnd.current - dragStartViewStart.current);
         const dt = -dx / pixelsPerSec;
         let newStart = dragStartViewStart.current + dt;
         let newEnd = dragStartViewEnd.current + dt;
@@ -569,11 +620,12 @@ export function WaveformCanvas({
       if (!sections || !onSectionHover) return;
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const x = e.clientX - rect.left;
-      const time = xToTime(x, viewStart, viewEnd, widthRef.current);
+      const x = e.clientX - rect.left - leftPadding;
+      const drawW = widthRef.current - leftPadding;
+      const time = xToTime(x, viewStart, viewEnd, drawW);
       onSectionHover(sectionIndexAtTime(sections, time));
     },
-    [sections, onSectionHover, viewStart, viewEnd, duration, onViewChange],
+    [sections, onSectionHover, viewStart, viewEnd, duration, onViewChange, leftPadding],
   );
 
   const handleMouseDown = useCallback(
@@ -596,8 +648,9 @@ export function WaveformCanvas({
       // Click (not drag)
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const x = e.clientX - rect.left;
-      const time = xToTime(x, viewStart, viewEnd, widthRef.current);
+      const x = e.clientX - rect.left - leftPadding;
+      const drawW = widthRef.current - leftPadding;
+      const time = xToTime(x, viewStart, viewEnd, drawW);
 
       if (sections && onSectionClick) {
         const idx = sectionIndexAtTime(sections, time);
@@ -609,7 +662,7 @@ export function WaveformCanvas({
 
       onTimeClick?.(time);
     },
-    [sections, onSectionClick, onTimeClick, viewStart, viewEnd],
+    [sections, onSectionClick, onTimeClick, viewStart, viewEnd, leftPadding],
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -617,46 +670,34 @@ export function WaveformCanvas({
     onSectionHover?.(null);
   }, [onSectionHover]);
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLCanvasElement>) => {
-      if (!onViewChange) return;
+  // Native wheel handler (passive: false) to prevent page scroll while zooming
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handler = (e: WheelEvent) => {
+      if (!onViewChangeRef.current) return;
       e.preventDefault();
-
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const mouseX = e.clientX - rect.left;
-      const mouseTime = xToTime(mouseX, viewStart, viewEnd, widthRef.current);
-
+      const rect = canvas.getBoundingClientRect();
+      const drawW = widthRef.current - leftPadding;
+      const mouseX = e.clientX - rect.left - leftPadding;
+      const mouseTime = xToTime(mouseX, viewStartRef.current, viewEndRef.current, drawW);
       const zoomFactor = e.deltaY > 0 ? 1.2 : 1 / 1.2;
-      const viewDuration = viewEnd - viewStart;
+      const viewDuration = viewEndRef.current - viewStartRef.current;
       let newDuration = viewDuration * zoomFactor;
-
-      // Clamp zoom range
       const MIN_VIEW = 2;
-      newDuration = Math.max(MIN_VIEW, Math.min(duration, newDuration));
-
-      // Keep mouse position anchored
-      const mouseRatio = (mouseTime - viewStart) / viewDuration;
+      newDuration = Math.max(MIN_VIEW, Math.min(durationRef.current, newDuration));
+      const mouseRatio = (mouseTime - viewStartRef.current) / viewDuration;
       let newStart = mouseTime - mouseRatio * newDuration;
       let newEnd = newStart + newDuration;
-
-      // Clamp to bounds
-      if (newStart < 0) {
-        newEnd -= newStart;
-        newStart = 0;
-      }
-      if (newEnd > duration) {
-        newStart -= newEnd - duration;
-        newEnd = duration;
-      }
+      if (newStart < 0) { newEnd -= newStart; newStart = 0; }
+      if (newEnd > durationRef.current) { newStart -= newEnd - durationRef.current; newEnd = durationRef.current; }
       newStart = Math.max(0, newStart);
-      newEnd = Math.min(duration, newEnd);
-
-      onViewChange(newStart, newEnd);
-    },
-    [viewStart, viewEnd, duration, onViewChange],
-  );
+      newEnd = Math.min(durationRef.current, newEnd);
+      onViewChangeRef.current(newStart, newEnd);
+    };
+    canvas.addEventListener("wheel", handler, { passive: false });
+    return () => canvas.removeEventListener("wheel", handler);
+  }, [leftPadding]);
 
   const handleDoubleClick = useCallback(() => {
     onViewChange?.(0, duration);
@@ -671,7 +712,6 @@ export function WaveformCanvas({
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
-        onWheel={handleWheel}
         onDoubleClick={handleDoubleClick}
       />
     </div>

@@ -147,6 +147,7 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
                 sections={[]}
                 duration={pioneerWf.data.duration}
                 positionMs={player.playback_position_ms}
+                bpm={player.bpm}
               />
               <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-900/70 text-blue-300 border border-blue-700/50">
                 Pioneer
@@ -188,6 +189,7 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
                 sections={track.sections}
                 duration={track.duration}
                 positionMs={player.playback_position_ms}
+                bpm={player.bpm}
               />
               <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-900/70 text-blue-300 border border-blue-700/50">
                 Pioneer
@@ -216,6 +218,7 @@ export function DeckPanel({ deckNumber, player, bridgeOverride }: DeckPanelProps
             sections={track.sections}
             duration={track.duration}
             positionMs={player.playback_position_ms}
+            bpm={player.bpm}
           />
           <DeckMetadata player={player} analysis={track} />
           <LiveEventDisplay state={activeState} layout="vertical" className="mt-1" />

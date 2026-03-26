@@ -198,4 +198,28 @@ public class MessageEmitter {
         payload.put("hot_cues", hotCues);
         emit("cue_points", playerNumber, payload);
     }
+
+    // ── Command response (bidirectional channel) ─────────────────────────────
+
+    /**
+     * Emit a command_response message back to the requesting client.
+     *
+     * @param requestId    the request_id from the incoming command (for correlation)
+     * @param status       "ok" or "error"
+     * @param command      the command name that was executed
+     * @param data         command-specific response data
+     * @param errorMessage error detail (null if status is "ok")
+     */
+    public void emitCommandResponse(String requestId, String status, String command,
+                                     Map<String, Object> data, String errorMessage) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("request_id", requestId);
+        payload.put("status", status);
+        payload.put("command", command);
+        payload.put("data", data);
+        if (errorMessage != null) {
+            payload.put("error_message", errorMessage);
+        }
+        emit("command_response", null, payload);
+    }
 }

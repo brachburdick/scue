@@ -10,6 +10,10 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..models import RGBWaveform
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +168,7 @@ class StemAnalysis:
     events: list[AtomicEvent] = field(default_factory=list)
     patterns: list[Pattern] = field(default_factory=list)
     energy_curve: list[float] = field(default_factory=list)
+    waveform: "RGBWaveform | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +383,7 @@ def _transition_from_dict(d: dict) -> ArrangementTransition:
 
 
 def _stem_to_dict(s: StemAnalysis) -> dict:
-    return {
+    d: dict = {
         "stem_type": s.stem_type,
         "audio_path": s.audio_path,
         "layer_role": s.layer_role,
@@ -387,9 +392,30 @@ def _stem_to_dict(s: StemAnalysis) -> dict:
         "patterns": [_pattern_to_dict(p) for p in s.patterns],
         "energy_curve": s.energy_curve,
     }
+    if s.waveform is not None:
+        d["waveform"] = {
+            "sample_rate": s.waveform.sample_rate,
+            "duration": s.waveform.duration,
+            "low": s.waveform.low,
+            "mid": s.waveform.mid,
+            "high": s.waveform.high,
+        }
+    return d
 
 
 def _stem_from_dict(d: dict) -> StemAnalysis:
+    from ..models import RGBWaveform
+
+    wf_data = d.get("waveform")
+    waveform = None
+    if wf_data and isinstance(wf_data, dict):
+        waveform = RGBWaveform(
+            sample_rate=wf_data.get("sample_rate", 150),
+            duration=wf_data.get("duration", 0.0),
+            low=wf_data.get("low", []),
+            mid=wf_data.get("mid", []),
+            high=wf_data.get("high", []),
+        )
     return StemAnalysis(
         stem_type=d["stem_type"],
         audio_path=d.get("audio_path"),
@@ -398,6 +424,7 @@ def _stem_from_dict(d: dict) -> StemAnalysis:
         events=[_event_from_dict(e) for e in d.get("events", [])],
         patterns=[_pattern_from_dict(p) for p in d.get("patterns", [])],
         energy_curve=d.get("energy_curve", []),
+        waveform=waveform,
     )
 
 

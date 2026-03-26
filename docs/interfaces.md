@@ -20,6 +20,85 @@ class BridgeMessage:
 
 **bridge_status payload (v1.2.0):** Includes `network_interface`, `network_address`, `interface_candidates` (list of scored interface options), `warning`, and `error` fields. See `docs/ARCHITECTURE.md` and `scue/bridge/messages.py:BridgeStatusPayload` for the full schema.
 
+### Command channel (ADR-022)
+
+The bridge also accepts commands from Python over the same WebSocket. Commands are JSON objects; responses are `command_response` messages correlated by `request_id`.
+
+```python
+# Python → Java (command)
+{
+    "command": "load_track" | "browse_root_menu" | "browse_playlist" | "browse_all_tracks",
+    "request_id": "uuid",
+    "params": { ... }  # command-specific
+}
+
+# Java → Python (response, uses standard BridgeMessage envelope)
+BridgeMessage(
+    type="command_response",
+    payload={
+        "request_id": "uuid",
+        "status": "ok" | "error",
+        "command": "load_track",
+        "data": { ... },
+        "error_message": None | "..."
+    }
+)
+```
+
+Command sender: `scue/bridge/client.py:BridgeWebSocket.send_command()`
+Command handler: `bridge-java/.../CommandHandler.java`
+See `specs/feat-bridge-command-channel/spec.md` for the full protocol.
+
+### Scanner API (multi-deck)
+
+The track scanner supports 1-6 decks scanning in parallel from a shared work queue.
+
+```python
+# POST /api/scanner/start
+{
+    "player": 1,                    # player used for browsing + default scan deck
+    "slot": "usb",                  # "usb" | "sd"
+    "target_players": [1, 2],       # optional: which decks to use (default: [player])
+    "track_ids": [42001, 42002],    # optional: filter to these rekordbox IDs
+    "force_rescan": false
+}
+
+# GET /api/scanner/status → ScanProgress
+{
+    "status": "scanning",
+    "total": 100,
+    "scanned": 42,
+    "skipped": 5,
+    "errors": 1,
+    "deck_progress": {              # per-deck breakdown
+        "1": {"scanned": 22, "errors": 0, "current_track": "..."},
+        "2": {"scanned": 20, "errors": 1, "current_track": "..."}
+    }
+}
+```
+
+Data routing: Finder data callbacks route by `player_number` to per-deck `DeckCaptureSlot` instances. `CapturedTrackData.source_player` tracks which deck captured each track.
+
+Scanner orchestrator: `scue/layer1/scanner.py:TrackScanner`
+Scanner API: `scue/api/scanner.py`
+
+### Local Library Scanner
+
+Reads rekordbox ANLZ files from the local filesystem without hardware.
+
+```python
+# GET /api/local-library/detect → library info or 404
+{"path": "~/Library/Pioneer/rekordbox/share/PIONEER/USBANLZ", "dat_count": 342}
+
+# POST /api/local-library/scan
+{"path": null, "force_rescan": false}  # null = auto-detect
+```
+
+Persistence uses composite key `source_player="local"`, `source_slot="library"`.
+
+Scanner: `scue/layer1/rekordbox_scanner.py`
+API: `scue/api/local_library.py`
+
 ## Layer 1 -> Layer 2: DeckMix
 
 The DeckMix is the interface between Layer 1 and Layer 2.
@@ -158,6 +237,62 @@ Managed by `scue/api/ws.py` + `scue/api/ws_manager.py`. Frontend dispatch lives 
 
 Frontend types: `frontend/src/types/ws.ts` (`WSMessage` union), `frontend/src/types/bridge.ts` (payload shapes).
 Store: `frontend/src/stores/bridgeStore.ts` (independent Zustand store).
+
+### strata_live (on track load with Pioneer phrase data)
+
+```json
+{
+  "type": "strata_live",
+  "payload": {
+    "player_number": 2,
+    "formula": {
+      "fingerprint": "live_2004",
+      "version": 1,
+      "pipeline_tier": "live",
+      "analysis_source": "pioneer_live",
+      "stems": [ { "stem_type": "other", "waveform": { "low": [...], "mid": [...], "high": [...], "sample_rate": 150, "duration": 180.0 }, "activity": [...], "events": [], "patterns": [], "energy_curve": [...] } ],
+      "patterns": [],
+      "sections": [ { "section_label": "intro", "section_start": 0.0, "section_end": 15.3, "energy_level": 0.3, "energy_trend": "rising", ... } ],
+      "transitions": [ { "type": "energy_shift", "timestamp": 15.3, "energy_delta": 0.45, ... } ],
+      "total_layers": 1,
+      "total_patterns": 0,
+      "arrangement_complexity": 0.5
+    }
+  }
+}
+```
+
+- Fires when `PlaybackTracker` builds an `ArrangementFormula` from Pioneer phrase analysis + beat grid + waveform data. Constructed by `LiveStrataAnalyzer.build_from_pioneer()`.
+- Broadcast is fire-and-forget — clients that connect after the broadcast use the `GET /api/strata/live` REST endpoint to fetch the current state.
+- `fingerprint` is synthetic: `"live_{rekordbox_id}"` (no audio file hash available).
+- `patterns` is always empty (no audio = no pattern discovery).
+- `stems` contains a single "other" (mix) entry using the Pioneer RGB waveform.
+
+Frontend types: `frontend/src/types/ws.ts` (`WSStrataLive`).
+Store: `frontend/src/stores/strataLiveStore.ts` (independent Zustand store).
+
+## Backend -> Frontend: Live Strata REST API
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/strata/live` | GET | Get current live strata formulas for all active players |
+
+### Response shape
+
+```json
+{
+  "players": {
+    "2": { "fingerprint": "live_2004", "pipeline_tier": "live", "analysis_source": "pioneer_live", "sections": [...], "transitions": [...], ... }
+  }
+}
+```
+
+- Returns per-player `ArrangementFormula` objects built from Pioneer hardware data.
+- Players without sufficient data (no phrases or no beat grid) are omitted.
+- Frontend polls every 2s when the Live tier is selected via `useLiveStrata()` hook.
+- Complements the `strata_live` WS message: REST provides on-demand access, WS provides instant push.
+
+Frontend hook: `frontend/src/api/strata.ts` (`useLiveStrata()`).
 
 ## Backend -> Frontend: Network REST API
 

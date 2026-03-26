@@ -55,3 +55,20 @@ Root cause: `_run_analysis_task()` at `scue/api/tracks.py:153` calls `run_analys
 Fix: Wrap in `asyncio.to_thread(run_analysis, ...)` or use a `ProcessPoolExecutor`. One-line fix with big impact.
 File(s): scue/api/tracks.py (~line 153)
 Source: External code review 2026-03-20
+
+### demucs.api.Separator not available in demucs 4.0.1
+Date: 2026-03-24
+Milestone: Strata Phase 5
+**Symptom:** Standard tier analysis fails at stem separation step with `No module named 'demucs.api'`.
+**Root Cause:** `separation.py` used `demucs.api.Separator` which was introduced in a later version of demucs. Installed version is 4.0.1 which doesn't have the `api` submodule.
+**Fix:** Replaced with compatible API: `demucs.pretrained.get_model()` + `demucs.apply.apply_model()` + `demucs.audio.AudioFile`. These are available in demucs 4.0.x.
+**Files:** `scue/layer1/strata/separation.py`
+
+### PPTH parser reads len_path at wrong offset — local library scan returns 0 tracks
+Date: 2026-03-25
+Milestone: Bridge Command Channel
+**Symptom:** Local rekordbox library scan (`POST /api/local-library/scan`) returns `total_tracks: 0` despite detecting 6090 DAT files. All files fail PPTH parsing.
+**Root Cause:** `parse_anlz_file_path()` in `anlz_parser.py` read `len_path` at offset `header_len` (typically 16) instead of the correct offset 12. At offset 16, it was reading the first bytes of the path string as a u32, producing a huge bogus length (e.g. 4128835) that exceeded the section size.
+**Fix:** Changed `len_path` read from `struct.unpack_from(">I", section_data, header_len)` to `struct.unpack_from(">I", section_data, 12)`. Path bytes start at offset 16 (12 + 4). PPTH layout: tag(4) + header_len(4) + total_len(4) + len_path(4) + path_bytes.
+**Note:** Unit tests passed with the old code because the synthetic test data used `header_len=16`, which happened to coincide with offset 12+4. Real rekordbox files exposed the bug.
+**Files:** `scue/layer1/anlz_parser.py`

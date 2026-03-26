@@ -45,6 +45,7 @@ class UsbTrack:
     cue_points: list[dict] = field(default_factory=list)
     memory_points: list[dict] = field(default_factory=list)
     hot_cues: list[dict] = field(default_factory=list)
+    phrases: list[dict] = field(default_factory=list)
     # Pioneer ANLZ waveform data (raw bytes, base64-encoded for storage)
     waveform_pwv5: bytes = b""  # Color detail (3-bit RGB + 5-bit height, 2 bytes/entry)
     waveform_pwv3: bytes = b""  # Monochrome detail (5-bit height + 3-bit intensity, 1 byte/entry)
@@ -253,6 +254,7 @@ def _read_anlz_data(track: UsbTrack, anlz_dir: Path, anlz_path: str) -> None:
 
     # Read waveform data from .EXT and .2EX files (separate from .DAT)
     _try_read_waveforms(track, dat_path)
+    _try_read_phrases(track, dat_path)
 
 
 def _try_pyrekordbox(track: UsbTrack, dat_path: Path) -> bool:
@@ -315,6 +317,18 @@ def _try_pyrekordbox(track: UsbTrack, dat_path: Path) -> bool:
                     track.memory_points.append(cue)
     except Exception as e:
         logger.debug("pyrekordbox cue read failed for track %d: %s", track.rekordbox_id, e)
+
+    # Phrase analysis — PSSI tag (from .EXT/.2EX, may not be in .DAT)
+    try:
+        pssi_tag = anlz.get_tag("PSSI")
+        if pssi_tag is not None and hasattr(pssi_tag, 'content'):
+            # pyrekordbox PSSI support varies by version — extract if available
+            entries = getattr(pssi_tag.content, 'entries', None)
+            if entries:
+                # TODO: map pyrekordbox PSSI entries to our phrase format
+                pass
+    except Exception as e:
+        logger.debug("pyrekordbox PSSI read failed for track %d: %s", track.rekordbox_id, e)
 
     logger.debug(
         "pyrekordbox parsed track %d: %d beats, %d hot cues, %d memory cues",
@@ -421,6 +435,37 @@ def _try_read_waveforms(track: UsbTrack, dat_path: Path) -> None:
                 logger.debug("PWV7 read failed for track %d: %s", track.rekordbox_id, e)
         except Exception:
             logger.debug("Failed to parse .2EX file for track %d", track.rekordbox_id)
+
+
+def _try_read_phrases(track: UsbTrack, dat_path: Path) -> None:
+    """Read phrase analysis (PSSI) from .EXT and .2EX ANLZ files.
+
+    PSSI data lives in extension files, not .DAT. Try .EXT first, then .2EX.
+    Skips if track.phrases is already populated (e.g. by pyrekordbox Tier 1).
+    """
+    if track.phrases:
+        return  # Already populated by pyrekordbox
+
+    from .anlz_parser import AnlzParseError, parse_anlz_phrases
+
+    for suffix in (".EXT", ".2EX"):
+        ext_path = dat_path.with_suffix(suffix)
+        if not ext_path.exists():
+            continue
+        try:
+            phrases = parse_anlz_phrases(ext_path)
+            if phrases:
+                track.phrases = phrases
+                logger.debug(
+                    "Read %d phrases from %s for track %d",
+                    len(phrases), suffix, track.rekordbox_id,
+                )
+                return
+        except AnlzParseError as e:
+            logger.debug(
+                "PSSI parse failed for track %d from %s: %s",
+                track.rekordbox_id, suffix, e,
+            )
 
 
 def match_usb_tracks(
@@ -574,6 +619,7 @@ def apply_scan_results(
             "cue_points": t.cue_points,
             "memory_points": t.memory_points,
             "hot_cues": t.hot_cues,
+            "phrases": t.phrases,
             "file_path": t.file_path,
             "scan_timestamp": result.scan_timestamp,
             "waveform_pwv5": t.waveform_pwv5,
@@ -606,6 +652,7 @@ def apply_scan_results(
                     "cue_points": t.cue_points,
                     "memory_points": t.memory_points,
                     "hot_cues": t.hot_cues,
+                    "phrases": t.phrases,
                     "file_path": t.file_path,
                     "scan_timestamp": result.scan_timestamp,
                     "waveform_pwv5": t.waveform_pwv5,
@@ -666,6 +713,7 @@ def apply_pdb_only_scan(
             "artist": t.artist,
             "bpm": t.bpm,
             "key_name": t.key,
+            "phrases": t.phrases,
             "file_path": t.file_path,
             "scan_timestamp": time.time(),
         }, source_player="devicesql", source_slot="usb")

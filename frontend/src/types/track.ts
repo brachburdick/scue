@@ -71,6 +71,11 @@ export interface TrackSummary {
   key_name: string;
   created_at: number;
   folder: string;
+  has_quick?: boolean;
+  has_standard?: boolean;
+  has_deep?: boolean;
+  has_live?: boolean;
+  has_live_offline?: boolean;
 }
 
 /** Full track analysis returned by GET /api/tracks/{fingerprint} (from JSON). */

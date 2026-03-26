@@ -34,6 +34,9 @@ def compute_rgb_waveform(
     signal: np.ndarray,
     sr: int = 22050,
     fps: int = WAVEFORM_FPS,
+    low_band: tuple[int, int] | None = None,
+    mid_band: tuple[int, int] | None = None,
+    high_band: tuple[int, int] | None = None,
 ) -> RGBWaveform:
     """Compute 3-band RGB waveform from audio signal.
 
@@ -41,11 +44,18 @@ def compute_rgb_waveform(
         signal: Mono audio signal.
         sr: Sample rate.
         fps: Output frames per second.
+        low_band: Optional custom low frequency range (Hz). Defaults to LOW_BAND.
+        mid_band: Optional custom mid frequency range (Hz). Defaults to MID_BAND.
+        high_band: Optional custom high frequency range (Hz). Defaults to HIGH_BAND.
 
     Returns:
         RGBWaveform with low/mid/high bands at the given fps.
     """
     import librosa
+
+    lb = low_band or LOW_BAND
+    mb = mid_band or MID_BAND
+    hb = high_band or HIGH_BAND
 
     duration = len(signal) / sr
     n_output_frames = int(duration * fps)
@@ -67,9 +77,9 @@ def compute_rgb_waveform(
             return np.zeros(stft.shape[1])
         return np.sqrt(np.mean(stft[mask] ** 2, axis=0))
 
-    low = _band_rms(*LOW_BAND)
-    mid = _band_rms(*MID_BAND)
-    high = _band_rms(*HIGH_BAND)
+    low = _band_rms(*lb)
+    mid = _band_rms(*mb)
+    high = _band_rms(*hb)
 
     # Resample to exact output frame count
     def _resample(arr: np.ndarray, target_len: int) -> np.ndarray:

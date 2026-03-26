@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from ..models import TrackAnalysis
@@ -119,7 +120,10 @@ class StrataEngine:
         return formula
 
     def analyze_standard(
-        self, fingerprint: str, analysis_version: int | None = None,
+        self,
+        fingerprint: str,
+        analysis_version: int | None = None,
+        progress_callback: Callable[[int, str], None] | None = None,
     ) -> ArrangementFormula:
         """Run the standard tier analysis.
 
@@ -139,7 +143,12 @@ class StrataEngine:
         start_time = time.time()
         logger.info("Strata standard tier: starting for %s", fingerprint[:16])
 
+        def _progress(step: int, name: str) -> None:
+            if progress_callback is not None:
+                progress_callback(step, name)
+
         # Stage A: Load track analysis (specific version or latest)
+        _progress(1, "Loading track analysis")
         if analysis_version is not None:
             analysis = self._track_store.load(fingerprint, version=analysis_version)
         else:
@@ -152,12 +161,14 @@ class StrataEngine:
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
         # Stage B: Stem separation (cached)
+        _progress(2, "Stem separation (demucs)")
         logger.info("  Stage B: Stem separation")
         separator = StemSeparator(strata_dir=self._strata_store.base_dir)
         stem_paths = separator.separate(audio_path, fingerprint)
         logger.info("  Stems: %s", [s.value for s in stem_paths.keys()])
 
         # Stage C: Per-stem analysis
+        _progress(3, "Per-stem analysis")
         logger.info("  Stage C: Per-stem analysis")
         stems: list[StemAnalysis] = []
         all_patterns: list[Pattern] = []
@@ -175,6 +186,7 @@ class StrataEngine:
             all_patterns.extend(stem_result.patterns)
 
         # Stage D: Cross-stem transition detection
+        _progress(4, "Cross-stem transitions")
         logger.info("  Stage D: Cross-stem transitions")
         cross_transitions = detect_cross_stem_transitions(
             stems, analysis.downbeats, analysis.sections,
@@ -190,6 +202,7 @@ class StrataEngine:
         transitions = _merge_transitions(cross_transitions, energy_transitions)
 
         # Stage E: Assembly
+        _progress(5, "Assembling formula")
         logger.info("  Stage E: Assembling formula")
         formula = self._assemble_standard(
             fingerprint=fingerprint,
@@ -217,6 +230,7 @@ class StrataEngine:
         fingerprint: str,
         tiers: list[str],
         analysis_version: int | None = None,
+        progress_callback: Callable[[int, str], None] | None = None,
     ) -> dict[str, ArrangementFormula]:
         """Run analysis for the requested tiers.
 
@@ -224,6 +238,7 @@ class StrataEngine:
             fingerprint: Track fingerprint.
             tiers: List of tier names to run.
             analysis_version: Specific TrackAnalysis version. If None, uses latest.
+            progress_callback: Optional callback for step progress (step_number, step_name).
 
         Returns a dict mapping tier name to ArrangementFormula.
         """
@@ -233,12 +248,61 @@ class StrataEngine:
             results["quick"] = self.analyze_quick(fingerprint, analysis_version=analysis_version)
 
         if "standard" in tiers:
-            results["standard"] = self.analyze_standard(fingerprint, analysis_version=analysis_version)
+            results["standard"] = self.analyze_standard(
+                fingerprint, analysis_version=analysis_version,
+                progress_callback=progress_callback,
+            )
+
+        if "live_offline" in tiers:
+            results["live_offline"] = self.analyze_live_offline(fingerprint)
 
         if "deep" in tiers:
             logger.info("Deep tier not yet implemented (Phase 6). Skipping.")
 
         return results
+
+    def analyze_live_offline(self, fingerprint: str) -> ArrangementFormula:
+        """Run the live_offline tier — rebuild from saved Pioneer data.
+
+        Reads the live_pioneer.json sidecar file (written by the live data
+        persistence feature) and feeds it through LiveStrataAnalyzer.
+
+        No audio files or hardware connection needed.
+        """
+        import json
+
+        from .live_analyzer import LiveStrataAnalyzer
+
+        start_time = time.time()
+        logger.info("Strata live_offline tier: starting for %s", fingerprint[:16])
+
+        # Look for saved Pioneer data sidecar
+        tracks_dir = self._track_store._base_dir
+        sidecar_path = tracks_dir / fingerprint / "live_pioneer.json"
+        if not sidecar_path.exists():
+            raise ValueError(
+                f"No saved Pioneer data for {fingerprint[:16]}. "
+                "Play the track on Pioneer hardware first to capture live data."
+            )
+
+        saved = json.loads(sidecar_path.read_text())
+        formula = LiveStrataAnalyzer.build_from_saved_data(fingerprint, saved)
+        if formula is None:
+            raise ValueError(
+                f"Saved Pioneer data for {fingerprint[:16]} is incomplete "
+                "(missing phrases or beat grid)."
+            )
+
+        formula.compute_time_seconds = round(time.time() - start_time, 4)
+
+        # Save as live_offline tier with pioneer_live source
+        self._strata_store.save(formula, "live_offline", source="pioneer_live")
+        elapsed = time.time() - start_time
+        logger.info(
+            "Strata live_offline tier complete: %d sections, %d transitions, %.3fs",
+            len(formula.sections), len(formula.transitions), elapsed,
+        )
+        return formula
 
     def _compute_energy(self, analysis: TrackAnalysis) -> EnergyAnalysis:
         """Compute energy analysis, loading audio features if needed."""

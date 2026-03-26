@@ -53,13 +53,19 @@ interface BridgeStoreState {
   // null when no countdown is active.
   countdownSecondsRemaining: number | null;
 
+  // Derived: true when status is "running" but devices are empty and
+  // isReceiving is false for more than 8 seconds. Indicates likely hardware
+  // disconnect after a period of normal operation.
+  isHwDisconnected: boolean;
+
   // Actions
   setWsConnected: (connected: boolean) => void;
   setBridgeState: (state: BridgeState) => void;
   setPioneerStatus: (isReceiving: boolean, ageMs: number, bridgeConnected: boolean) => void;
 }
 
-function computeDotStatus(status: BridgeStatus): DotStatus {
+function computeDotStatus(wsConnected: boolean, status: BridgeStatus): DotStatus {
+  if (!wsConnected) return "disconnected";
   if (status === "running") return "connected";
   if (status === "fallback" || status === "waiting_for_hardware") return "degraded";
   return "disconnected";
@@ -74,6 +80,7 @@ function computeIsStartingUp(wsConnected: boolean, status: BridgeStatus): boolea
 
 let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let countdownInterval: ReturnType<typeof setInterval> | null = null;
+let hwDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearRecoveryTimer(): void {
   if (recoveryTimer !== null) {
@@ -86,6 +93,44 @@ function clearCountdownInterval(): void {
   if (countdownInterval !== null) {
     clearInterval(countdownInterval);
     countdownInterval = null;
+  }
+}
+
+function clearHwDisconnectTimer(): void {
+  if (hwDisconnectTimer !== null) {
+    clearTimeout(hwDisconnectTimer);
+    hwDisconnectTimer = null;
+  }
+}
+
+function startHwDisconnectTimer(): void {
+  clearHwDisconnectTimer();
+  hwDisconnectTimer = setTimeout(() => {
+    hwDisconnectTimer = null;
+    useBridgeStore.setState({ isHwDisconnected: true });
+  }, 8_000);
+}
+
+/** Evaluate whether the hw-disconnect timer should be running or cleared. */
+function updateHwDisconnectState(
+  status: BridgeStatus,
+  devices: Record<string, DeviceInfo>,
+  isReceiving: boolean,
+): void {
+  const isRunning = status === "running";
+  const hasDevices = Object.keys(devices).length > 0;
+
+  if (isRunning && !hasDevices && !isReceiving) {
+    // Condition met — start timer if not already running.
+    if (hwDisconnectTimer === null && !useBridgeStore.getState().isHwDisconnected) {
+      startHwDisconnectTimer();
+    }
+  } else {
+    // Condition no longer met — clear timer and flag.
+    clearHwDisconnectTimer();
+    if (useBridgeStore.getState().isHwDisconnected) {
+      useBridgeStore.setState({ isHwDisconnected: false });
+    }
   }
 }
 
@@ -132,6 +177,7 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
   isStartingUp: true,
   isRecovering: false,
   countdownSecondsRemaining: null,
+  isHwDisconnected: false,
 
   setWsConnected: (connected: boolean) =>
     set((prev) => {
@@ -139,24 +185,29 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
         // WS disconnected — clear all timers and recovery state.
         clearRecoveryTimer();
         clearCountdownInterval();
+        clearHwDisconnectTimer();
       }
+      const newStatus = connected ? prev.status : "not_initialized";
       return {
         wsConnected: connected,
-        isStartingUp: computeIsStartingUp(connected, prev.status),
-        // Clear stale device/player data on WS disconnect so components
-        // show empty state instead of last-known values.
+        isStartingUp: computeIsStartingUp(connected, newStatus),
+        dotStatus: computeDotStatus(connected, newStatus),
+        // Clear stale device/player data and status on WS disconnect so
+        // components show empty state instead of last-known values.
         ...(connected
           ? {}
           : {
+              status: "not_initialized" as BridgeStatus,
               devices: {},
               players: {},
               isRecovering: false,
               countdownSecondsRemaining: null,
+              isHwDisconnected: false,
             }),
       };
     }),
 
-  setBridgeState: (state: BridgeState) =>
+  setBridgeState: (state: BridgeState) => {
     set((prev) => {
       const isRunning = state.status === "running";
       const wasNonRunning = NON_RUNNING_STATUSES.has(prev.status);
@@ -216,17 +267,25 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
         routeWarning: state.route_warning,
         devices,
         players: isRunning ? state.players : {},
-        dotStatus: computeDotStatus(state.status),
+        dotStatus: computeDotStatus(prev.wsConnected, state.status),
         isStartingUp: computeIsStartingUp(prev.wsConnected, state.status),
         isRecovering,
       };
-    }),
+    });
+    // Post-set: evaluate hw-disconnect timer with committed state.
+    const s = useBridgeStore.getState();
+    updateHwDisconnectState(s.status, s.devices, s.isReceiving);
+  },
 
-  setPioneerStatus: (isReceiving: boolean, ageMs: number, bridgeConnected: boolean) =>
+  setPioneerStatus: (isReceiving: boolean, ageMs: number, bridgeConnected: boolean) => {
     set((prev) => ({
       isReceiving,
       lastMessageAgeMs: ageMs,
       bridgeConnected,
-      dotStatus: computeDotStatus(prev.status),
-    })),
+      dotStatus: computeDotStatus(prev.wsConnected, prev.status),
+    }));
+    // Post-set: pioneer liveness changes affect hw-disconnect detection.
+    const s = useBridgeStore.getState();
+    updateHwDisconnectState(s.status, s.devices, s.isReceiving);
+  },
 }));

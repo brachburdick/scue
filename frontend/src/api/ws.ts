@@ -8,10 +8,13 @@ import type { WSMessage } from "../types";
 import type { BridgeStatus } from "../types/bridge";
 import { useBridgeStore } from "../stores/bridgeStore";
 import { useConsoleStore } from "../stores/consoleStore";
+import { useIngestionStore } from "../stores/ingestionStore";
+import { useStrataLiveStore } from "../stores/strataLiveStore";
 import { mapWSMessageToEntries, resetMapperState } from "../utils/consoleMapper";
 import { queryClient } from "./queryClient";
 
-const WS_URL = `ws://${window.location.hostname}:8000/ws`;
+const WS_PORT = import.meta.env.VITE_WS_PORT ?? "8000";
+const WS_URL = `ws://${window.location.hostname}:${WS_PORT}/ws`;
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -54,6 +57,29 @@ function dispatch(msg: WSMessage): void {
           msg.payload.bridge_connected,
         );
       break;
+    case "strata_live":
+      useStrataLiveStore
+        .getState()
+        .setFormula(msg.payload.player_number, msg.payload.formula);
+      break;
+    case "scan_progress": {
+      const status = msg.payload?.status;
+      if (status === "completed" || status === "failed") {
+        // Terminal state — mark scan complete and refresh caches
+        useIngestionStore.getState().setScanComplete(msg.payload);
+        queryClient.invalidateQueries({ queryKey: ["tracks"] });
+        queryClient.invalidateQueries({ queryKey: ["scanner", "history"] });
+      } else {
+        useIngestionStore.getState().setScanProgress(msg.payload);
+      }
+      break;
+    }
+    case "scan_complete":
+      // Backend doesn't currently emit this, but keep for forward compat
+      useIngestionStore.getState().setScanComplete(msg.payload);
+      queryClient.invalidateQueries({ queryKey: ["tracks"] });
+      queryClient.invalidateQueries({ queryKey: ["scanner", "history"] });
+      break;
   }
   dispatchToConsole(msg);
 }
@@ -73,10 +99,22 @@ function onOpen(): void {
   });
 }
 
+/** Runtime type guard — validates WS message has required shape before dispatch. */
+function isWSMessage(data: unknown): data is WSMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "type" in data &&
+    "payload" in data &&
+    typeof (data as Record<string, unknown>).type === "string"
+  );
+}
+
 function onMessage(event: MessageEvent): void {
   try {
-    const msg = JSON.parse(event.data) as WSMessage;
-    dispatch(msg);
+    const parsed: unknown = JSON.parse(event.data);
+    if (!isWSMessage(parsed)) return;
+    dispatch(parsed);
   } catch {
     // Ignore malformed messages
   }

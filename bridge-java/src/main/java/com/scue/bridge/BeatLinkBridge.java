@@ -58,6 +58,7 @@ public class BeatLinkBridge {
 
     private BridgeWebSocketServer wsServer;
     private MessageEmitter emitter;
+    private CommandHandler commandHandler;
     private volatile boolean running = true;
     private volatile boolean beatLinkConnected = false;
 
@@ -82,10 +83,17 @@ public class BeatLinkBridge {
     }
 
     public void start() throws Exception {
+        // Step 1.5: Check for stale bridge process holding the port (Bug #13 compounding issue)
+        checkPortAvailable(port);
+
         // Step 2: Start WebSocket server BEFORE beat-link
         wsServer = new BridgeWebSocketServer(port);
         wsServer.start();
         emitter = new MessageEmitter(wsServer);
+
+        // Set up bidirectional command channel
+        commandHandler = new CommandHandler(emitter);
+        wsServer.setCommandHandler(commandHandler);
 
         // Step 3: Emit initial bridge_status
         emitter.emitBridgeStatus(false, 0, VERSION, null, null, null, null, null);
@@ -543,7 +551,21 @@ public class BeatLinkBridge {
 
     private void handleCdjStatus(CdjStatus status) {
         int pn = status.getDeviceNumber();
-        boolean noTrack = status.getTrackType() == CdjStatus.TrackType.NO_TRACK;
+
+        // DLP-aware track presence detection (Bug #13).
+        // On DLP devices (XDJ-AZ, Opus Quad, etc.), CdjStatus.getTrackType() returns
+        // NO_TRACK even when a track is loaded and playing. We infer track presence
+        // from rekordboxId or playing state instead.
+        boolean dlp = dlpDeviceIps.contains(status.getAddress().getHostAddress());
+        boolean rawNoTrack = status.getTrackType() == CdjStatus.TrackType.NO_TRACK;
+        boolean noTrack;
+        if (dlp && rawNoTrack) {
+            // On DLP hardware, override NO_TRACK when evidence of a loaded track exists
+            noTrack = status.getRekordboxId() == 0 && !status.isPlaying();
+        } else {
+            noTrack = rawNoTrack;
+        }
+
         double bpm = noTrack ? 0.0 : status.getEffectiveTempo();
         double pitchPct = noTrack ? 0.0 : ((status.getPitch() / 1048576.0) - 1.0) * 100.0;
         int beatInBar = status.getBeatWithinBar();
@@ -551,9 +573,21 @@ public class BeatLinkBridge {
         String playState = getPlaybackState(status);
         boolean onAir = status.isOnAir();
         int srcPlayer = status.getTrackSourcePlayer();
-        String srcSlot = status.getTrackSourceSlot() != null
-            ? status.getTrackSourceSlot().name().toLowerCase()
-            : "unknown";
+        String srcSlot;
+        if (dlp && rawNoTrack && !noTrack) {
+            // DLP device with NO_TRACK but track is actually loaded — infer USB slot
+            srcSlot = status.getTrackSourceSlot() != null
+                ? status.getTrackSourceSlot().name().toLowerCase()
+                : "usb";
+            // Override "no_track" slot to "usb" since DLP doesn't populate this correctly
+            if ("no_track".equals(srcSlot)) {
+                srcSlot = "usb";
+            }
+        } else {
+            srcSlot = status.getTrackSourceSlot() != null
+                ? status.getTrackSourceSlot().name().toLowerCase()
+                : "unknown";
+        }
         String trackType = status.getTrackType() != null
             ? status.getTrackType().name().toLowerCase()
             : "unknown";
@@ -973,6 +1007,10 @@ public class BeatLinkBridge {
                 DeviceFinder.getInstance().stop();
             }
 
+            if (commandHandler != null) {
+                commandHandler.shutdown();
+            }
+
             if (wsServer != null) {
                 wsServer.stop(1000);
                 log.info("WebSocket server stopped");
@@ -982,6 +1020,24 @@ public class BeatLinkBridge {
         }
 
         log.info("Bridge stopped");
+    }
+
+    // ── Port availability check ──────────────────────────────────────────────
+
+    /**
+     * Check if the WebSocket port is available before attempting to start.
+     * If a stale bridge process from a prior session is holding the port,
+     * fail fast with a clear error instead of silently running without a port.
+     */
+    private static void checkPortAvailable(int port) {
+        try (ServerSocket testSocket = new ServerSocket()) {
+            testSocket.setReuseAddress(true);
+            testSocket.bind(new InetSocketAddress("localhost", port));
+            // Port is free — close the test socket and proceed
+        } catch (java.io.IOException e) {
+            log.error("Port {} already in use. Kill stale bridge process or choose a different port.", port);
+            System.exit(2);
+        }
     }
 
     // ── Main ────────────────────────────────────────────────────────────────

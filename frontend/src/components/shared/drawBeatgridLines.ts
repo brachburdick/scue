@@ -29,6 +29,7 @@ export function drawBeatgridLines(
   viewEnd: number,
   width: number,
   height: number,
+  leftPadding: number = 0,
 ): void {
   if (beats.length < 2 && downbeats.length < 2) return;
 
@@ -76,7 +77,7 @@ export function drawBeatgridLines(
       if (drawn.has(t)) continue;
       drawn.add(t);
 
-      const x = ((t - viewStart) / viewDuration) * width;
+      const x = leftPadding + ((t - viewStart) / viewDuration) * width;
       ctx.moveTo(x, 0);
       ctx.lineTo(x, height);
     }

@@ -18,7 +18,7 @@ export interface WaveformRenderParams {
   peakNormalize: boolean;
 
   // Color mapping
-  colorMode: "rgb_blend" | "three_band_overlap" | "mono_blue";
+  colorMode: "rgb_blend" | "three_band_overlap" | "mono_blue" | "pioneer";
   lowColor: string;
   midColor: string;
   highColor: string;

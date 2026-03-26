@@ -4,8 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import type {
   AnalysisSource,
+  AnalyzeStrataResult,
+  ArrangementFormula,
   ReanalyzeResponse,
   StrataAllTiersResponse,
+  StrataBatchStatus,
+  StrataJobStatus,
   StrataListResponse,
   StrataTier,
   StrataTierResponse,
@@ -54,15 +58,6 @@ export function useStrataTierWithSource(
   });
 }
 
-interface AnalyzeStrataResult {
-  fingerprint: string;
-  completed_tiers?: string[];
-  requested_tiers?: string[];
-  analysis_source?: string;
-  status: string;
-  message?: string;
-}
-
 export function useSaveStrata(fingerprint: string | null, tier: StrataTier) {
   const queryClient = useQueryClient();
   return useMutation<{ ok: boolean; tier: string }, Error, { formula: Record<string, unknown> }>({
@@ -95,6 +90,56 @@ export function useAnalyzeStrata(fingerprint: string | null) {
   });
 }
 
+/** Poll a strata analysis job for progress (standard/deep tiers). */
+export function useStrataJobStatus(jobId: string | null) {
+  return useQuery<StrataJobStatus>({
+    queryKey: ["strata-job", jobId],
+    queryFn: () => apiFetch<StrataJobStatus>(`/strata/jobs/${jobId}`),
+    enabled: !!jobId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (status === "complete" || status === "failed") return false;
+      return 1000;
+    },
+  });
+}
+
+/** Poll a strata batch job for progress. */
+export function useStrataBatchStatus(batchId: string | null) {
+  return useQuery<StrataBatchStatus>({
+    queryKey: ["strata-batch", batchId],
+    queryFn: () => apiFetch<StrataBatchStatus>(`/strata/batch/${batchId}`),
+    enabled: !!batchId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (status === "complete" || status === "failed") return false;
+      return 1500;
+    },
+  });
+}
+
+/** Trigger batch strata analysis for multiple tracks. */
+export function useAnalyzeStrataBatch() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    StrataBatchStatus,
+    Error,
+    { fingerprints: string[]; tiers: StrataTier[] }
+  >({
+    mutationFn: ({ fingerprints, tiers }) =>
+      apiFetch<StrataBatchStatus>("/strata/analyze-batch", {
+        method: "POST",
+        body: JSON.stringify({ fingerprints, tiers }),
+      }),
+    onSuccess: (data) => {
+      // Invalidate strata data for all affected fingerprints on completion
+      for (const job of data.jobs) {
+        queryClient.invalidateQueries({ queryKey: ["strata", job.fingerprint] });
+      }
+    },
+  });
+}
+
 export function useReanalyze(fingerprint: string | null) {
   const queryClient = useQueryClient();
   return useMutation<ReanalyzeResponse, Error>({
@@ -115,6 +160,26 @@ export function useTrackVersions(fingerprint: string | null) {
     queryFn: () =>
       apiFetch<TrackVersionsResponse>(`/tracks/${fingerprint}/versions`),
     enabled: fingerprint !== null,
+    retry: false,
+  });
+}
+
+/** Live strata response: per-player formulas from Pioneer hardware data. */
+interface LiveStrataResponse {
+  players: Record<string, ArrangementFormula>;
+}
+
+/**
+ * Poll live strata from all active players.
+ * Enabled only when the Live tier is selected + hardware is connected.
+ * Polls every 2s so the data stays fresh as tracks change.
+ */
+export function useLiveStrata(enabled: boolean) {
+  return useQuery<LiveStrataResponse>({
+    queryKey: ["strata-live"],
+    queryFn: () => apiFetch<LiveStrataResponse>("/strata/live"),
+    enabled,
+    refetchInterval: 2000,
     retry: false,
   });
 }

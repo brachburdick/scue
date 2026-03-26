@@ -40,6 +40,8 @@ export type {
 export type {
   WSBridgeStatus,
   WSPioneerStatus,
+  WSScanProgress,
+  WSScanComplete,
   WSMessage,
 } from "./ws";
 

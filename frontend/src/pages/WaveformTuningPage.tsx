@@ -7,7 +7,7 @@
  */
 
 import { useState, useCallback, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TrackPicker } from "../components/analysis/TrackPicker.tsx";
 import { WaveformCanvas } from "../components/shared/WaveformCanvas.tsx";
 import { ParameterControls } from "../components/waveformTuning/ParameterControls.tsx";
@@ -171,6 +171,26 @@ export function WaveformTuningPage() {
     [deleteMutation, storeRefetch],
   );
 
+  const queryClient = useQueryClient();
+
+  const recomputeMutation = useMutation({
+    mutationFn: async (params: { lowCrossover: number; highCrossover: number }) => {
+      const res = await fetch(`${API_BASE}/${fingerprint}/recompute-waveform`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          low_crossover: params.lowCrossover,
+          high_crossover: params.highCrossover,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["track", fingerprint] });
+    },
+  });
+
   const duration = analysis?.duration ?? 0;
   const currentParams = getRenderParams();
 
@@ -248,6 +268,40 @@ export function WaveformTuningPage() {
             params={currentParams}
             onParamChange={handleParamChange}
           />
+
+          {/* Re-analyze waveform button (for crossover changes) */}
+          {currentParams && (
+            <div className="flex items-center gap-3 bg-slate-800/50 rounded-lg px-4 py-3">
+              <div className="text-xs text-slate-400 flex-1">
+                Crossovers: {currentParams.lowCrossover ?? 200} / {currentParams.highCrossover ?? 2500} Hz
+                {((currentParams.lowCrossover ?? 200) !== 200 || (currentParams.highCrossover ?? 2500) !== 2500) && (
+                  <span className="text-yellow-400 ml-2">(differs from default — re-analyze for accurate rendering)</span>
+                )}
+              </div>
+              <button
+                onClick={() => recomputeMutation.mutate({
+                  lowCrossover: currentParams.lowCrossover ?? 200,
+                  highCrossover: currentParams.highCrossover ?? 2500,
+                })}
+                disabled={recomputeMutation.isPending}
+                className={`px-3 py-1.5 text-xs rounded transition-colors ${
+                  recomputeMutation.isPending
+                    ? "bg-teal-800 text-teal-300 cursor-wait"
+                    : "bg-teal-700 text-white hover:bg-teal-600"
+                }`}
+              >
+                {recomputeMutation.isPending ? "Re-analyzing..." : "Re-analyze Waveform"}
+              </button>
+              {recomputeMutation.isSuccess && (
+                <span className="text-green-400 text-xs">Done</span>
+              )}
+              {recomputeMutation.isError && (
+                <span className="text-red-400 text-xs">
+                  {recomputeMutation.error.message}
+                </span>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

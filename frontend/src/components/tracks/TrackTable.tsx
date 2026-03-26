@@ -7,6 +7,7 @@ import {
   flexRender,
   createColumnHelper,
   type SortingState,
+  type ColumnFiltersState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { TrackSummary, FolderInfo } from "../../types";
@@ -14,6 +15,48 @@ import { formatDuration, formatBpm, formatDate, truncateFingerprint } from "../.
 import { useFolderStore } from "../../stores/folderStore";
 
 const col = createColumnHelper<TrackSummary>();
+
+function TierDot({ active, color }: { active?: boolean; color: string }) {
+  return <span className={active ? color : "text-gray-700"}>●</span>;
+}
+
+const tierColumns = [
+  col.accessor("has_quick", {
+    header: "Q",
+    cell: (info) => <TierDot active={info.getValue()} color="text-blue-400" />,
+    size: 28,
+    filterFn: "equals",
+    enableColumnFilter: true,
+  }),
+  col.accessor("has_standard", {
+    header: "S",
+    cell: (info) => <TierDot active={info.getValue()} color="text-indigo-400" />,
+    size: 28,
+    filterFn: "equals",
+    enableColumnFilter: true,
+  }),
+  col.accessor("has_deep", {
+    header: "D",
+    cell: (info) => <TierDot active={info.getValue()} color="text-purple-400" />,
+    size: 28,
+    filterFn: "equals",
+    enableColumnFilter: true,
+  }),
+  col.accessor("has_live", {
+    header: "L",
+    cell: (info) => <TierDot active={info.getValue()} color="text-green-400" />,
+    size: 28,
+    filterFn: "equals",
+    enableColumnFilter: true,
+  }),
+  col.accessor("has_live_offline", {
+    header: "L-O",
+    cell: (info) => <TierDot active={info.getValue()} color="text-emerald-400" />,
+    size: 32,
+    filterFn: "equals",
+    enableColumnFilter: true,
+  }),
+];
 
 function makeFlatColumns(onFolderClick: (folder: string) => void) {
   return [
@@ -89,6 +132,7 @@ function makeFlatColumns(onFolderClick: (folder: string) => void) {
       ),
       size: 80,
     }),
+    ...tierColumns,
   ];
 }
 
@@ -145,6 +189,7 @@ const directoryColumns = [
     ),
     size: 80,
   }),
+  ...tierColumns,
 ];
 
 const ROW_HEIGHT = 37;
@@ -190,6 +235,7 @@ export function TrackTable({ data, globalFilter, folders = [], onAnalyzeFolder }
   const [sorting, setSorting] = useState<SortingState>([
     { id: "created_at", desc: true },
   ]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
   const columns = useMemo(
     () =>
@@ -216,8 +262,9 @@ export function TrackTable({ data, globalFilter, folders = [], onAnalyzeFolder }
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, globalFilter },
+    state: { sorting, globalFilter, columnFilters },
     onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
     globalFilterFn,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -251,19 +298,28 @@ export function TrackTable({ data, globalFilter, folders = [], onAnalyzeFolder }
         <thead className="sticky top-0 z-10">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id} className="border-b border-gray-800 bg-gray-900">
-              {hg.headers.map((header) => (
-                <th
-                  key={header.id}
-                  className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-200"
-                  style={{ width: header.getSize() }}
-                  onClick={header.column.getToggleSortingHandler()}
-                >
-                  <div className="flex items-center gap-1">
-                    {flexRender(header.column.columnDef.header, header.getContext())}
-                    <SortIndicator dir={header.column.getIsSorted()} />
-                  </div>
-                </th>
-              ))}
+              {hg.headers.map((header) => {
+                const isTierCol = header.column.id.startsWith("has_");
+                const tierFilterActive = isTierCol && header.column.getFilterValue() === true;
+                return (
+                  <th
+                    key={header.id}
+                    className={`px-3 py-2 text-left text-xs font-medium uppercase tracking-wider cursor-pointer select-none hover:text-gray-200 ${tierFilterActive ? "text-white bg-gray-800" : "text-gray-400"}`}
+                    style={{ width: header.getSize() }}
+                    onClick={
+                      isTierCol
+                        ? () => header.column.setFilterValue(tierFilterActive ? undefined : true)
+                        : header.column.getToggleSortingHandler()
+                    }
+                    title={isTierCol ? `Filter: ${tierFilterActive ? "showing all" : "only with this tier"}` : undefined}
+                  >
+                    <div className="flex items-center gap-1">
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {!isTierCol && <SortIndicator dir={header.column.getIsSorted()} />}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           ))}
         </thead>

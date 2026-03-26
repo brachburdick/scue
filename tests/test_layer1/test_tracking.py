@@ -291,3 +291,31 @@ class TestPlaybackTracker:
         c2 = tracker.on_player_update(p2)
         assert c2 is not None
         assert tracker.get_analysis(2).fingerprint == "fp_usb2"
+
+    def test_beatgrid_converted_to_seconds_for_enrichment(self, tmp_path: Path) -> None:
+        """Pioneer beatgrid time_ms values are converted to seconds before enrichment."""
+        analysis = _make_analysis(rekordbox_id=42001)
+        tracker, store, cache = _setup(tmp_path, [analysis])
+        cache.link_rekordbox_id(42001, analysis.fingerprint)
+
+        # Simulate cached Pioneer metadata with beatgrid in ms
+        beat_times_ms = [0.0, 468.75, 937.5, 1406.25]  # 128 BPM, ~468.75 ms/beat
+        pioneer_meta = {
+            "key_name": "",
+            "beatgrid": [{"beat_number": i + 1, "time_ms": t} for i, t in enumerate(beat_times_ms)],
+        }
+        cache.store_pioneer_metadata(42001, pioneer_meta, source_player="1", source_slot="usb")
+
+        player = _make_player(
+            rekordbox_id=42001, bpm=128.0,
+            track_source_player=1, track_source_slot="usb",
+        )
+        tracker.update_position(1, 15000.0)
+        tracker.on_player_update(player)
+
+        enriched = tracker.get_analysis(1)
+        assert enriched is not None
+        # Verify beats are in seconds (< 2s for first 4 beats at 128 BPM), not ms
+        if enriched.pioneer_beatgrid:
+            for beat_s in enriched.pioneer_beatgrid:
+                assert beat_s < 10.0, f"Beat {beat_s} looks like ms, not seconds"

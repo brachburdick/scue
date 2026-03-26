@@ -1,23 +1,25 @@
 # Section: analysis
 
 ## Purpose
-Offline audio analysis (section detection, beat tracking, waveform generation, event detection), live playback tracking, track storage, and USB scanning. The core domain logic of SCUE.
+Offline audio analysis (section detection, beat tracking, waveform generation, event detection), live playback tracking, track storage, and USB scanning. The core domain logic of SCUE, excluding arrangement analysis (see `strata` section).
 
 ## Owned Paths
 ```
 scue/layer1/            — models, storage, tracking, analysis, enrichment, fingerprint, etc.
 scue/layer1/detectors/  — pluggable M7 event detectors (percussion, tonal, features, etc.)
-scue/layer1/strata/     — arrangement segmentation (per-stem, energy, transitions, patterns)
-tests/test_layer1/      — all analysis + detector + strata tests
+tests/test_layer1/      — all analysis + detector tests (excluding test_strata_*)
 ```
+
+**Excludes:** `scue/layer1/strata/` and `tests/test_layer1/test_strata_*` (owned by `strata` section).
 
 ## Incoming Inputs
 - **From bridge section:** `DeviceInfo`, `PlayerState` types (consumed by `tracking.py`)
+- **From strata section:** `ArrangementFormula`, `LiveStrataAnalyzer` (consumed by `tracking.py` for live updates)
 - **From config:** `UsbConfig` from `scue/config/loader.py`
 - **From filesystem:** Audio files (MP3, WAV, FLAC), Pioneer USB exports (ANLZ files, exportLibrary.db)
 
 ## Outgoing Outputs
-- **Types:** `TrackAnalysis`, `TrackCursor`, `Section`, `RGBWaveform`, `MusicalEvent`, `DrumPattern`, `StrataFormula`
+- **Types:** `TrackAnalysis`, `TrackCursor`, `Section`, `RGBWaveform`, `MusicalEvent`, `DrumPattern`
 - **Storage:** JSON analysis files (source of truth), SQLite cache (derived)
 - **Callbacks:** `PlaybackTracker` accepts `on_player_update` / `on_track_loaded` from bridge adapter
 - **Functions:** `run_analysis()`, `run_reanalysis_pass()`, `compute_fingerprint()`
@@ -32,12 +34,13 @@ tests/test_layer1/      — all analysis + detector + strata tests
 
 ## Allowed Dependencies
 - `scue.bridge.adapter` — types only (DeviceInfo, PlayerState)
+- `scue.layer1.strata` — `ArrangementFormula`, `LiveStrataAnalyzer` (consumed by tracking.py)
 - `scue.config` — UsbConfig
 - Python stdlib, `librosa`, `allin1_mlx`, `ruptures`, `numpy`, `rbox`, `pyrekordbox`
 - No `layer2`, `layer3`, `layer4`, `api` imports
 
 ## How to Verify
 ```bash
-.venv/bin/python -m pytest tests/test_layer1/ -v
+.venv/bin/python -m pytest tests/test_layer1/ --ignore-glob='*strata*' -v
 ```
-435+ tests must pass. Tests use local audio fixtures (gitignored) and synthetic generators.
+Tests use local audio fixtures (gitignored) and synthetic generators.

@@ -120,6 +120,54 @@ class TrackStore:
             path.unlink()
             logger.info("Deleted: %s", path.name)
 
+    # ------------------------------------------------------------------
+    # Live Pioneer data persistence
+    # ------------------------------------------------------------------
+
+    def _live_data_path(self, fingerprint: str) -> Path:
+        """Path for the live Pioneer data sidecar file."""
+        track_dir = self.tracks_dir / fingerprint
+        return track_dir / "live_pioneer.json"
+
+    def save_live_data(self, fingerprint: str, data: dict) -> Path:
+        """Save live Pioneer data captured from hardware.
+
+        Overwrites any existing data for this track (newer data wins).
+
+        Args:
+            fingerprint: Track fingerprint (SHA256).
+            data: Dict containing phrases, beat_grid, cue_points, etc.
+
+        Returns:
+            Path to the saved JSON file.
+        """
+        path = self._live_data_path(fingerprint)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+        logger.info("Saved live Pioneer data for %s", fingerprint[:12])
+        return path
+
+    def load_live_data(self, fingerprint: str) -> dict | None:
+        """Load saved live Pioneer data for a track.
+
+        Returns:
+            Dict with captured Pioneer data, or None if not available.
+        """
+        path = self._live_data_path(fingerprint)
+        if not path.exists():
+            return None
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Failed to load live data for %s: %s", fingerprint[:12], e)
+            return None
+
+    def has_live_data(self, fingerprint: str) -> bool:
+        """Check if live Pioneer data exists for a track."""
+        return self._live_data_path(fingerprint).exists()
+
 
 # ---------------------------------------------------------------------------
 # Schema migration helpers (DROP + recreate for derived cache tables)
@@ -163,6 +211,18 @@ def _migrate_tracks_add_folder(conn: sqlite3.Connection) -> None:
         logger.info("Migrating tracks table: adding folder column")
         conn.execute(
             "ALTER TABLE tracks ADD COLUMN folder TEXT NOT NULL DEFAULT ''"
+        )
+
+
+def _migrate_tracks_add_has_live_data(conn: sqlite3.Connection) -> None:
+    """Add has_live_data column to tracks table if missing."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='tracks'"
+    ).fetchone()
+    if row and "has_live_data" not in row[0]:
+        logger.info("Migrating tracks table: adding has_live_data column")
+        conn.execute(
+            "ALTER TABLE tracks ADD COLUMN has_live_data INTEGER NOT NULL DEFAULT 0"
         )
 
 
@@ -221,11 +281,14 @@ class TrackCache:
                     key_name TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
                     folder TEXT NOT NULL DEFAULT '',
+                    has_live_data INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (fingerprint, version)
                 )
             """)
             # Migration: add folder column to existing tracks table
             _migrate_tracks_add_folder(conn)
+            # Migration: add has_live_data column to existing tracks table
+            _migrate_tracks_add_has_live_data(conn)
             # Migration: drop old single-column-PK track_ids if it exists
             _migrate_track_ids(conn)
             conn.execute("""
@@ -282,6 +345,37 @@ class TrackCache:
                 )
             """)
 
+            # Bridge scan data — tracks scanned via CDJ load (command channel)
+            # Separate from pioneer_metadata (which comes from USB ANLZ scanning)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS bridge_scan_data (
+                    source_player TEXT NOT NULL,
+                    source_slot TEXT NOT NULL,
+                    rekordbox_id INTEGER NOT NULL,
+                    title TEXT NOT NULL DEFAULT '',
+                    artist TEXT NOT NULL DEFAULT '',
+                    album TEXT NOT NULL DEFAULT '',
+                    genre TEXT NOT NULL DEFAULT '',
+                    key_name TEXT NOT NULL DEFAULT '',
+                    bpm REAL NOT NULL DEFAULT 0.0,
+                    duration REAL NOT NULL DEFAULT 0.0,
+                    color TEXT,
+                    rating INTEGER NOT NULL DEFAULT 0,
+                    comment TEXT NOT NULL DEFAULT '',
+                    beatgrid_json TEXT NOT NULL DEFAULT '[]',
+                    phrases_json TEXT NOT NULL DEFAULT '[]',
+                    cue_points_json TEXT NOT NULL DEFAULT '[]',
+                    memory_points_json TEXT NOT NULL DEFAULT '[]',
+                    hot_cues_json TEXT NOT NULL DEFAULT '[]',
+                    waveform_data TEXT NOT NULL DEFAULT '',
+                    waveform_frame_count INTEGER NOT NULL DEFAULT 0,
+                    waveform_total_time_ms INTEGER NOT NULL DEFAULT 0,
+                    waveform_is_color INTEGER NOT NULL DEFAULT 1,
+                    scan_timestamp REAL NOT NULL,
+                    PRIMARY KEY (source_player, source_slot, rekordbox_id)
+                )
+            """)
+
             # Job persistence (survives server restarts)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS analysis_jobs (
@@ -319,18 +413,20 @@ class TrackCache:
         """Get a database connection."""
         return sqlite3.connect(str(self.db_path))
 
-    def index_analysis(self, analysis: TrackAnalysis) -> None:
+    def index_analysis(self, analysis: TrackAnalysis, has_live_data: bool = False) -> None:
         """Add or update a track analysis in the cache.
 
         Args:
             analysis: The TrackAnalysis to index.
+            has_live_data: Whether live Pioneer data exists for this track.
         """
         with self._connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO tracks
                 (fingerprint, version, source, audio_path, title, artist,
-                 bpm, duration, section_count, mood, key_name, created_at, folder)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 bpm, duration, section_count, mood, key_name, created_at, folder,
+                 has_live_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 analysis.fingerprint,
                 analysis.version,
@@ -345,7 +441,16 @@ class TrackCache:
                 analysis.features.key,
                 analysis.created_at,
                 analysis.folder,
+                int(has_live_data),
             ))
+
+    def set_has_live_data(self, fingerprint: str, value: bool = True) -> None:
+        """Set the has_live_data flag for a track in the cache."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE tracks SET has_live_data = ? WHERE fingerprint = ?",
+                (int(value), fingerprint),
+            )
 
     def list_tracks(
         self,
@@ -368,7 +473,8 @@ class TrackCache:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(f"""
                 SELECT fingerprint, version, source, audio_path, title, artist,
-                       bpm, duration, section_count, mood, key_name, created_at, folder
+                       bpm, duration, section_count, mood, key_name, created_at, folder,
+                       has_live_data
                 FROM tracks
                 WHERE version = (
                     SELECT MAX(version) FROM tracks t2
@@ -686,7 +792,8 @@ class TrackCache:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(f"""
                 SELECT fingerprint, version, source, audio_path, title, artist,
-                       bpm, duration, section_count, mood, key_name, created_at, folder
+                       bpm, duration, section_count, mood, key_name, created_at, folder,
+                       has_live_data
                 FROM tracks
                 WHERE folder = ?
                   AND version = (
@@ -935,6 +1042,94 @@ class TrackCache:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    # ------------------------------------------------------------------
+    # Bridge scan data (CDJ-loaded track capture)
+    # ------------------------------------------------------------------
+
+    def has_pioneer_scan_data(
+        self,
+        source_player: int,
+        source_slot: str,
+        rekordbox_id: int,
+    ) -> bool:
+        """Check if a track has already been scanned via bridge command channel."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM bridge_scan_data "
+                "WHERE source_player = ? AND source_slot = ? AND rekordbox_id = ?",
+                (str(source_player), source_slot, rekordbox_id),
+            ).fetchone()
+        return row is not None
+
+    def store_bridge_scan_data(
+        self,
+        source_player: int,
+        source_slot: str,
+        data: dict,
+    ) -> None:
+        """Store captured Pioneer data from a bridge scan."""
+        import time as _time
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO bridge_scan_data
+                (source_player, source_slot, rekordbox_id, title, artist, album, genre,
+                 key_name, bpm, duration, color, rating, comment,
+                 beatgrid_json, phrases_json, cue_points_json, memory_points_json, hot_cues_json,
+                 waveform_data, waveform_frame_count, waveform_total_time_ms, waveform_is_color,
+                 scan_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                str(source_player),
+                source_slot,
+                data.get("rekordbox_id", 0),
+                data.get("title", ""),
+                data.get("artist", ""),
+                data.get("album", ""),
+                data.get("genre", ""),
+                data.get("key", ""),
+                data.get("bpm", 0.0),
+                data.get("duration", 0.0),
+                data.get("color"),
+                data.get("rating", 0),
+                data.get("comment", ""),
+                json.dumps(data.get("beat_grid", [])),
+                json.dumps(data.get("phrases", [])),
+                json.dumps(data.get("cue_points", [])),
+                json.dumps(data.get("memory_points", [])),
+                json.dumps(data.get("hot_cues", [])),
+                data.get("waveform_data", ""),
+                data.get("waveform_frame_count", 0),
+                data.get("waveform_total_time_ms", 0),
+                int(data.get("waveform_is_color", True)),
+                _time.time(),
+            ))
+
+    def get_bridge_scan_data(
+        self,
+        source_player: int,
+        source_slot: str,
+        rekordbox_id: int,
+    ) -> dict | None:
+        """Get stored bridge scan data for a track."""
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM bridge_scan_data "
+                "WHERE source_player = ? AND source_slot = ? AND rekordbox_id = ?",
+                (str(source_player), source_slot, rekordbox_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_bridge_scan_data(self) -> list[dict]:
+        """List all bridge-scanned tracks."""
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT rekordbox_id, title, artist, bpm, key_name, scan_timestamp "
+                "FROM bridge_scan_data ORDER BY title"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def rebuild_from_store(self, store: TrackStore) -> int:
         """Rebuild the entire cache from JSON files.
 
@@ -952,7 +1147,7 @@ class TrackCache:
 
         count = 0
         for fingerprint in store.list_all():
-            analysis = store.load(fingerprint)
+            analysis = store.load_latest(fingerprint)
             if analysis:
                 self.index_analysis(analysis)
                 count += 1

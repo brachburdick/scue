@@ -56,6 +56,29 @@ Completed: 2026-03-16
 
 ---
 
+## Complete: Bridge Command Channel — Multi-Deck Scanner + Local Library (2026-03-25)
+
+**Status:** COMPLETE (BE implementation). Frontend UI is a follow-up spec.
+
+### Deliverables
+- [x] Multi-deck parallel scanner: `DeckCaptureSlot` per-deck state, queue-based workers, per-player callback routing (1-6 decks)
+- [x] Scanner API: `target_players` param, `source_player` tracking, per-deck progress
+- [x] PSSI phrase parser: `parse_anlz_phrases()` + `parse_anlz_file_path()` in `anlz_parser.py`
+- [x] PSSI wired into USB scanner: `UsbTrack.phrases`, `_try_read_phrases()` in ANLZ pipeline
+- [x] Local rekordbox library scanner: `rekordbox_scanner.py` + `/api/local-library/*` endpoints
+- [x] Spec updated: multi-deck moved from non-goals to requirements, changelog entry
+
+### Key Discovery
+Rekordbox stores identical ANLZ files locally at `~/Library/Pioneer/rekordbox/share/PIONEER/USBANLZ/`. SCUE can batch-ingest an entire library (phrases, beatgrid, cues, waveforms) in seconds without hardware. This is the fastest ingestion path.
+
+### Architecture Decision
+Separate **Ingestion** (get track data into SCUE) from **Analysis** (interpret data into arrangement formulas). Three ingestion paths: local ANLZ files (no hardware), local audio files, hardware USB scan (bridge commands). Layer 2 gets its own page when built.
+
+### Tests
+220 scanner/bridge tests pass, 0 regressions.
+
+---
+
 ## Research Complete: Waveform, Track ID, Bridge Data Strategy (2026-03-20)
 
 **Status:** COMPLETE — 11 research findings produced across waveform sources, DLP track ID reliability, ANLZ formats, hardware topology, audio capture, fingerprinting, and bridge data strategy.
@@ -272,6 +295,48 @@ Dev page at `/dev/waveforms` for real-time tuning of waveform rendering paramete
 - `frontend/src/stores/waveformPresetStore.ts` — Zustand preset store
 - `frontend/src/types/waveformPreset.ts` — WaveformRenderParams, WaveformPreset types
 - `frontend/src/components/shared/WaveformCanvas.tsx` — modified renderer (accepts renderParams)
+
+---
+
+## Completed: Strata Live Tier — Pioneer-Only Real-Time Arrangement Analysis
+Status: COMPLETE
+Completed: 2026-03-24
+
+### Deliverables
+- [x] Backend: `LiveStrataAnalyzer.build_from_pioneer()` maps Pioneer phrases→sections, waveform→energy, boundaries→transitions, cue points→markers
+- [x] Backend: "live" added to `VALID_TIERS`, "pioneer_live" added to `VALID_SOURCES` in storage.py
+- [x] Backend: `PlaybackTracker` calls `LiveStrataAnalyzer` on track load, retries until phrase data arrives
+- [x] Backend: `on_live_strata` callback broadcasts `strata_live` WS message via `WSManager`
+- [x] Backend: `GET /api/strata/live` REST endpoint returns per-player live formulas (handles WS race condition)
+- [x] Frontend: `WSStrataLive` WS message type + dispatch in `api/ws.ts`
+- [x] Frontend: `strataLiveStore` Zustand store for per-player live formulas
+- [x] Frontend: `useLiveStrata()` TanStack Query hook with 2s polling
+- [x] Frontend: "Live" tier button with green pulse indicator in StrataPage
+- [x] Frontend: `ArrangementMap` `playbackCursorTime` prop — green cursor line + past-section dimming
+- [x] ADR-021: Live Strata tier design decision
+- [x] TypeScript strict passes, 399 tests pass (1 pre-existing unrelated failure)
+
+### Key Files
+- `scue/layer1/strata/live_analyzer.py` — LiveStrataAnalyzer (Pioneer→ArrangementFormula)
+- `scue/layer1/tracking.py` — PlaybackTracker live strata wiring + on_live_strata callback
+- `scue/api/strata.py` — `GET /api/strata/live` endpoint
+- `scue/main.py` — WS broadcast wiring
+- `frontend/src/stores/strataLiveStore.ts` — Zustand store
+- `frontend/src/api/strata.ts` — `useLiveStrata()` hook
+- `frontend/src/pages/StrataPage.tsx` — Live tier UI
+- `frontend/src/components/strata/ArrangementMap.tsx` — playback cursor
+
+### Data Flow
+```
+Pioneer CDJ → Bridge WS → BridgeAdapter (PlayerState)
+  → PlaybackTracker._try_build_live_strata()
+    → LiveStrataAnalyzer.build_from_pioneer()
+      → on_live_strata callback → WSManager.broadcast({type: "strata_live"})
+        → Frontend ws.ts → strataLiveStore
+      → GET /api/strata/live (REST polling fallback)
+        → Frontend useLiveStrata() → merge with WS data
+          → StrataPage (Live tier) → ArrangementMap + cursor
+```
 
 ---
 

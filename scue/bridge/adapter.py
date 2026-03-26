@@ -142,6 +142,10 @@ class BridgeAdapter:
         self.on_beat: OnBeat | None = None
         self.on_track_loaded: OnTrackLoaded | None = None
 
+        # Scanner callback — receives raw Finder payloads for scan data capture
+        # Signature: (player_number: int, msg_type: str, payload: dict) -> None
+        self.on_finder_data: Callable[[int, str, dict], None] | None = None
+
         # Bridge status
         self.bridge_connected: bool = False
         self.bridge_version: str = ""
@@ -167,6 +171,11 @@ class BridgeAdapter:
     def get_player(self, player_number: int) -> PlayerState | None:
         return self._players.get(player_number)
 
+    # Finder message types that carry scan-relevant data
+    _FINDER_TYPES = frozenset({
+        TRACK_METADATA, BEAT_GRID, PHRASE_ANALYSIS, CUE_POINTS, TRACK_WAVEFORM,
+    })
+
     def handle_message(self, msg: BridgeMessage) -> None:
         """Dispatch a BridgeMessage to the appropriate handler."""
         handler = self._handlers.get(msg.type)
@@ -174,6 +183,17 @@ class BridgeAdapter:
             handler(self, msg)
         else:
             logger.debug("Unhandled message type: %s", msg.type)
+
+        # Notify scanner of Finder data (if registered)
+        if (
+            self.on_finder_data is not None
+            and msg.type in self._FINDER_TYPES
+            and msg.player_number is not None
+        ):
+            try:
+                self.on_finder_data(msg.player_number, msg.type, msg.payload)
+            except Exception as e:
+                logger.error("on_finder_data callback failed: %s", e)
 
     # ── Per-type handlers ────────────────────────────────────────────────
 

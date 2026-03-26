@@ -10,6 +10,7 @@ None from on_player_update().
 """
 
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -18,11 +19,16 @@ from .cursor import build_cursor
 from .enrichment import run_enrichment_pass
 from .models import TrackAnalysis, TrackCursor
 from .storage import TrackStore, TrackCache
+from .strata.live_analyzer import LiveStrataAnalyzer
+from .strata.models import ArrangementFormula
 
 log = logging.getLogger(__name__)
 
 # Callback type for looking up device info by player number
 DeviceLookup = Callable[[int], DeviceInfo | None]
+
+# Callback for live strata updates (player_number, formula)
+OnLiveStrata = Callable[[int, ArrangementFormula], None]
 
 
 class PlaybackTracker:
@@ -52,6 +58,12 @@ class PlaybackTracker:
         self._enriched: set[str] = set()
         # Per-player last known position (ms) from player_status
         self._player_position_ms: dict[int, float] = {}
+        # Per-player cached live strata formula
+        self._player_live_strata: dict[int, ArrangementFormula | None] = {}
+        # Callback for live strata updates
+        self.on_live_strata: OnLiveStrata | None = None
+        # Fingerprints that have already been captured this session
+        self._captured_live: set[str] = set()
 
     def on_player_update(self, player: PlayerState) -> TrackCursor | None:
         """Process a PlayerState update and return an updated TrackCursor, or None.
@@ -72,11 +84,20 @@ class PlaybackTracker:
         if current_rb_id != prev_rb_id:
             self._player_track[pn] = current_rb_id
             self._player_analysis[pn] = None  # invalidate cache
+            self._player_live_strata[pn] = None  # invalidate live strata
 
             if current_rb_id > 0:
                 self._load_track_for_player(player)
+                self._try_build_live_strata(player)
+                self._try_capture_live_data(player)
             else:
                 log.debug("Player %d: track unloaded", pn)
+        elif current_rb_id > 0:
+            # Retry live strata / capture if we didn't have enough data on first attempt
+            # (phrases/waveform may arrive after initial player_status)
+            if self._player_live_strata.get(pn) is None:
+                self._try_build_live_strata(player)
+            self._try_capture_live_data(player)
 
         # Only on-air player produces a cursor
         if not player.is_on_air:
@@ -86,7 +107,13 @@ class PlaybackTracker:
         if analysis is None:
             return None
 
-        position_ms = self._player_position_ms.get(pn, 0.0)
+        # Use adapter-computed position from PlayerState if available,
+        # falling back to manually-set position (from update_position()).
+        position_ms = (
+            player.playback_position_ms
+            if player.playback_position_ms is not None
+            else self._player_position_ms.get(pn, 0.0)
+        )
         return build_cursor(analysis, player, position_ms=position_ms)
 
     def on_track_loaded(self, player_number: int, title: str, artist: str) -> None:
@@ -109,6 +136,89 @@ class PlaybackTracker:
     def get_analysis(self, player_number: int) -> TrackAnalysis | None:
         """Get the currently loaded analysis for a player (for debugging)."""
         return self._player_analysis.get(player_number)
+
+    def get_live_strata(self, player_number: int) -> ArrangementFormula | None:
+        """Get the live strata formula for a player."""
+        return self._player_live_strata.get(player_number)
+
+    def _try_capture_live_data(self, player: PlayerState) -> None:
+        """Capture live Pioneer data to disk when phrases + beat_grid are available.
+
+        Called on track load and on subsequent updates when data arrives late.
+        Only captures once per fingerprint per session (idempotent).
+        """
+        pn = player.player_number
+
+        # Need both phrases and beat_grid to capture (spec requirement)
+        if not player.phrases or not player.beat_grid:
+            return
+
+        # Resolve fingerprint for this track
+        rb_id = player.rekordbox_id
+        src_player = str(player.track_source_player) if player.track_source_player else str(pn)
+        src_slot = player.track_source_slot or "usb"
+
+        fp = self._cache.lookup_fingerprint(rb_id, source_player=src_player, source_slot=src_slot)
+        if fp is None:
+            for ns in ("dlp", "devicesql"):
+                fp = self._cache.lookup_fingerprint(rb_id, source_player=ns, source_slot=src_slot)
+                if fp is not None:
+                    break
+        if fp is None:
+            return
+
+        # Skip if already captured this session
+        if fp in self._captured_live:
+            return
+
+        # Build the snapshot
+        data: dict = {
+            "fingerprint": fp,
+            "rekordbox_id": rb_id,
+            "title": player.title,
+            "artist": player.artist,
+            "bpm": player.bpm,
+            "duration": player.duration,
+            "key": player.key,
+            "player_number": pn,
+            "captured_at": time.time(),
+            "phrases": player.phrases,
+            "beat_grid": player.beat_grid,
+            "cue_points": player.cue_points,
+            "memory_points": player.memory_points,
+            "hot_cues": player.hot_cues,
+        }
+
+        # Include waveform if available
+        if player.pioneer_waveform:
+            data["pioneer_waveform"] = player.pioneer_waveform
+
+        self._store.save_live_data(fp, data)
+        self._cache.set_has_live_data(fp)
+        self._captured_live.add(fp)
+        log.info(
+            "Player %d: captured live Pioneer data for fp=%s (%d phrases, %d beats)",
+            pn, fp[:12], len(player.phrases), len(player.beat_grid),
+        )
+
+    def _try_build_live_strata(self, player: PlayerState) -> None:
+        """Attempt to build a live strata formula from Pioneer hardware data.
+
+        Called when a new track loads or when new Pioneer data arrives.
+        Fires on_live_strata callback on success.
+        """
+        pn = player.player_number
+        formula = LiveStrataAnalyzer.build_from_pioneer(player)
+        if formula is None:
+            return
+
+        self._player_live_strata[pn] = formula
+        log.info(
+            "Player %d: live strata built (%d sections, %.4fs)",
+            pn, len(formula.sections), formula.compute_time_seconds,
+        )
+        if self.on_live_strata:
+            self.on_live_strata(pn, formula)
 
     def _load_track_for_player(self, player: PlayerState) -> None:
         """Look up analysis for a newly loaded track and trigger enrichment."""
@@ -164,8 +274,9 @@ class PlaybackTracker:
                     pioneer_key = pioneer_meta["key_name"]
                 bg = pioneer_meta.get("beatgrid")
                 if bg:
-                    # Extract beat timestamps in ms for enrichment
-                    pioneer_beatgrid = [b["time_ms"] for b in bg if "time_ms" in b]
+                    # Extract beat timestamps, converting ms → seconds
+                    # (enrichment expects seconds per its contract)
+                    pioneer_beatgrid = [b["time_ms"] / 1000.0 for b in bg if "time_ms" in b]
 
             enriched = run_enrichment_pass(
                 analysis,

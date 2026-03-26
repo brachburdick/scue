@@ -32,25 +32,72 @@ _cache: TrackCache | None = None
 _tracks_dir: Path | None = None
 _cache_path: Path | None = None
 _audio_extensions: set[str] = {".mp3", ".wav", ".flac", ".aiff", ".m4a", ".ogg"}
+_strata_dir: Path | None = None
+_strata_cache: dict[str, set[str]] | None = None  # fingerprint -> set of tier names
 
 
 def init_tracks_api(
     tracks_dir: Path,
     cache_path: Path,
     audio_extensions: set[str] | None = None,
+    strata_dir: Path | None = None,
 ) -> None:
     """Initialize the tracks API with storage paths.
 
     Called during app startup.
     """
-    global _store, _cache, _tracks_dir, _cache_path, _audio_extensions
+    global _store, _cache, _tracks_dir, _cache_path, _audio_extensions, _strata_dir
     _tracks_dir = tracks_dir
     _cache_path = cache_path
     _store = TrackStore(tracks_dir)
     _cache = TrackCache(cache_path)
     if audio_extensions is not None:
         _audio_extensions = audio_extensions
+    if strata_dir is not None:
+        _strata_dir = strata_dir
     logger.info("Tracks API initialized: tracks=%s, cache=%s", tracks_dir, cache_path)
+
+
+_VALID_TIERS = {"quick", "standard", "deep", "live", "live_offline"}
+
+
+def _scan_strata() -> dict[str, set[str]]:
+    """Scan the strata directory and build a fingerprint → set-of-tiers mapping.
+
+    Parses filenames matching {fp}.{tier}.json or {fp}.{tier}.{source}.json.
+    """
+    global _strata_cache
+    if _strata_cache is not None:
+        return _strata_cache
+
+    result: dict[str, set[str]] = {}
+    if _strata_dir is None or not _strata_dir.exists():
+        _strata_cache = result
+        return result
+
+    for path in _strata_dir.glob("*.json"):
+        parts = path.stem.split(".")
+        if len(parts) == 2:
+            fp, tier = parts
+        elif len(parts) == 3:
+            fp, tier, _source = parts
+        else:
+            continue
+        if tier not in _VALID_TIERS:
+            continue
+        if fp not in result:
+            result[fp] = set()
+        result[fp].add(tier)
+
+    _strata_cache = result
+    logger.info("Strata scan: %d tracks with analysis data", len(result))
+    return result
+
+
+def invalidate_strata_cache() -> None:
+    """Clear the strata availability cache so next request rescans."""
+    global _strata_cache
+    _strata_cache = None
 
 
 def _get_store() -> TrackStore:
@@ -79,6 +126,17 @@ async def list_tracks(
     cache = _get_cache()
     tracks = cache.list_tracks(limit=limit, offset=offset, sort_by=sort_by, sort_desc=sort_desc)
     total = cache.count_tracks()
+
+    # Merge strata tier availability
+    strata_map = _scan_strata()
+    for track in tracks:
+        tiers = strata_map.get(track.get("fingerprint", ""), set())
+        track["has_quick"] = "quick" in tiers
+        track["has_standard"] = "standard" in tiers
+        track["has_deep"] = "deep" in tiers
+        track["has_live"] = "live" in tiers
+        track["has_live_offline"] = "live_offline" in tiers
+
     return {"tracks": tracks, "total": total}
 
 
@@ -162,6 +220,20 @@ async def get_track_events(fingerprint: str) -> dict:
         "total_patterns": len(analysis.drum_patterns),
         "event_types": list(set(e.type for e in analysis.events)),
     }
+
+
+@router.get("/{fingerprint}/live-data")
+async def get_live_data(fingerprint: str) -> dict:
+    """Get saved live Pioneer data for a track.
+
+    Returns the captured phrases, beat grid, cue points, etc.
+    from a live DJ session.
+    """
+    store = _get_store()
+    data = store.load_live_data(fingerprint)
+    if data is None:
+        raise HTTPException(404, f"No live data for track: {fingerprint[:16]}")
+    return data
 
 
 @router.get("/{fingerprint}/pioneer-waveform")
@@ -731,3 +803,55 @@ async def resume_incomplete_jobs() -> None:
                 destination_folder=job_data.get("destination_folder", ""),
             )
         )
+
+
+class RecomputeWaveformRequest(BaseModel):
+    low_crossover: int = 200
+    high_crossover: int = 2500
+
+
+@router.post("/{fingerprint}/recompute-waveform")
+async def recompute_waveform(fingerprint: str, req: RecomputeWaveformRequest) -> dict:
+    """Recompute waveform with custom frequency crossovers.
+
+    The original analysis uses fixed crossovers (20-200-2500 Hz).
+    This endpoint re-runs the STFT band extraction with custom boundaries
+    and updates the stored analysis.
+    """
+    store = _get_store()
+    analysis = store.load(fingerprint)
+    if analysis is None:
+        raise HTTPException(404, f"Track not found: {fingerprint[:16]}")
+
+    if not analysis.audio_path:
+        raise HTTPException(400, "No audio path stored for this track")
+
+    audio_path = Path(analysis.audio_path)
+    if not audio_path.exists():
+        raise HTTPException(400, f"Audio file not found: {audio_path}")
+
+    import librosa
+    from ..layer1.waveform import compute_rgb_waveform
+
+    signal, sr = librosa.load(str(audio_path), sr=22050, mono=True)
+    waveform = compute_rgb_waveform(
+        signal, sr,
+        low_band=(20, req.low_crossover),
+        mid_band=(req.low_crossover, req.high_crossover),
+        high_band=(req.high_crossover, sr // 2),
+    )
+
+    analysis.waveform = waveform
+    store.save(analysis)
+    logger.info(
+        "Recomputed waveform for %s with crossovers %d/%d Hz",
+        fingerprint[:16], req.low_crossover, req.high_crossover,
+    )
+
+    return {
+        "fingerprint": fingerprint,
+        "status": "recomputed",
+        "low_crossover": req.low_crossover,
+        "high_crossover": req.high_crossover,
+        "frames": len(waveform.low),
+    }

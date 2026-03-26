@@ -103,25 +103,44 @@ class StemSeparator:
 
         logger.info("Running stem separation for %s (model=%s)", fingerprint[:16], self._model_name)
 
-        import demucs.api
-        separator = demucs.api.Separator(model=self._model_name)
-        _, sources = separator.separate_audio_file(audio_path)
+        import torch
+        from demucs.apply import apply_model
+        from demucs.audio import AudioFile
+        from demucs.pretrained import get_model
+
+        model = get_model(self._model_name)
+        model.eval()
+
+        # Load audio as tensor: (channels, samples) at model's samplerate
+        wav = AudioFile(audio_path).read(
+            streams=0, samplerate=model.samplerate, channels=model.audio_channels,
+        )
+        ref = wav.mean(0)
+        wav = (wav - ref.mean()) / ref.std()
+
+        # Run the model
+        with torch.no_grad():
+            sources = apply_model(model, wav[None], progress=False)[0]
+
+        # Map source index to stem name via model.sources
+        source_names = model.sources  # e.g. ["drums", "bass", "other", "vocals"]
 
         # Save each stem as a WAV file
         out_dir = self.stems_dir(fingerprint)
         out_dir.mkdir(parents=True, exist_ok=True)
 
         result: dict[StemType, Path] = {}
-        for demucs_name, stem_type in DEMUCS_STEM_MAP.items():
-            if demucs_name not in sources:
-                logger.warning("Demucs model did not produce stem: %s", demucs_name)
+        for i, demucs_name in enumerate(source_names):
+            stem_type = DEMUCS_STEM_MAP.get(demucs_name)
+            if stem_type is None:
+                logger.warning("Unknown demucs stem name: %s", demucs_name)
                 continue
 
-            stem_tensor = sources[demucs_name]
+            # De-normalize
+            stem_tensor = sources[i] * ref.std() + ref.mean()
             stem_path = out_dir / f"{stem_type.value}.wav"
 
-            # demucs tensors are (channels, samples) at the model's sample rate
-            _save_stem_wav(stem_tensor, stem_path, separator.samplerate)
+            _save_stem_wav(stem_tensor, stem_path, model.samplerate)
             result[stem_type] = stem_path
             logger.info("  Saved stem: %s (%s)", stem_type.value, stem_path.name)
 

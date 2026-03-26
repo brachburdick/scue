@@ -34,6 +34,7 @@ export function PlayerList({
   const wsConnected = useBridgeStore((s) => s.wsConnected);
 
   const isRecovering = useBridgeStore((s) => s.isRecovering);
+  const isHwDisconnected = useBridgeStore((s) => s.isHwDisconnected);
 
   if (entries.length > 0) {
     return (
@@ -87,6 +88,17 @@ export function PlayerList({
     return (
       <div className="rounded-lg border border-dashed border-blue-900/50 px-4 py-6 text-center">
         <p className="text-sm text-blue-400/80">Waiting for hardware.</p>
+      </div>
+    );
+  }
+
+  // S8: hardware disconnected — running but no devices/traffic for 8s+
+  if (isHwDisconnected) {
+    return (
+      <div className="rounded-lg border border-dashed border-orange-900/50 px-4 py-6 text-center">
+        <p className="text-sm text-orange-400/80">
+          Hardware disconnected. Reconnect a CDJ or DJM.
+        </p>
       </div>
     );
   }

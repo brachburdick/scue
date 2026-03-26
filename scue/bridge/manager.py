@@ -145,6 +145,11 @@ class BridgeManager:
         return self._adapter
 
     @property
+    def ws_client(self) -> BridgeWebSocket | None:
+        """The WebSocket client, if connected. Used by the scanner for commands."""
+        return self._ws_client if self._ws_client and self._ws_client.connected else None
+
+    @property
     def port(self) -> int:
         return self._port
 
@@ -220,6 +225,7 @@ class BridgeManager:
             self._status = "crashed"
             self._notify_state_change()
             await self._cleanup()
+            await self._schedule_restart()
 
     async def stop(self) -> None:
         """Stop the bridge and clean up."""
@@ -363,7 +369,7 @@ class BridgeManager:
             cmd.extend(["--database-key", db_key])
         self._process = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
         # Java bridge needs several seconds to start WebSocket server + join network

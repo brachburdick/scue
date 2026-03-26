@@ -13,6 +13,7 @@ import type { EventType } from "../../types/events";
 import type { GroundTruthEvent, SnapResolution, PlacementMode } from "../../types/groundTruth";
 import { EVENT_COLORS, SECTION_COLORS } from "../../types/events";
 import type { MusicalEvent } from "../../types/events";
+import { pioneerColor } from "../../utils/pioneerColor";
 import { drawBeatgridLines } from "../shared/drawBeatgridLines";
 
 interface Section {
@@ -135,6 +136,15 @@ export function AnnotationTimeline({
   const dragStartViewStart = useRef(0);
   const dragStartViewEnd = useRef(0);
   const regionStartTime = useRef<number | null>(null);
+  // Refs for native wheel handler (avoids stale closures)
+  const viewStartRef = useRef(viewStart);
+  const viewEndRef = useRef(viewEnd);
+  const durationRef = useRef(duration);
+  const onViewChangeRef = useRef(onViewChange);
+  viewStartRef.current = viewStart;
+  viewEndRef.current = viewEnd;
+  durationRef.current = duration;
+  onViewChangeRef.current = onViewChange;
 
   // --- Helpers ---
   const timeToX = useCallback(
@@ -222,9 +232,7 @@ export function AnnotationTimeline({
             const hi = waveform.high[i] ?? 0;
             const amp = Math.max(lo, mid, hi);
             if (amp < 0.001) continue;
-            const r = Math.min(255, Math.round((lo / amp) * 255));
-            const g = Math.min(255, Math.round((mid / amp) * 255));
-            const b = Math.min(255, Math.round((hi / amp) * 255));
+            const { r, g, b } = pioneerColor(lo, mid, hi);
             const barH = amp * centerY;
             const x = ((i - s0) / count) * w;
             ctx.fillStyle = `rgb(${r},${g},${b})`;
@@ -244,9 +252,7 @@ export function AnnotationTimeline({
             }
             const amp = Math.max(maxL, maxM, maxH);
             if (amp < 0.001) continue;
-            const r = Math.min(255, Math.round((maxL / amp) * 255));
-            const g = Math.min(255, Math.round((maxM / amp) * 255));
-            const b = Math.min(255, Math.round((maxH / amp) * 255));
+            const { r, g, b } = pioneerColor(maxL, maxM, maxH);
             ctx.fillStyle = `rgb(${r},${g},${b})`;
             ctx.fillRect(px, centerY - amp * centerY, 1, amp * centerY * 2);
           }
@@ -515,28 +521,31 @@ export function AnnotationTimeline({
     regionStartTime.current = null;
   }, []);
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
+  // Native wheel handler (passive: false) to prevent page scroll while zooming
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handler = (e: WheelEvent) => {
       e.preventDefault();
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
+      const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
-      const mouseTime = xToTime(mouseX);
+      const vs = viewStartRef.current;
+      const ve = viewEndRef.current;
+      const dur = durationRef.current;
+      const mouseTime = vs + (mouseX / widthRef.current) * (ve - vs);
       const zoomFactor = e.deltaY > 0 ? 1.2 : 1 / 1.2;
-      const viewDuration = viewEnd - viewStart;
-      let newDuration = Math.max(2, Math.min(duration, viewDuration * zoomFactor));
-
-      const mouseRatio = (mouseTime - viewStart) / viewDuration;
+      const viewDuration = ve - vs;
+      let newDuration = Math.max(2, Math.min(dur, viewDuration * zoomFactor));
+      const mouseRatio = (mouseTime - vs) / viewDuration;
       let ns = mouseTime - mouseRatio * newDuration;
       let ne = ns + newDuration;
       if (ns < 0) { ne -= ns; ns = 0; }
-      if (ne > duration) { ns -= ne - duration; ne = duration; }
-
-      onViewChange(Math.max(0, ns), Math.min(duration, ne));
-    },
-    [viewStart, viewEnd, duration, xToTime, onViewChange],
-  );
+      if (ne > dur) { ns -= ne - dur; ne = dur; }
+      onViewChangeRef.current(Math.max(0, ns), Math.min(dur, ne));
+    };
+    canvas.addEventListener("wheel", handler, { passive: false });
+    return () => canvas.removeEventListener("wheel", handler);
+  }, []);
 
   const handleDoubleClick = useCallback(() => {
     onViewChange(0, duration);
@@ -551,7 +560,6 @@ export function AnnotationTimeline({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
-        onWheel={handleWheel}
         onDoubleClick={handleDoubleClick}
       />
     </div>

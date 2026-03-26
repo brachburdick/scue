@@ -6,6 +6,9 @@
 - PUT  /api/tracks/{fp}/strata/{tier}           — save edited arrangement
 - POST /api/tracks/{fp}/strata/analyze          — trigger strata analysis
 - DELETE /api/tracks/{fp}/strata/{tier}          — delete tier result
+- GET  /api/strata/jobs/{job_id}                — poll strata job status
+- POST /api/strata/analyze-batch                — batch multi-track strata analysis
+- GET  /api/strata/batch/{batch_id}             — poll batch job status
 - POST /api/tracks/{fp}/reanalyze               — trigger Pioneer beatgrid re-analysis
 - GET  /api/tracks/{fp}/versions                — list TrackAnalysis versions
 """
@@ -20,6 +23,16 @@ from pydantic import BaseModel
 
 from ..layer1.strata.models import formula_from_dict, formula_to_dict
 from ..layer1.strata.storage import DEFAULT_SOURCE, VALID_SOURCES, VALID_TIERS, StrataStore
+from .strata_jobs import (
+    StrataBatchJob,
+    StrataJob,
+    create_strata_batch,
+    create_strata_job,
+    get_strata_batch,
+    get_strata_job,
+    strata_batch_to_dict,
+    strata_job_to_dict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +41,7 @@ router = APIRouter(tags=["strata"])
 _store: StrataStore | None = None
 _tracks_dir: Path | None = None
 _cache_path: Path | None = None
+_tracker: object | None = None  # PlaybackTracker, set by main.py
 
 
 def init_strata_api(
@@ -41,6 +55,12 @@ def init_strata_api(
     _tracks_dir = tracks_dir
     _cache_path = cache_path
     logger.info("Strata API initialized: %s", store.base_dir)
+
+
+def set_strata_tracker(tracker: object) -> None:
+    """Set the PlaybackTracker reference for live strata access."""
+    global _tracker
+    _tracker = tracker
 
 
 def _get_store() -> StrataStore:
@@ -134,7 +154,10 @@ class AnalyzeStrataRequest(BaseModel):
 
 
 def _run_strata_analysis(
-    fingerprint: str, tiers: list[str], analysis_version: int | None = None,
+    fingerprint: str,
+    tiers: list[str],
+    analysis_version: int | None = None,
+    job: StrataJob | None = None,
 ) -> None:
     """Run strata analysis in a background thread.
 
@@ -146,15 +169,44 @@ def _run_strata_analysis(
     store = _get_store()
     if _tracks_dir is None:
         logger.error("Tracks dir not configured for strata analysis")
+        if job:
+            job.status = "failed"
+            job.error = "Tracks directory not configured"
         return
+
+    if job:
+        job.status = "running"
+
+    def _progress(step: int, name: str) -> None:
+        if job:
+            if job.cancelled:
+                raise InterruptedError("Cancelled by user")
+            job.current_step = step
+            job.current_step_name = name
 
     engine = StrataEngine(tracks_dir=_tracks_dir, strata_store=store)
     try:
-        results = engine.analyze(fingerprint, tiers, analysis_version=analysis_version)
+        results = engine.analyze(
+            fingerprint, tiers,
+            analysis_version=analysis_version,
+            progress_callback=_progress,
+        )
         logger.info("Strata analysis complete for %s: %s",
                      fingerprint[:16], list(results.keys()))
-    except Exception:
+        if job:
+            job.status = "complete"
+            job.current_step = job.total_steps
+            job.current_step_name = "Complete"
+    except InterruptedError:
+        logger.info("Strata analysis cancelled for %s", fingerprint[:16])
+        if job and job.status != "failed":
+            job.status = "failed"
+            job.error = "Cancelled by user"
+    except Exception as exc:
         logger.exception("Strata analysis failed for %s", fingerprint[:16])
+        if job:
+            job.status = "failed"
+            job.error = str(exc)
 
 
 # Map source names to TrackAnalysis version numbers
@@ -190,8 +242,8 @@ async def analyze_strata(
             raise HTTPException(400, f"Invalid analysis_source: {req.analysis_source!r}")
         analysis_version = _SOURCE_TO_VERSION.get(req.analysis_source)
 
-    # For quick tier, run synchronously (fast enough at ~3-7s)
-    if req.tiers == ["quick"]:
+    # For quick or live_offline tier, run synchronously (fast enough)
+    if req.tiers == ["quick"] or req.tiers == ["live_offline"]:
         from ..layer1.strata.engine import StrataEngine
         store = _get_store()
         engine = StrataEngine(tracks_dir=_tracks_dir, strata_store=store)
@@ -200,6 +252,7 @@ async def analyze_strata(
             return {
                 "fingerprint": fingerprint,
                 "completed_tiers": list(results.keys()),
+                "requested_tiers": req.tiers,
                 "analysis_source": req.analysis_source or "latest",
                 "status": "complete",
             }
@@ -209,15 +262,107 @@ async def analyze_strata(
             logger.exception("Quick strata analysis failed")
             raise HTTPException(500, f"Analysis failed: {e}")
 
-    # For standard/deep tiers, run in background
-    background_tasks.add_task(_run_strata_analysis, fingerprint, req.tiers, analysis_version)
+    # Deep tier is not yet implemented
+    if req.tiers == ["deep"]:
+        return {
+            "fingerprint": fingerprint,
+            "requested_tiers": req.tiers,
+            "status": "not_implemented",
+            "message": "Deep tier analysis is not yet available (Phase 6).",
+        }
+
+    # For standard/deep tiers, create a tracked job and run in background
+    # Determine the primary tier for the job (first non-quick tier)
+    primary_tier = next((t for t in req.tiers if t != "quick"), req.tiers[0])
+    job = create_strata_job(fingerprint, primary_tier)
+    background_tasks.add_task(
+        _run_strata_analysis, fingerprint, req.tiers, analysis_version, job,
+    )
     return {
         "fingerprint": fingerprint,
         "requested_tiers": req.tiers,
         "analysis_source": req.analysis_source or "latest",
         "status": "started",
-        "message": "Analysis started. Poll GET /api/tracks/{fp}/strata for results.",
+        "job_id": job.job_id,
+        "message": "Analysis started. Poll GET /api/strata/jobs/{job_id} for progress.",
     }
+
+
+@router.get("/api/strata/jobs/{job_id}")
+async def get_strata_job_status(job_id: str) -> dict:
+    """Poll the status of a strata analysis job."""
+    job = get_strata_job(job_id)
+    if job is None:
+        raise HTTPException(404, f"No strata job: {job_id}")
+    return strata_job_to_dict(job)
+
+
+@router.post("/api/strata/jobs/{job_id}/cancel")
+async def cancel_strata_job(job_id: str) -> dict:
+    """Request cooperative cancellation of a strata analysis job.
+
+    Sets the cancelled flag on the job. The engine checks this between stages
+    and stops early. Already-complete or failed jobs are unaffected.
+    """
+    job = get_strata_job(job_id)
+    if job is None:
+        raise HTTPException(404, f"No strata job: {job_id}")
+    if job.status in ("complete", "failed"):
+        return {"ok": True, "status": job.status, "message": "Job already finished"}
+    job.cancelled = True
+    job.status = "failed"
+    job.error = "Cancelled by user"
+    return {"ok": True, "status": "cancelled"}
+
+
+class BatchAnalyzeRequest(BaseModel):
+    fingerprints: list[str]
+    tiers: list[str] = ["quick"]
+
+
+@router.post("/api/strata/analyze-batch")
+async def analyze_strata_batch(
+    req: BatchAnalyzeRequest,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Trigger strata analysis for multiple tracks.
+
+    Creates a batch job and runs analysis sequentially in the background.
+    """
+    invalid = [t for t in req.tiers if t not in VALID_TIERS]
+    if invalid:
+        raise HTTPException(400, f"Invalid tier(s): {invalid}")
+    if not req.fingerprints:
+        raise HTTPException(400, "No fingerprints provided")
+    if _tracks_dir is None:
+        raise HTTPException(500, "Tracks directory not configured")
+
+    batch = create_strata_batch(req.fingerprints, req.tiers)
+    background_tasks.add_task(_run_strata_batch, batch)
+    return strata_batch_to_dict(batch)
+
+
+@router.get("/api/strata/batch/{batch_id}")
+async def get_strata_batch_status(batch_id: str) -> dict:
+    """Poll the status of a strata batch job."""
+    batch = get_strata_batch(batch_id)
+    if batch is None:
+        raise HTTPException(404, f"No strata batch: {batch_id}")
+    return strata_batch_to_dict(batch)
+
+
+def _run_strata_batch(batch: StrataBatchJob) -> None:
+    """Run batch strata analysis sequentially in background."""
+    batch.status = "running"
+    for job in batch.jobs:
+        _run_strata_analysis(job.fingerprint, [job.tier], job=job)
+    # Determine overall status
+    if all(j.status == "complete" for j in batch.jobs):
+        batch.status = "complete"
+    elif any(j.status == "failed" for j in batch.jobs):
+        batch.status = "complete"  # partial success is still "complete"
+    else:
+        batch.status = "failed"
 
 
 @router.delete("/api/tracks/{fingerprint}/strata/{tier}")
@@ -340,3 +485,27 @@ async def list_track_versions(fingerprint: str) -> dict:
         "fingerprint": fingerprint,
         "versions": versions,
     }
+
+
+@router.get("/api/strata/live")
+async def get_live_strata() -> dict:
+    """Get current live strata formulas from all active players.
+
+    Returns per-player arrangement formulas built from Pioneer hardware data.
+    These are constructed in real-time from phrase analysis, beat grid,
+    waveform, and cue point data streaming from the hardware.
+    """
+    if _tracker is None:
+        return {"players": {}}
+
+    from ..layer1.tracking import PlaybackTracker
+    tracker: PlaybackTracker = _tracker  # type: ignore[assignment]
+
+    result: dict[str, dict] = {}
+    # Check all possible player numbers (1-4 for Pioneer)
+    for pn in range(1, 5):
+        formula = tracker.get_live_strata(pn)
+        if formula is not None:
+            result[str(pn)] = formula_to_dict(formula)
+
+    return {"players": result}

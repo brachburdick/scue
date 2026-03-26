@@ -12,6 +12,7 @@
 import { useRef, useEffect, useCallback } from "react";
 import type { MusicalEvent, EventType } from "../../types/events";
 import { EVENT_COLORS, SECTION_COLORS } from "../../types/events";
+import { pioneerColor } from "../../utils/pioneerColor";
 
 interface Section {
   label: string;
@@ -110,9 +111,7 @@ export function EventTimeline({
             const amplitude = Math.max(lo, mid_, hi);
             if (amplitude < 0.001) continue;
 
-            const r = Math.min(255, Math.round((lo / amplitude) * 255));
-            const g = Math.min(255, Math.round((mid_ / amplitude) * 255));
-            const b = Math.min(255, Math.round((hi / amplitude) * 255));
+            const { r, g, b } = pioneerColor(lo, mid_, hi);
             const barH = amplitude * centerY;
             const x = ((i - startSample) / sampleCount) * w;
             const barWidth = Math.max(1, w / sampleCount);
@@ -138,9 +137,7 @@ export function EventTimeline({
             const amplitude = Math.max(maxLow, maxMid, maxHigh);
             if (amplitude < 0.001) continue;
 
-            const r = Math.min(255, Math.round((maxLow / amplitude) * 255));
-            const g = Math.min(255, Math.round((maxMid / amplitude) * 255));
-            const b = Math.min(255, Math.round((maxHigh / amplitude) * 255));
+            const { r, g, b } = pioneerColor(maxLow, maxMid, maxHigh);
             const barH = amplitude * centerY;
 
             ctx.fillStyle = `rgb(${r},${g},${b})`;

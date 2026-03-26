@@ -1,33 +1,54 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { TrackPicker } from "../components/analysis/TrackPicker";
-import { useStrataAllTiers, useAnalyzeStrata, useSaveStrata, useReanalyze, useTrackVersions } from "../api/strata";
-import { useTrackAnalysis } from "../api/tracks";
+import {
+  useStrataAllTiers,
+  useAnalyzeStrata,
+  useSaveStrata,
+  useReanalyze,
+  useTrackVersions,
+  useAnalyzeStrataBatch,
+  useLiveStrata,
+} from "../api/strata";
+import { useTrackAnalysis, useTrackEvents } from "../api/tracks";
+import { apiFetch } from "../api/client";
 import { useWaveformView } from "../hooks/useWaveformView";
 import { useWaveformPresetStore } from "../stores/waveformPresetStore";
+import { useBridgeStore } from "../stores/bridgeStore";
 import { WaveformCanvas } from "../components/shared/WaveformCanvas";
-import { ArrangementMap } from "../components/strata/ArrangementMap";
+import { ArrangementMap, LABEL_WIDTH } from "../components/strata/ArrangementMap";
 import { PatternDetailPanel } from "../components/strata/PatternDetailPanel";
 import { ComparisonView } from "../components/strata/ComparisonView";
-import type { AnalysisSource, ArrangementFormula, StrataTier, Pattern } from "../types/strata";
+import { StrataJobProgress, StrataBatchProgress } from "../components/strata/TierAnalysisStatus";
+import type { AnalysisSource, ArrangementFormula, StrataTier, Pattern, AtomicEvent } from "../types/strata";
+import type { EventType } from "../types/events";
+import { EventTypeToggles } from "../components/shared/EventTypeToggles";
+
+import { useStrataLiveStore } from "../stores/strataLiveStore";
 
 const SOURCE_LABELS: Record<AnalysisSource, string> = {
   analysis: "Original",
   pioneer_enriched: "Enriched",
   pioneer_reanalyzed: "Reanalyzed",
+  pioneer_live: "Live (Pioneer)",
 };
 
-type PageMode = "view" | "edit" | "compare";
+type PageMode = "view" | "edit" | "compare" | "batch";
 
 const TIER_LABELS: Record<StrataTier, string> = {
   quick: "Quick",
   standard: "Standard",
   deep: "Deep",
+  live: "Live",
+  live_offline: "Live Offline",
 };
 
 const TIER_DESCRIPTIONS: Record<StrataTier, string> = {
   quick: "M7 heuristics + energy analysis (~3-7s)",
   standard: "Stem separation + per-stem analysis (~1-2 min)",
   deep: "Stem separation + ML models (~2-5 min)",
+  live: "Pioneer hardware data (real-time, no audio needed)",
+  live_offline: "Saved Pioneer data (no hardware or audio needed)",
 };
 
 const TRANSITION_COLORS: Record<string, string> = {
@@ -41,6 +62,7 @@ const TRANSITION_COLORS: Record<string, string> = {
 };
 
 export function StrataPage() {
+  const queryClient = useQueryClient();
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [selectedTier, setSelectedTier] = useState<StrataTier>("quick");
   const [selectedSource, setSelectedSource] = useState<AnalysisSource>("analysis");
@@ -52,29 +74,163 @@ export function StrataPage() {
   const reanalyzeMutation = useReanalyze(fingerprint);
   const { data: versionsData } = useTrackVersions(fingerprint);
 
-  const availableTiers = data?.available_tiers ?? [];
-  // Resolve formula from the nested tier→source structure
-  const tierSources = data?.tiers?.[selectedTier];
-  const formula: ArrangementFormula | null = tierSources?.[selectedSource] ?? (tierSources ? Object.values(tierSources)[0] ?? null : null);
-  const hasAnyData = availableTiers.length > 0;
+  // Job tracking for standard/deep analysis
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJobTier, setActiveJobTier] = useState<StrataTier | null>(null);
 
-  // Available sources for the selected tier
+  // Batch analysis state
+  const [selectedFingerprints, setSelectedFingerprints] = useState<Set<string>>(new Set());
+  const [batchTiers, setBatchTiers] = useState<Set<StrataTier>>(new Set(["quick"]));
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const batchMutation = useAnalyzeStrataBatch();
+
+  // Bridge status for deep tier + live tier
+  const bridgeStatus = useBridgeStore((s) => s.status);
+  const devices = useBridgeStore((s) => s.devices);
+  const players = useBridgeStore((s) => s.players);
+  const hardwareConnected = bridgeStatus === "running" && Object.keys(devices).length > 0;
+
+  // Live strata: merge REST polling + WS push
+  const wsLiveFormulas = useStrataLiveStore((s) => s.formulas);
+  const { data: restLiveData } = useLiveStrata(selectedTier === "live");
+
+  // Merge: WS formulas override REST (more recent), REST fills in on page load
+  const liveFormulas = useMemo(() => {
+    const merged: Record<number, ArrangementFormula> = {};
+    // REST data as base
+    if (restLiveData?.players) {
+      for (const [pn, f] of Object.entries(restLiveData.players)) {
+        merged[Number(pn)] = f;
+      }
+    }
+    // WS data overrides (more recent)
+    for (const [pn, f] of Object.entries(wsLiveFormulas)) {
+      merged[Number(pn)] = f;
+    }
+    return merged;
+  }, [restLiveData, wsLiveFormulas]);
+
+  const hasLiveData = Object.keys(liveFormulas).length > 0;
+
+  // Find the first player with live strata (or the on-air one)
+  const livePlayerNumber = useMemo(() => {
+    const playerNums = Object.keys(liveFormulas).map(Number);
+    if (playerNums.length === 0) return null;
+    // Prefer on-air player
+    const onAir = playerNums.find((pn) => players[String(pn)]?.is_on_air);
+    return onAir ?? playerNums[0];
+  }, [liveFormulas, players]);
+
+  const liveFormula: ArrangementFormula | null = livePlayerNumber != null ? liveFormulas[livePlayerNumber] ?? null : null;
+
+  // Get playback position for cursor (ms → seconds)
+  const livePlaybackTime = useMemo(() => {
+    if (livePlayerNumber == null) return null;
+    const player = players[String(livePlayerNumber)];
+    if (!player?.playback_position_ms) return null;
+    return player.playback_position_ms / 1000;
+  }, [livePlayerNumber, players]);
+
+  const isLiveTier = selectedTier === "live";
+
+  const availableTiers = data?.available_tiers ?? [];
+  const tierSources = !isLiveTier ? data?.tiers?.[selectedTier] : undefined;
+  const formula: ArrangementFormula | null = isLiveTier
+    ? liveFormula
+    : tierSources?.[selectedSource] ?? (tierSources ? Object.values(tierSources)[0] ?? null : null);
+  const hasAnyData = availableTiers.length > 0 || hasLiveData;
+
   const availableSourcesForTier = tierSources ? Object.keys(tierSources) as AnalysisSource[] : [];
-  // For comparison: collect all (tier, source) combos
   const compareTierSources = data?.tiers?.[compareTier];
   const compareFormula: ArrangementFormula | null = compareTierSources?.[compareSource] ?? (compareTierSources ? Object.values(compareTierSources)[0] ?? null : null);
-  // Can compare if there are at least 2 distinct (tier, source) combos
   const totalCombos = Object.entries(data?.tiers ?? {}).reduce((acc, [, sources]) => acc + Object.keys(sources ?? {}).length, 0);
   const canCompare = totalCombos >= 2;
 
   const hasV2 = versionsData?.versions?.some((v) => v.source === "pioneer_enriched") ?? false;
   const hasV3 = versionsData?.versions?.some((v) => v.source === "pioneer_reanalyzed") ?? false;
 
-  const handleAnalyze = () => {
+  const tierHasData = (tier: StrataTier) =>
+    tier === "live" ? hasLiveData : availableTiers.includes(tier);
+
+  const handleAnalyze = useCallback((tier: StrataTier) => {
     analyzeMutation.mutate(
-      { tiers: ["quick"] },
-      { onSuccess: () => refetch() },
+      { tiers: [tier] },
+      {
+        onSuccess: (result) => {
+          if (result.job_id) {
+            // Standard/deep: track via job polling
+            setActiveJobId(result.job_id);
+            setActiveJobTier(tier);
+          } else {
+            // Quick: already complete
+            refetch();
+          }
+        },
+      },
     );
+  }, [analyzeMutation, refetch]);
+
+  const handleJobComplete = useCallback(() => {
+    setActiveJobId(null);
+    setActiveJobTier(null);
+    refetch();
+  }, [refetch]);
+
+  const handleJobCancel = useCallback(() => {
+    if (activeJobId) {
+      apiFetch(`/strata/jobs/${activeJobId}/cancel`, { method: "POST" }).catch(() => {});
+    }
+    setActiveJobId(null);
+    setActiveJobTier(null);
+  }, [activeJobId]);
+
+  const handleBatchAnalyze = useCallback(() => {
+    if (selectedFingerprints.size === 0 || batchTiers.size === 0) return;
+    batchMutation.mutate(
+      { fingerprints: [...selectedFingerprints], tiers: [...batchTiers] },
+      {
+        onSuccess: (result) => {
+          setBatchId(result.batch_id);
+        },
+      },
+    );
+  }, [selectedFingerprints, batchTiers, batchMutation]);
+
+  const handleBatchComplete = useCallback(() => {
+    setBatchId(null);
+    // Invalidate strata data for all selected fingerprints
+    for (const fp of selectedFingerprints) {
+      queryClient.invalidateQueries({ queryKey: ["strata", fp] });
+    }
+    if (fingerprint) refetch();
+  }, [selectedFingerprints, fingerprint, refetch, queryClient]);
+
+  const handleTierClick = useCallback((tier: StrataTier) => {
+    // Always switch view to this tier
+    setSelectedTier(tier);
+    // If in batch mode, don't trigger analysis
+    if (pageMode === "batch") return;
+  }, [pageMode]);
+
+  /** Get the analyze button label for a tier */
+  const getAnalyzeLabel = (tier: StrataTier): string => {
+    if (analyzeMutation.isPending && activeJobTier === tier) return "Analyzing...";
+    if (tierHasData(tier)) return `Re-run ${TIER_LABELS[tier]} (overwrites)`;
+    return `Analyze ${TIER_LABELS[tier]}`;
+  };
+
+  /** Get tooltip for a tier button */
+  const getTierTooltip = (tier: StrataTier): string => {
+    if (tier === "deep" && !hardwareConnected) return "Requires Pioneer hardware connection";
+    if (tierHasData(tier)) return TIER_DESCRIPTIONS[tier];
+    return `Click to view \u2014 ${TIER_DESCRIPTIONS[tier]}`;
+  };
+
+  /** Can we trigger analysis for this tier? */
+  const canAnalyzeTier = (tier: StrataTier): boolean => {
+    if (analyzeMutation.isPending || activeJobId !== null) return false;
+    if (tier === "deep" && !hardwareConnected) return false;
+    return true;
   };
 
   return (
@@ -83,71 +239,101 @@ export function StrataPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Strata</h1>
         <div className="flex items-center gap-2 text-xs">
-          <button
-            onClick={() => setPageMode("view")}
-            className={pageMode === "view" ? "text-white" : "text-gray-500 hover:text-gray-300"}
-          >
-            View
-          </button>
-          <span className="text-gray-700">|</span>
-          <button
-            onClick={() => formula && setPageMode("edit")}
-            disabled={!formula}
-            className={pageMode === "edit"
-              ? "text-white"
-              : formula
-                ? "text-gray-500 hover:text-gray-300"
-                : "text-gray-700 cursor-not-allowed"
-            }
-          >
-            Edit
-          </button>
-          <span className="text-gray-700">|</span>
-          <button
-            onClick={() => canCompare && setPageMode("compare")}
-            disabled={!canCompare}
-            title={canCompare ? "Compare two tiers side by side" : "Need 2+ tiers to compare"}
-            className={pageMode === "compare"
-              ? "text-white"
-              : canCompare
-                ? "text-gray-500 hover:text-gray-300"
-                : "text-gray-700 cursor-not-allowed"
-            }
-          >
-            Compare
-          </button>
+          {(["view", "edit", "compare", "batch"] as PageMode[]).map((mode) => {
+            const disabled =
+              (mode === "edit" && !formula) ||
+              (mode === "compare" && !canCompare);
+            const titles: Record<PageMode, string> = {
+              view: "View arrangement",
+              edit: formula ? "Edit arrangement" : "Select a tier with data first",
+              compare: canCompare ? "Compare two tiers" : "Need 2+ tiers to compare",
+              batch: "Batch analyze multiple tracks",
+            };
+            return (
+              <span key={mode}>
+                {mode !== "view" && <span className="text-gray-700 mr-2">|</span>}
+                <button
+                  onClick={() => !disabled && setPageMode(mode)}
+                  disabled={disabled}
+                  title={titles[mode]}
+                  className={pageMode === mode
+                    ? "text-white"
+                    : disabled
+                      ? "text-gray-700 cursor-not-allowed"
+                      : "text-gray-500 hover:text-gray-300"
+                  }
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </button>
+              </span>
+            );
+          })}
         </div>
       </div>
 
-      {/* Track Picker */}
-      <TrackPicker selectedFingerprint={fingerprint} onSelect={setFingerprint} />
+      {/* Track Picker — single select normally, multi in batch mode */}
+      {pageMode === "batch" ? (
+        <TrackPicker
+          mode="multi"
+          selectedFingerprints={selectedFingerprints}
+          onSelectionChange={setSelectedFingerprints}
+        />
+      ) : (
+        <TrackPicker selectedFingerprint={fingerprint} onSelect={setFingerprint} />
+      )}
 
-      {fingerprint ? (
+      {/* Batch Mode UI */}
+      {pageMode === "batch" && (
+        <BatchPanel
+          selectedCount={selectedFingerprints.size}
+          batchTiers={batchTiers}
+          onToggleTier={(tier) => {
+            const next = new Set(batchTiers);
+            if (next.has(tier)) next.delete(tier);
+            else next.add(tier);
+            setBatchTiers(next);
+          }}
+          onAnalyze={handleBatchAnalyze}
+          isAnalyzing={batchMutation.isPending}
+          batchId={batchId}
+          onBatchComplete={handleBatchComplete}
+          hardwareConnected={hardwareConnected}
+        />
+      )}
+
+      {/* Single-track view (non-batch mode) */}
+      {pageMode !== "batch" && (fingerprint || isLiveTier) ? (
         <div className="flex flex-col gap-4">
-          {/* Tier Selector + Analyze */}
+          {/* Tier Selector */}
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-400">Tier:</span>
-            {(["quick", "standard", "deep"] as StrataTier[]).map((tier) => {
-              const isAvailable = availableTiers.includes(tier);
+            {(["quick", "standard", "deep", "live", "live_offline"] as StrataTier[]).map((tier) => {
+              const isAvailable = tierHasData(tier);
               const isSelected = tier === selectedTier;
+              const isDeep = tier === "deep";
+              const isLive = tier === "live";
+              const isLiveOffline = tier === "live_offline";
+              const disabled = (isDeep && !hardwareConnected && !isAvailable);
+
               return (
                 <button
                   key={tier}
-                  onClick={() => isAvailable && setSelectedTier(tier)}
-                  disabled={!isAvailable}
-                  title={
-                    isAvailable
-                      ? TIER_DESCRIPTIONS[tier]
-                      : `No ${tier} analysis available`
-                  }
+                  onClick={() => handleTierClick(tier)}
+                  disabled={disabled}
+                  title={getTierTooltip(tier)}
                   className={`px-3 py-1 text-sm rounded transition-colors ${
-                    isSelected && isAvailable
-                      ? "bg-blue-600 text-white"
+                    isSelected
+                      ? isAvailable
+                        ? isLive ? "bg-green-600 text-white" : isLiveOffline ? "bg-amber-600 text-white" : "bg-blue-600 text-white"
+                        : isLive ? "bg-green-900 text-green-300 border border-green-700" : isLiveOffline ? "bg-amber-900 text-amber-300 border border-amber-700" : "bg-blue-900 text-blue-300 border border-blue-700"
                       : isAvailable
-                        ? "bg-gray-800 text-gray-300 hover:bg-gray-700"
-                        : "bg-gray-900 text-gray-600 cursor-not-allowed"
+                        ? isLive ? "bg-gray-800 text-green-400 hover:bg-gray-700" : isLiveOffline ? "bg-gray-800 text-amber-400 hover:bg-gray-700" : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                        : disabled
+                          ? "bg-gray-900 text-gray-600 cursor-not-allowed"
+                          : "bg-gray-900 text-gray-500 hover:bg-gray-800 hover:text-gray-400 border border-dashed border-gray-700"
                   }`}
                 >
+                  {isLive && isAvailable && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1.5 animate-pulse" />}
                   {TIER_LABELS[tier]}
                 </button>
               );
@@ -157,7 +343,7 @@ export function StrataPage() {
               <>
                 <span className="text-gray-600 text-sm">vs</span>
                 {(["quick", "standard", "deep"] as StrataTier[]).map((tier) => {
-                  const isAvailable = availableTiers.includes(tier) && tier !== selectedTier;
+                  const isAvailable = tierHasData(tier) && tier !== selectedTier;
                   const isSelected = tier === compareTier;
                   return (
                     <button
@@ -186,7 +372,7 @@ export function StrataPage() {
               </>
             )}
 
-            {/* Source selector (shown when tier has multiple sources) */}
+            {/* Source selector */}
             {availableSourcesForTier.length > 1 && pageMode !== "compare" && (
               <>
                 <span className="text-gray-600 ml-2">|</span>
@@ -207,18 +393,26 @@ export function StrataPage() {
               </>
             )}
 
+            {/* Right-aligned actions */}
             <div className="ml-auto flex gap-2">
-              <button
-                onClick={handleAnalyze}
-                disabled={analyzeMutation.isPending}
-                className={`px-3 py-1.5 text-sm rounded transition-colors ${
-                  analyzeMutation.isPending
-                    ? "bg-blue-800 text-blue-300 cursor-wait"
-                    : "bg-blue-600 text-white hover:bg-blue-500"
-                }`}
-              >
-                {analyzeMutation.isPending ? "Analyzing..." : "Analyze Quick"}
-              </button>
+              {/* Re-run / Analyze button for current tier (not for live) */}
+              {selectedTier !== "deep" && selectedTier !== "live" && canAnalyzeTier(selectedTier) && (
+                <button
+                  onClick={() => handleAnalyze(selectedTier)}
+                  disabled={!canAnalyzeTier(selectedTier)}
+                  title={tierHasData(selectedTier)
+                    ? `Re-run ${TIER_LABELS[selectedTier]} analysis (overwrites existing)`
+                    : `Run ${TIER_LABELS[selectedTier]} analysis`
+                  }
+                  className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                    analyzeMutation.isPending
+                      ? "bg-blue-800 text-blue-300 cursor-wait"
+                      : "bg-blue-600 text-white hover:bg-blue-500"
+                  }`}
+                >
+                  {getAnalyzeLabel(selectedTier)}
+                </button>
+              )}
               {hasV2 && !hasV3 && (
                 <button
                   onClick={() => reanalyzeMutation.mutate(undefined, { onSuccess: () => refetch() })}
@@ -244,12 +438,35 @@ export function StrataPage() {
           )}
 
           {/* Content Area */}
-          {isLoading ? (
+          {isLiveTier && !liveFormula ? (
+            <div className="h-48 flex flex-col items-center justify-center bg-gray-950 rounded border border-gray-800 gap-3">
+              <p className="text-gray-500 text-sm">
+                {hardwareConnected
+                  ? "Waiting for Pioneer phrase analysis data..."
+                  : "Connect Pioneer hardware to use Live tier"}
+              </p>
+              <p className="text-gray-600 text-xs max-w-md text-center">
+                Live tier constructs arrangement analysis from Pioneer hardware data
+                streaming over Ethernet — no audio files needed.
+              </p>
+              {hardwareConnected && (
+                <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              )}
+            </div>
+          ) : isLoading && !isLiveTier ? (
             <div className="h-64 flex items-center justify-center bg-gray-950 rounded border border-gray-800">
               <p className="text-gray-500 text-sm">Loading strata data...</p>
             </div>
-          ) : !hasAnyData ? (
-            <EmptyState onAnalyze={handleAnalyze} isAnalyzing={analyzeMutation.isPending} />
+          ) : !hasAnyData && !activeJobId ? (
+            <EmptyState onAnalyze={() => handleAnalyze("quick")} isAnalyzing={analyzeMutation.isPending} />
+          ) : activeJobId && activeJobTier && !formula ? (
+            /* Progress replaces empty state when job is active and no data yet */
+            <StrataJobProgress
+              jobId={activeJobId}
+              tier={activeJobTier}
+              onComplete={handleJobComplete}
+              onCancel={handleJobCancel}
+            />
           ) : pageMode === "compare" && formula && compareFormula ? (
             <ComparisonView
               fingerprint={fingerprint}
@@ -265,32 +482,49 @@ export function StrataPage() {
               </p>
             </div>
           ) : formula ? (
-            <FormulaView
-              formula={formula}
-              fingerprint={fingerprint}
+            <>
+              {/* Show progress above results when re-running */}
+              {activeJobId && activeJobTier && (
+                <StrataJobProgress
+                  jobId={activeJobId}
+                  tier={activeJobTier}
+                  onComplete={handleJobComplete}
+                  onCancel={handleJobCancel}
+                />
+              )}
+              <FormulaView
+                formula={formula}
+                fingerprint={fingerprint}
+                tier={selectedTier}
+                editMode={pageMode === "edit"}
+                onExitEdit={() => setPageMode("view")}
+                playbackCursorTime={isLiveTier ? livePlaybackTime : null}
+              />
+            </>
+          ) : !activeJobId ? (
+            <TierEmptyState
               tier={selectedTier}
-              editMode={pageMode === "edit"}
-              onExitEdit={() => setPageMode("view")}
+              canAnalyze={canAnalyzeTier(selectedTier)}
+              onAnalyze={() => handleAnalyze(selectedTier)}
+              isAnalyzing={analyzeMutation.isPending}
+              hardwareConnected={hardwareConnected}
+              tierHasData={tierHasData(selectedTier)}
+              analyzeLabel={getAnalyzeLabel(selectedTier)}
             />
-          ) : (
-            <div className="h-48 flex items-center justify-center bg-gray-950 rounded border border-gray-800">
-              <p className="text-gray-500 text-sm">
-                No {selectedTier} tier data. Select an available tier above.
-              </p>
-            </div>
-          )}
+          ) : null}
         </div>
-      ) : (
+      ) : pageMode !== "batch" && !isLiveTier ? (
         <div className="h-40 flex items-center justify-center bg-gray-950 rounded border border-gray-800">
           <p className="text-gray-500 text-sm">
             Select a track above to view arrangement analysis
           </p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
+/** Empty state when no strata data exists at all for the track. */
 function EmptyState({ onAnalyze, isAnalyzing }: { onAnalyze: () => void; isAnalyzing: boolean }) {
   return (
     <div className="h-64 flex flex-col items-center justify-center bg-gray-950 rounded border border-gray-800 gap-3">
@@ -316,16 +550,144 @@ function EmptyState({ onAnalyze, isAnalyzing }: { onAnalyze: () => void; isAnaly
   );
 }
 
+/** Empty state for a specific tier that has no data yet. */
+function TierEmptyState({
+  tier,
+  canAnalyze,
+  onAnalyze,
+  isAnalyzing,
+  hardwareConnected,
+  tierHasData: _tierHasData,
+  analyzeLabel,
+}: {
+  tier: StrataTier;
+  canAnalyze: boolean;
+  onAnalyze: () => void;
+  isAnalyzing: boolean;
+  hardwareConnected: boolean;
+  tierHasData: boolean;
+  analyzeLabel: string;
+}) {
+  const isDeep = tier === "deep";
+
+  return (
+    <div className="h-48 flex flex-col items-center justify-center bg-gray-950 rounded border border-gray-800 gap-3">
+      <p className="text-gray-500 text-sm">
+        No data for {TIER_LABELS[tier]} tier yet.
+      </p>
+
+      {isDeep && !hardwareConnected ? (
+        <p className="text-gray-600 text-xs">
+          Deep tier requires Pioneer hardware connection.
+        </p>
+      ) : isDeep ? (
+        <p className="text-gray-600 text-xs">
+          Deep tier analysis is not yet available (coming in Phase 6).
+        </p>
+      ) : (
+        <>
+          <p className="text-gray-600 text-xs">
+            {TIER_DESCRIPTIONS[tier]}
+          </p>
+          <button
+            onClick={onAnalyze}
+            disabled={!canAnalyze || isAnalyzing}
+            className={`px-4 py-1.5 text-sm rounded transition-colors ${
+              !canAnalyze || isAnalyzing
+                ? "bg-blue-800 text-blue-300 cursor-wait"
+                : "bg-blue-600 text-white hover:bg-blue-500"
+            }`}
+          >
+            {isAnalyzing ? "Analyzing..." : analyzeLabel}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Batch analysis panel. */
+function BatchPanel({
+  selectedCount,
+  batchTiers,
+  onToggleTier,
+  onAnalyze,
+  isAnalyzing,
+  batchId,
+  onBatchComplete,
+  hardwareConnected,
+}: {
+  selectedCount: number;
+  batchTiers: Set<StrataTier>;
+  onToggleTier: (tier: StrataTier) => void;
+  onAnalyze: () => void;
+  isAnalyzing: boolean;
+  batchId: string | null;
+  onBatchComplete: () => void;
+  hardwareConnected: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-3 px-4 py-3 bg-gray-950 rounded border border-gray-800">
+      <div className="flex items-center gap-4">
+        <span className="text-sm text-gray-400">Batch tiers:</span>
+        {(["quick", "standard", "deep"] as StrataTier[]).map((tier) => {
+          const isDeep = tier === "deep";
+          const disabled = isDeep && !hardwareConnected;
+          return (
+            <label
+              key={tier}
+              className={`flex items-center gap-1.5 text-sm cursor-pointer ${
+                disabled ? "text-gray-600 cursor-not-allowed" : "text-gray-300"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={batchTiers.has(tier)}
+                onChange={() => !disabled && onToggleTier(tier)}
+                disabled={disabled}
+                className="accent-blue-500"
+              />
+              {TIER_LABELS[tier]}
+              {isDeep && !hardwareConnected && (
+                <span className="text-xs text-gray-600">(no hardware)</span>
+              )}
+            </label>
+          );
+        })}
+
+        <button
+          onClick={onAnalyze}
+          disabled={selectedCount === 0 || batchTiers.size === 0 || isAnalyzing || !!batchId}
+          className={`ml-auto px-4 py-1.5 text-sm rounded transition-colors ${
+            selectedCount === 0 || batchTiers.size === 0 || isAnalyzing || batchId
+              ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+              : "bg-blue-600 text-white hover:bg-blue-500"
+          }`}
+        >
+          {isAnalyzing ? "Starting..." : `Analyze ${selectedCount} track${selectedCount !== 1 ? "s" : ""}`}
+        </button>
+      </div>
+
+      {batchId && (
+        <StrataBatchProgress batchId={batchId} onComplete={onBatchComplete} />
+      )}
+    </div>
+  );
+}
+
 interface FormulaViewProps {
   formula: ArrangementFormula;
   fingerprint: string;
   tier: StrataTier;
   editMode: boolean;
   onExitEdit: () => void;
+  /** Real-time playback cursor position in seconds (live tier only). */
+  playbackCursorTime?: number | null;
 }
 
-function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit }: FormulaViewProps) {
+function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit, playbackCursorTime }: FormulaViewProps) {
   const { data: analysis } = useTrackAnalysis(fingerprint);
+  const { data: trackEvents } = useTrackEvents(fingerprint);
   const activeRenderParams = useWaveformPresetStore((s) => s.activePreset?.params);
   const saveMutation = useSaveStrata(fingerprint, tier);
 
@@ -334,6 +696,18 @@ function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit }: Formu
 
   const [selectedPatternId, setSelectedPatternId] = useState<string | null>(null);
   const [hoveredPatternId, setHoveredPatternId] = useState<string | null>(null);
+  const [visibleEventTypes, setVisibleEventTypes] = useState<Set<string>>(new Set());
+  const [showStemWaveforms, setShowStemWaveforms] = useState(true);
+  const [showPatternBlocks, setShowPatternBlocks] = useState(true);
+
+  const toggleEventType = useCallback((type: EventType) => {
+    setVisibleEventTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }, []);
 
   // --- Draft state for edit mode ---
   const [draft, setDraft] = useState<ArrangementFormula | null>(null);
@@ -349,6 +723,29 @@ function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit }: Formu
 
   /** The formula to display — draft when editing, original otherwise. */
   const displayFormula = editMode && draft ? draft : formula;
+
+  // Collect events for overlay: prefer per-stem strata events, fall back to M7 track-level events
+  const allStemEvents: AtomicEvent[] = useMemo(() => {
+    const strataEvents = displayFormula.stems.flatMap((s) => s.events);
+    if (strataEvents.length > 0) return strataEvents;
+    // Fall back to M7 track-level events (convert MusicalEvent → AtomicEvent shape)
+    if (trackEvents?.events?.length) {
+      return trackEvents.events.map((e) => ({
+        type: e.type,
+        timestamp: e.timestamp,
+        duration: e.duration,
+        intensity: e.intensity,
+        stem: null,
+        pitch: null,
+        beat_position: null,
+        bar_index: null,
+        confidence: e.intensity,
+        source: "m7",
+        payload: e.payload ?? {},
+      }));
+    }
+    return [];
+  }, [displayFormula.stems, trackEvents]);
 
   const isDirty = editMode && draft !== null && JSON.stringify(draft) !== JSON.stringify(formula);
 
@@ -498,6 +895,39 @@ function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit }: Formu
         </span>
       </div>
 
+      {/* Toolbar: event toggles + stem waveform toggle */}
+      <div className="flex items-center gap-4 flex-wrap">
+        {allStemEvents.length > 0 && (
+          <EventTypeToggles
+            visibleTypes={visibleEventTypes}
+            onToggle={toggleEventType}
+            compact
+          />
+        )}
+        {displayFormula.stems.some((s) => s.waveform) && (
+          <button
+            onClick={() => setShowStemWaveforms((v) => !v)}
+            className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+              showStemWaveforms
+                ? "border-teal-500 text-teal-400"
+                : "border-gray-700 text-gray-500 hover:text-gray-400"
+            }`}
+          >
+            Stem Waveforms
+          </button>
+        )}
+        <button
+          onClick={() => setShowPatternBlocks((v) => !v)}
+          className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+            showPatternBlocks
+              ? "border-orange-500 text-orange-400"
+              : "border-gray-700 text-gray-500 hover:text-gray-400"
+          }`}
+        >
+          Pattern Blocks
+        </button>
+      </div>
+
       {/* Waveform + Section bands + Beatgrid */}
       {analysis?.waveform ? (
         <WaveformCanvas
@@ -512,6 +942,7 @@ function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit }: Formu
           onViewChange={setView}
           height={100}
           renderParams={activeRenderParams}
+          leftPadding={LABEL_WIDTH}
         />
       ) : (
         <div className="h-24 flex items-center justify-center bg-gray-950 rounded border border-gray-800">
@@ -532,6 +963,11 @@ function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit }: Formu
         hoveredPatternId={hoveredPatternId}
         onPatternSelect={setSelectedPatternId}
         onPatternHover={setHoveredPatternId}
+        visibleEventTypes={visibleEventTypes}
+        showStemWaveforms={showStemWaveforms}
+        showPatternBlocks={showPatternBlocks}
+        externalEvents={allStemEvents}
+        playbackCursorTime={playbackCursorTime ?? undefined}
       />
 
       {/* Pattern Detail Panel (shown when a pattern is selected) */}
@@ -679,7 +1115,7 @@ function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit }: Formu
               >
                 <span className="text-gray-200 w-24">{s.section_label}</span>
                 <span className="text-gray-500 text-xs font-mono">
-                  {s.section_start.toFixed(1)}s–{s.section_end.toFixed(1)}s
+                  {s.section_start.toFixed(1)}s\u2013{s.section_end.toFixed(1)}s
                 </span>
                 <span className="text-gray-500 text-xs">
                   {s.layer_count} layer{s.layer_count !== 1 ? "s" : ""}

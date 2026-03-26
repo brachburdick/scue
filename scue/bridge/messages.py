@@ -27,12 +27,13 @@ PHRASE_ANALYSIS = "phrase_analysis"
 CUE_POINTS = "cue_points"
 BEAT = "beat"
 TRACK_WAVEFORM = "track_waveform"
+COMMAND_RESPONSE = "command_response"
 
 ALL_TYPES = frozenset({
     DEVICE_FOUND, DEVICE_LOST, BRIDGE_STATUS,
     PLAYER_STATUS, TRACK_METADATA, BEAT_GRID,
     WAVEFORM_DETAIL, PHRASE_ANALYSIS, CUE_POINTS, BEAT,
-    TRACK_WAVEFORM,
+    TRACK_WAVEFORM, COMMAND_RESPONSE,
 })
 
 
@@ -181,6 +182,16 @@ class BeatPayload:
     pitch: float = 0.0
 
 
+@dataclass
+class CommandResponsePayload:
+    """Payload for command_response messages (bidirectional command channel)."""
+    request_id: str
+    status: str  # "ok" | "error"
+    command: str
+    data: dict = field(default_factory=dict)
+    error_message: str | None = None
+
+
 # ── Type → payload class mapping ─────────────────────────────────────────
 
 PAYLOAD_TYPES: dict[str, type] = {
@@ -195,6 +206,7 @@ PAYLOAD_TYPES: dict[str, type] = {
     CUE_POINTS: CuePointsPayload,
     BEAT: BeatPayload,
     TRACK_WAVEFORM: TrackWaveformPayload,
+    COMMAND_RESPONSE: CommandResponsePayload,
 }
 
 

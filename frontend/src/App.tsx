@@ -12,6 +12,7 @@ import { DetectorTuningPage } from "./pages/DetectorTuningPage.tsx";
 import { AnnotationPage } from "./pages/AnnotationPage.tsx";
 import { StrataPage } from "./pages/StrataPage.tsx";
 import { WaveformTuningPage } from "./pages/WaveformTuningPage.tsx";
+import { IngestionPage } from "./pages/IngestionPage.tsx";
 import { connectWebSocket, disconnectWebSocket } from "./api/ws";
 import { useWaveformPresetStore } from "./stores/waveformPresetStore";
 
@@ -29,6 +30,7 @@ function App() {
         <Route path="strata" element={<StrataPage />} />
         <Route path="analysis" element={<AnalysisViewerPage />} />
         <Route path="live" element={<LiveDeckMonitorPage />} />
+        <Route path="ingestion" element={<IngestionPage />} />
         <Route path="data/db" element={<TracksPage />} />
         <Route path="data/bridge" element={<BridgePage />} />
         <Route path="data/enrichment" element={<EnrichmentPage />} />

@@ -47,6 +47,45 @@ Problem: On macOS, a UDP socket bound to a unicast IP (e.g. 169.254.20.47) does 
 Fix: Bind to `""` (INADDR_ANY / 0.0.0.0) and use `setsockopt(IPPROTO_IP, IP_BOUND_IF=25, socket.if_nametoindex(iface_name))` to lock the socket to the specific interface.
 Prevention: Always use IP_BOUND_IF on macOS for any interface-specific UDP listener. Never bind to a unicast IP if you expect to receive broadcasts.
 
+### Hardware hot-swap (USB insert/remove) breaks DLP browsing — the hidden cause of "ghost bugs"
+Date: 2026-03-25
+Context: QA testing Ingestion Page with live XDJ-AZ. Removed USB from slot 1 mid-session. All browse requests (including for the USB still in slot 2) started returning 500.
+Problem: The Java bridge maintains a DLP (Device Library Protocol) session that tracks media slot availability. When a USB is removed, this session state becomes stale, but the bridge doesn't re-negotiate. The WebSocket connection stays alive (bridge status shows "connected"), the scanner shows "idle", but ALL browse commands fail with empty error messages. This affects every slot on the player, not just the removed one. The only recovery is restarting the backend.
+This is the likely root cause of many "phantom" bugs observed in prior sessions — features that worked during initial testing but broke during extended sessions where hardware was changed. The QA plans assumed static hardware throughout, so the connection between "I swapped a USB" and "browsing stopped working" was never made explicit.
+Fix/Pattern: The bridge needs to detect media slot changes (Pro DJ Link broadcasts mount/unmount events) and re-establish its DLP session. Short-term: add a `/api/scanner/reset` endpoint. Long-term: bridge emits `media_change` WS events, backend invalidates scanner, frontend invalidates query cache.
+Prevention: **Every QA plan for hardware-connected features MUST include a "Hardware Mutation" phase.** Test: USB remove, USB insert, USB swap, slot change during scan, and browsing after any media change. This is not an edge case — DJs swap USBs constantly during sets.
+
+---
+
+## QA — Hardware Testing
+
+### QA plans must include hardware mutation scenarios
+Date: 2026-03-25
+Context: Completed 10-phase QA plan for Ingestion Page. All phases passed. Then Brach removed a USB and everything broke.
+Problem: QA phases tested features against a static hardware config established at session start. No phase tested what happens when hardware changes mid-session. This class of bug (stale DLP connections after media changes) had been causing intermittent failures across multiple prior sessions, but was never pinpointed because QA never systematically tested hardware mutation.
+Fix/Pattern: Any QA plan that involves Pioneer hardware must include a dedicated "Hardware Mutation" phase covering:
+1. USB remove while idle → verify remaining slots still browsable
+2. USB remove during active scan → verify graceful failure + partial results
+3. USB insert after session start → verify new media is discoverable
+4. USB swap (remove + insert different) → verify fresh browse works
+5. Bridge reconnect after media change → verify state recovery
+6. Verify error messages are user-visible (not silent "Empty" states)
+Prevention: Add this to the QA skill/template so it's automatically included. The operator should be prompted to perform physical hardware changes as part of QA — these cannot be tested via code review alone.
+
+### QA plans must define expected behavior as questions, not just actions
+Date: 2026-03-25
+Context: Operator live-tested the Ingestion page after a 10-phase QA pass. Found 13+ bugs in minutes that the QA plan missed entirely — shift-click selection, scroll wheel bleeding, stale selection after scan, frozen progress on single tracks, playlist navigation loops, etc.
+Problem: The QA plan described actions ("click Scan Selected", "verify scan works") but never defined what "works" means at each step. Without explicit expected-behavior statements, the agent confirmed "200 OK" and "panel rendered" while missing every UX-level bug. The human operator immediately noticed them because they had implicit expectations the agent didn't share.
+Fix/Pattern: Structure every QA step as a question with an expected answer:
+```
+Step: Select 1 track, click "Scan Selected"
+Q: Does the button disable immediately? Expected: Yes
+Q: Does the progress panel show the track name? Expected: Yes
+Q: After completion, is the selection cleared? Expected: Yes
+```
+This forces the plan author to think through every state transition and gives both human and agent testers unambiguous pass/fail criteria.
+Prevention: See THE_FACTORY LEARNINGS.md "QA Process — General" and `skills/hardware-qa.md`. Every QA plan should be reviewed for "vague verbs" — words like "works", "appears", "updates correctly" are red flags that need to be expanded into specific observable criteria.
+
 ---
 
 ## Layer 1 — Track Analysis & Live Tracking

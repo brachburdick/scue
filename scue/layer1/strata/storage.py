@@ -21,8 +21,8 @@ from .models import ArrangementFormula, formula_from_dict, formula_to_dict
 
 logger = logging.getLogger(__name__)
 
-VALID_TIERS = ("quick", "standard", "deep")
-VALID_SOURCES = ("analysis", "pioneer_enriched", "pioneer_reanalyzed")
+VALID_TIERS = ("quick", "standard", "deep", "live", "live_offline")
+VALID_SOURCES = ("analysis", "pioneer_enriched", "pioneer_reanalyzed", "pioneer_live")
 DEFAULT_SOURCE = "analysis"
 
 

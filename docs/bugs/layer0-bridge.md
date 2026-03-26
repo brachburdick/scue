@@ -233,6 +233,22 @@ Root cause: `emitTrackWaveform()` in BeatLinkBridge.java called `segmentHeight(i
 Fix: Added style check before extracting waveform data. THREE_BAND uses per-band `segmentHeight(i, max, ThreeBandLayer)`. BLUE/RGB uses `segmentColor(i, max)` for color + `segmentHeight(i, max)` for height, scaling RGB channels by height. Mono path unchanged.
 File(s): bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java
 
+### XDJ-AZ reports TrackType.NO_TRACK despite track loaded and playing (DLP)
+Date: 2026-03-24
+Milestone: N/A
+Symptom: Bridge status shows `bpm: 0.0`, `track_source_slot: "no_track"`, `track_type: "no_track"` in player_status even though beats are actively flowing at 126 BPM and a track is loaded on the XDJ-AZ. Device discovery also delayed — `devices: {}` initially despite active message stream.
+Root cause: Two compounding DLP issues:
+1. **CdjStatus.getTrackType() returns NO_TRACK on DLP devices.** The XDJ-AZ uses Device Library Plus protocol where CdjStatus fields (trackType, trackSourceSlot, BPM, pitch) are not populated the traditional way. `handleCdjStatus()` in BeatLinkBridge.java gates all meaningful data behind `boolean noTrack = status.getTrackType() == CdjStatus.TrackType.NO_TRACK` — when this is true, BPM is zeroed, pitch is zeroed, and playback position is skipped. But on DLP hardware, this field is unreliable.
+2. **Multiple stale bridge processes from prior sessions.** Three Java bridge instances were running on port 17400 simultaneously. The oldest (stale) process held the port; newer ones failed to bind silently. Combined with a stale 169.254 route (en0 instead of en16), the active bridge couldn't discover devices.
+Fix: NOT YET FIXED. Immediate workarounds applied:
+- Killed stale bridge processes, fixed route (`sudo route add 169.254.0.0/16 -interface en16`), clean restart resolved device discovery.
+- Python adapter's `_ensure_device_from_player()` correctly inferred device presence from player_status after restart.
+Remaining work needed:
+- **Java side:** `handleCdjStatus()` needs DLP-aware fallback — infer track presence from beat activity or non-zero `rekordboxId` rather than relying on `getTrackType()`. When a DLP device is detected, use `getEffectiveTempo()` and `getPitch()` unconditionally.
+- **Java side:** Bridge should detect and kill stale instances on startup (check port availability before binding).
+- **Python side:** Consider enriching player_status with beat-derived BPM when the Java-reported BPM is 0 but beats are flowing.
+File(s): bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java (handleCdjStatus ~line 544), scue/bridge/adapter.py
+
 ### rbox ANLZ parser panics on XDJ-AZ exported files
 Date: 2026-03-16
 Milestone: M-0B

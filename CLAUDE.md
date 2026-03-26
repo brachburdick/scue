@@ -64,6 +64,7 @@ Decision log: docs/DECISIONS.md
 | Waveform rendering / frequency color / amplitude scaling | `skills/waveform-rendering.md` | Psychoacoustics, Pioneer parity, preset system |
 | Editing WaveformCanvas / AnnotationTimeline / DeckWaveform | `skills/component-api-reference.md` | Props, draw pipeline, interactions |
 | Section review / boundary review / scoped review | `sections/SECTIONS.md` | Section map, contracts, coupling rules |
+| QA with live hardware / bridge QA / scanner QA | `skills/hardware-qa.md` | Note-then-fix protocol, hardware mutation phase, operator-agent QA |
 
 ## Code Style
 ### Python
