@@ -118,6 +118,8 @@ export function RouteStatusBanner() {
     );
   }
 
+  const competing: string[] = route.competing_interfaces ?? [];
+
   // Route is wrong
   return (
     <div className="rounded-lg bg-yellow-900/30 px-4 py-3 space-y-2">
@@ -155,6 +157,14 @@ export function RouteStatusBanner() {
       {fixMutation.isError && (
         <div className="text-xs text-red-400">
           Fix failed: {(fixMutation.error as Error).message}
+        </div>
+      )}
+      {competing.length > 0 && (
+        <div className="text-xs text-yellow-400/80">
+          Competing subnet routes on: {competing.join(", ")}
+          {canFix
+            ? " — auto-fix will resolve on next startup"
+            : `. Re-run: sudo ./tools/install-route-fix.sh ${route.expected_interface}`}
         </div>
       )}
     </div>

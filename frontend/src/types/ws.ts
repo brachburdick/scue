@@ -36,9 +36,19 @@ export interface WSScanComplete {
   payload: HardwareScanStatus;
 }
 
+export interface WSMediaChange {
+  type: "media_change";
+  payload: {
+    player_number: number;
+    slot: string;
+    action: "mounted" | "unmounted";
+  };
+}
+
 export type WSMessage =
   | WSBridgeStatus
   | WSPioneerStatus
   | WSStrataLive
   | WSScanProgress
-  | WSScanComplete;
+  | WSScanComplete
+  | WSMediaChange;

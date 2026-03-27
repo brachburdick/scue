@@ -136,15 +136,19 @@ public class CommandHandler {
         try {
             int playerNumber = toInt(params.get("player_number"));
             int folderId = toInt(params.get("folder_id"));
+            boolean isFolder = params.containsKey("is_folder") ? toBool(params.get("is_folder")) : true;
             CdjStatus.TrackSourceSlot slot = parseSlot((String) params.get("slot"));
-            SlotReference slotRef = SlotReference.getSlotReference(playerNumber, slot);
 
             if (!ConnectionManager.getInstance().isRunning()) {
                 emitError(requestId, "browse_playlist", "ConnectionManager not running");
                 return;
             }
 
-            List<Message> items = MenuLoader.getInstance().requestPlaylistMenuFrom(slotRef, folderId);
+            // Use MetadataFinder.requestPlaylistItemsFrom — supports folder hierarchy
+            // navigation. isFolder=true lists sub-folders/playlists, isFolder=false
+            // lists tracks within a leaf playlist.
+            List<Message> items = MetadataFinder.getInstance().requestPlaylistItemsFrom(
+                playerNumber, slot, 0, folderId, isFolder);
             if (items == null) {
                 emitError(requestId, "browse_playlist", "No response from player " + playerNumber);
                 return;
@@ -164,9 +168,11 @@ public class CommandHandler {
                 "player_number", playerNumber,
                 "slot", params.get("slot"),
                 "folder_id", folderId,
+                "is_folder", isFolder,
                 "items", tracks
             ));
-            log.info("browse_playlist: {} items from player {} folder {}", tracks.size(), playerNumber, folderId);
+            log.info("browse_playlist: {} items from player {} folder {} (isFolder={})",
+                tracks.size(), playerNumber, folderId, isFolder);
 
         } catch (Exception e) {
             log.error("browse_playlist failed: {}", e.getMessage(), e);
@@ -336,6 +342,16 @@ public class CommandHandler {
             return Integer.parseInt((String) value);
         }
         throw new IllegalArgumentException("Cannot convert to int: " + value);
+    }
+
+    private boolean toBool(Object value) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof String) {
+            return Boolean.parseBoolean((String) value);
+        }
+        return false;
     }
 
     /**

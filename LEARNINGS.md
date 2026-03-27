@@ -26,6 +26,20 @@ Fix: Use the `rbox` Python library to read metadata directly from the USB's `exp
 Prevention: Any time new Pioneer hardware is supported, check whether it uses DLP or legacy DeviceSQL. Affected hardware: XDJ-AZ, Opus Quad, OMNIS-DUO, CDJ-3000X.
 **UPDATE 2026-03-20:** beat-link 8.1.0-SNAPSHOT (used by latest BLT) has added XDJ-AZ support. The XDJ-AZ dbserver WORKS — unlike Opus Quad, it has a functioning dbserver port. CrateDigger can download exportLibrary.db over NFS from XDJ-AZ and use it for ID translation. The DLP ID mismatch appears to be resolved in v8.1.0-SNAPSHOT. When this version releases, we should reassess ADR-012 — beat-link's native metadata path may work for XDJ-AZ without our rbox workaround. See `research/findings-xdj-az-blt-metadata-2026-03.md` for full analysis.
 
+### beat-link MenuLoader vs MetadataFinder — playlist navigation requires MetadataFinder
+Date: 2026-03-26
+Context: Debugging playlist sub-navigation returning the same root listing for all folder IDs.
+Problem: `MenuLoader.requestPlaylistMenuFrom(slotRef, sortOrder)` was being called with `folderId` as the second parameter, but that parameter is actually `sortOrder`. The method always returns the root playlist listing. The parameter name in the Javadoc is ambiguous and easy to misread as a folder ID.
+Fix: Use `MetadataFinder.requestPlaylistItemsFrom(player, slot, sortOrder, playlistOrFolderId, isFolder)` instead. This method correctly navigates the playlist hierarchy. The `isFolder` boolean controls what's returned: `true` = sub-folders/playlists within a folder, `false` = tracks within a leaf playlist. The reference implementation (beat-link-trigger's `track_loader.clj`) confirms this two-method pattern: `folder-menu-node` uses `isFolder=true`, `playlist-menu-node` uses `isFolder=false`.
+Prevention: When using beat-link APIs, always verify the parameter names against the Javadoc at `deepsymmetry.org/beatlink/apidocs/`. Cross-reference with beat-link-trigger source for usage patterns. `MenuLoader` is for simple, flat menu requests; `MetadataFinder` is for hierarchical navigation.
+
+### macOS competing subnet routes break bridge discovery on every backend reload
+Date: 2026-03-26
+Context: Bridge sits in `waiting_for_hardware` after every `uvicorn --reload` despite XDJ-AZ being connected and powered on.
+Problem: macOS adds a `169.254.0.0/16` link-local subnet route for EVERY active interface. When both en0 (Wi-Fi) and en16 (USB-Ethernet) are up, two competing routes exist. The `scue-route-fix` script only handles the `169.254.255.255` broadcast host route, not the subnet-level conflict. The `route_correct` property check only verifies the host route, giving a false positive. After a backend reload (which kills and restarts the Java bridge), the bridge often cannot rediscover devices because broadcast packets may be delivered to the wrong interface via the en0 subnet route.
+Fix: OPEN — highest priority. The route fix script needs to also delete the en0 link-local subnet route (`route delete -net 169.254.0.0/16 -interface en0`). The sudoers entry must permit this additional command. The `route_correct` check must detect competing subnet routes. Consider running the route fix automatically on every bridge startup.
+Prevention: Any time the bridge is restarted, the route fix must be applied. This should be automated, not manual. All sessions that require hardware QA should verify bridge connectivity before proceeding.
+
 ### XDJ-AZ track change detection: trackType does NOT transition through NO_TRACK
 Date: 2026-03-16
 Context: Same debugging session as above.

@@ -1,0 +1,104 @@
+[
+  {
+    "type": "bridge_status",
+    "timestamp": 1710700000.0,
+    "player_number": null,
+    "payload": {
+      "connected": true,
+      "devices_online": 2,
+      "version": "2.0.0"
+    }
+  },
+  {
+    "type": "device_found",
+    "timestamp": 1710700001.0,
+    "player_number": 1,
+    "payload": {
+      "device_name": "CDJ-3000",
+      "device_number": 1,
+      "device_type": "cdj",
+      "ip_address": "169.254.20.101",
+      "uses_dlp": true
+    }
+  },
+  {
+    "type": "device_found",
+    "timestamp": 1710700002.0,
+    "player_number": 2,
+    "payload": {
+      "device_name": "CDJ-3000",
+      "device_number": 2,
+      "device_type": "cdj",
+      "ip_address": "169.254.20.102",
+      "uses_dlp": true
+    }
+  },
+  {
+    "type": "player_status",
+    "timestamp": 1710700005.0,
+    "player_number": 1,
+    "payload": {
+      "bpm": 128.0,
+      "pitch": 0.0,
+      "playback_state": "playing",
+      "is_on_air": true,
+      "beat_within_bar": 1,
+      "beat_number": 100,
+      "rekordbox_id": 42,
+      "track_source_player": 1,
+      "track_source_slot": "usb"
+    }
+  },
+  {
+    "type": "media_change",
+    "timestamp": 1710700010.0,
+    "player_number": 2,
+    "payload": {
+      "slot": "usb",
+      "action": "unmounted",
+      "player_number": 2,
+      "media_name": null,
+      "track_count": -1
+    }
+  },
+  {
+    "type": "player_status",
+    "timestamp": 1710700011.0,
+    "player_number": 1,
+    "payload": {
+      "bpm": 128.0,
+      "pitch": 0.02,
+      "playback_state": "playing",
+      "is_on_air": true,
+      "beat_within_bar": 3,
+      "beat_number": 103,
+      "rekordbox_id": 42,
+      "track_source_player": 1,
+      "track_source_slot": "usb"
+    }
+  },
+  {
+    "type": "media_change",
+    "timestamp": 1710700015.0,
+    "player_number": 2,
+    "payload": {
+      "slot": "usb",
+      "action": "mounted",
+      "player_number": 2,
+      "media_name": "DJ SET 2",
+      "track_count": 256
+    }
+  },
+  {
+    "type": "media_change",
+    "timestamp": 1710700020.0,
+    "player_number": 1,
+    "payload": {
+      "slot": "sd",
+      "action": "unmounted",
+      "player_number": 1,
+      "media_name": null,
+      "track_count": -1
+    }
+  }
+]

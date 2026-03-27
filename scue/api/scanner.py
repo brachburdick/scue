@@ -158,8 +158,9 @@ def _normalize_menu_item(raw: dict) -> dict:
     name = name.replace("\ufffa", "").replace("\ufffb", "")
     # Determine ID: root menu uses 'id', folder items use 'rekordbox_id'
     item_id = raw.get("id", 0) or raw.get("rekordbox_id", 0)
-    # Folder-like types end with _menu or are playlist/folder types
-    is_folder = item_type.endswith("_menu") or item_type in ("playlist", "folder")
+    # Folder-like types: _menu suffixes (root menu items), or "folder" (actual folder).
+    # "playlist" is a LEAF — it contains tracks, not sub-items.
+    is_folder = item_type.endswith("_menu") or item_type == "folder"
     return {"id": item_id, "name": name, "is_folder": is_folder}
 
 
@@ -181,24 +182,28 @@ async def browse_root_menu(player: int, slot: str = "usb"):
 
 
 @router.get("/browse/{player}/{slot}/folder/{folder_id}")
-async def browse_folder(player: int, slot: str, folder_id: int):
-    """Browse tracks/folders within a specific folder."""
+async def browse_folder(player: int, slot: str, folder_id: int, is_folder: bool = True):
+    """Browse tracks/folders within a specific folder or playlist.
+
+    is_folder=True navigates into a folder (returns sub-items).
+    is_folder=False lists tracks within a leaf playlist.
+    """
     scanner = _get_or_create_scanner()
     try:
-        resp = await scanner.browse_playlist(player, slot, folder_id)
+        resp = await scanner.browse_playlist(player, slot, folder_id, is_folder=is_folder)
         if not resp.ok:
             raise HTTPException(status_code=500, detail=resp.error_message)
         data = resp.data or {}
         # Separate folder items from track items
         raw_items = data.get("items", [])
-        items = [_normalize_menu_item(i) for i in raw_items if _is_folder_item(i)]
+        items = [_normalize_menu_item(i) for i in raw_items if _is_navigable_item(i)]
         tracks = [
             {
                 "rekordbox_id": i.get("rekordbox_id", 0),
                 "title": i.get("title", ""),
                 "artist": i.get("artist", ""),
             }
-            for i in raw_items if not _is_folder_item(i)
+            for i in raw_items if not _is_navigable_item(i)
         ]
         # Also include any tracks from a separate tracks key
         tracks.extend(data.get("tracks", []))
@@ -209,10 +214,16 @@ async def browse_folder(player: int, slot: str, folder_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _is_folder_item(raw: dict) -> bool:
-    """Check if a raw bridge item represents a folder/menu (vs a track)."""
+def _is_navigable_item(raw: dict) -> bool:
+    """Check if a raw bridge item is a navigable container (vs a track).
+
+    Navigable items include actual folders AND leaf playlists — both show
+    as clickable items in the browser. The `is_folder` flag on the returned
+    item tells the frontend whether to navigate with is_folder=true (folder)
+    or is_folder=false (leaf playlist).
+    """
     item_type = raw.get("item_type", "")
-    return item_type.endswith("_menu") or item_type in ("playlist", "folder")
+    return item_type.endswith("_menu") or item_type in ("folder", "playlist")
 
 
 @router.post("/start")

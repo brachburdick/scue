@@ -10,6 +10,9 @@ export function TopBar() {
   const wsConnected = useBridgeStore((s) => s.wsConnected);
   const isRecovering = useBridgeStore((s) => s.isRecovering);
   const countdownSecondsRemaining = useBridgeStore((s) => s.countdownSecondsRemaining);
+  const routeOk = useBridgeStore((s) => s.routeOk);
+  const devicesCount = useBridgeStore((s) => s.devicesCount);
+  const playersCount = useBridgeStore((s) => s.playersCount);
 
   // Build StatusDot tooltip — state-aware per UI State Behavior spec.
   let tooltip: string;
@@ -73,14 +76,24 @@ export function TopBar() {
           <StartupIndicator label={startupLabel} />
         )}
         <span className="text-xs text-gray-500">No project loaded</span>
-        {dotStatus !== "disconnected" && (
-          <TrafficDot
-            active={isReceiving}
-            recoveryPulse={trafficRecoveryPulse}
-            title={trafficTooltip}
+        <div className="flex items-center gap-2">
+          <MiniDot
+            color={routeOk === true ? "green" : routeOk === false ? "red" : "gray"}
+            title={routeOk === true ? "Route: OK" : routeOk === false ? (routeWarning ?? "Route: mismatch") : "Route: unknown"}
           />
-        )}
-        <StatusDot label="Bridge" status={dotStatus} title={tooltip} />
+          <StatusDot label="Bridge" status={dotStatus} title={tooltip} />
+          {dotStatus !== "disconnected" && (
+            <TrafficDot
+              active={isReceiving}
+              recoveryPulse={trafficRecoveryPulse}
+              title={trafficTooltip}
+            />
+          )}
+          <MiniDot
+            color={devicesCount > 0 ? "green" : "gray"}
+            title={devicesCount > 0 ? `${devicesCount} device${devicesCount > 1 ? "s" : ""}, ${playersCount} player${playersCount !== 1 ? "s" : ""}` : "No devices"}
+          />
+        </div>
       </div>
     </header>
   );
@@ -160,5 +173,19 @@ function StatusDot({
       <div className={`w-2 h-2 rounded-full ${colors[status]}`} />
       <span className="text-xs text-gray-400">{label}</span>
     </div>
+  );
+}
+
+function MiniDot({ color, title }: { color: "green" | "red" | "gray"; title: string }) {
+  const colors = {
+    green: "bg-green-500",
+    red: "bg-red-500",
+    gray: "bg-gray-700",
+  };
+  return (
+    <div
+      className={`w-2 h-2 rounded-full ${colors[color]}`}
+      title={title}
+    />
   );
 }

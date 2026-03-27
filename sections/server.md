@@ -49,6 +49,9 @@ cd frontend && npm run typecheck  # Verifies FE types match BE contract
 .venv/bin/uvicorn scue.main:app --reload
 ```
 
+## Co-ownership Note
+The API routers `scue/api/scanner.py`, `scue/api/usb.py`, and `scue/api/local_library.py` are co-owned with the **ingestion** section. The server section owns how routers are mounted and wired in `main.py`; the ingestion section owns the endpoint logic and request/response shapes.
+
 ## Review Notes
 This section is where seam-bugs live. When reviewing:
 - Check that `main.py` wiring matches what API routers expect

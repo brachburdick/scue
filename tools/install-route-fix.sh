@@ -88,7 +88,22 @@ fi
 
 INTERFACE="$ARG"
 
-# Fix the route
+# 1. Delete competing 169.254 subnet routes from OTHER interfaces.
+#    macOS adds 169.254.0.0/16 for every link-local-capable interface.
+#    When en0 (Wi-Fi) and en16 (USB-Ethernet) both have one, beat-link's
+#    non-broadcast link-local traffic goes out the wrong interface.
+for competing in $(netstat -rn -f inet | awk '/^169\.254[[:space:]]/ && !/169\.254\.255\.255/ {print $NF}' | sort -u); do
+    if [ "$competing" != "$INTERFACE" ]; then
+        route delete -net 169.254.0.0/16 -interface "$competing" 2>/dev/null && \
+            echo "Deleted competing subnet route: 169.254.0.0/16 via $competing" || true
+    fi
+done
+
+# 2. Ensure subnet route exists for the target interface
+route add -net 169.254.0.0/16 -interface "$INTERFACE" 2>/dev/null && \
+    echo "Added subnet route: 169.254.0.0/16 -> $INTERFACE" || true
+
+# 3. Fix the host broadcast route (existing logic)
 route delete 169.254.255.255 2>/dev/null || true
 route add -host 169.254.255.255 -interface "$INTERFACE"
 echo "Route fixed: 169.254.255.255 -> $INTERFACE"

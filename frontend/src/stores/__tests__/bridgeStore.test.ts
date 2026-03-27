@@ -36,6 +36,8 @@ function makeBridgeState(overrides: Partial<BridgeState> = {}): BridgeState {
     next_retry_in_s: null,
     route_correct: true,
     route_warning: null,
+    route_competing_interfaces: [],
+    last_crash_reason: null,
     devices: {},
     players: {},
     ...overrides,

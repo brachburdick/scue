@@ -33,6 +33,7 @@ from .models import (
     StemType,
 )
 from .patterns import discover_patterns
+from .priors import EDMPriors
 from .storage import StrataStore
 from .transitions import compute_section_energy, detect_transitions
 
@@ -46,9 +47,11 @@ class StrataEngine:
         self,
         tracks_dir: Path,
         strata_store: StrataStore,
+        priors: EDMPriors | None = None,
     ) -> None:
         self._track_store = TrackStore(tracks_dir)
         self._strata_store = strata_store
+        self._priors = priors
 
     def analyze_quick(
         self, fingerprint: str, analysis_version: int | None = None,

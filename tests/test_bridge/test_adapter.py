@@ -13,10 +13,12 @@ from scue.bridge.messages import (
     CUE_POINTS,
     DEVICE_FOUND,
     DEVICE_LOST,
+    MEDIA_CHANGE,
     PHRASE_ANALYSIS,
     PLAYER_STATUS,
     TRACK_METADATA,
     BridgeMessage,
+    MediaChangePayload,
     parse_message,
 )
 
@@ -412,3 +414,182 @@ class TestStatusDictPlayerFields:
         p1 = status["players"]["1"]
 
         assert p1["playback_position_ms"] is None
+
+
+class TestMediaChange:
+    """Tests for media_change (USB/SD hot-swap) message handling."""
+
+    def test_media_change_parsed(self):
+        """media_change messages parse into MediaChangePayload."""
+        messages = load_fixture("media_change.json")
+        media_msgs = [m for m in messages if m.type == MEDIA_CHANGE]
+        assert len(media_msgs) == 4  # unmount usb, mount usb, unmount sd, mount sd
+
+    def test_unmount_callback_fires(self):
+        adapter = BridgeAdapter()
+        events: list[tuple[int, str, str]] = []
+        adapter.on_media_change = lambda p, s, a: events.append((p, s, a))
+
+        for msg in load_fixture("media_change.json"):
+            adapter.handle_message(msg)
+
+        unmounts = [(p, s, a) for p, s, a in events if a == "unmounted"]
+        assert len(unmounts) == 2
+        assert (1, "usb", "unmounted") in unmounts
+        assert (1, "sd", "unmounted") in unmounts
+
+    def test_mount_callback_fires(self):
+        adapter = BridgeAdapter()
+        events: list[tuple[int, str, str]] = []
+        adapter.on_media_change = lambda p, s, a: events.append((p, s, a))
+
+        for msg in load_fixture("media_change.json"):
+            adapter.handle_message(msg)
+
+        mounts = [(p, s, a) for p, s, a in events if a == "mounted"]
+        assert len(mounts) == 2
+        assert (1, "usb", "mounted") in mounts
+        assert (1, "sd", "mounted") in mounts
+
+    def test_no_callback_no_error(self):
+        """Adapter handles media_change gracefully when no callback is set."""
+        adapter = BridgeAdapter()
+        # on_media_change defaults to None
+        for msg in load_fixture("media_change.json"):
+            adapter.handle_message(msg)  # Should not raise
+
+    def test_media_change_payload_fields(self):
+        """Verify MediaChangePayload has correct field values from fixture."""
+        from scue.bridge.messages import parse_typed_payload
+
+        messages = load_fixture("media_change.json")
+        media_msgs = [m for m in messages if m.type == MEDIA_CHANGE]
+
+        # First: USB unmount
+        p1 = parse_typed_payload(media_msgs[0])
+        assert isinstance(p1, MediaChangePayload)
+        assert p1.slot == "usb"
+        assert p1.action == "unmounted"
+        assert p1.player_number == 1
+        assert p1.media_name is None
+
+        # Second: USB mount with media details
+        p2 = parse_typed_payload(media_msgs[1])
+        assert isinstance(p2, MediaChangePayload)
+        assert p2.slot == "usb"
+        assert p2.action == "mounted"
+        assert p2.media_name == "PIONEER DJ"
+        assert p2.track_count == 342
+
+    def test_media_change_does_not_affect_player_state(self):
+        """media_change events should not alter player state or devices."""
+        adapter = BridgeAdapter()
+        messages = load_fixture("media_change.json")
+        for msg in messages:
+            adapter.handle_message(msg)
+
+        # Device should exist from device_found, but media_change doesn't add/remove devices
+        assert len(adapter.devices) == 1  # Only the XDJ-AZ from device_found
+        # Player state should be empty — media_change doesn't create player entries
+        assert len(adapter._players) == 0
+
+    def test_rapid_unmount_mount_preserves_order(self):
+        """Rapid unmount→mount on same slot fires callbacks in order."""
+        adapter = BridgeAdapter()
+        events: list[tuple[int, str, str]] = []
+        adapter.on_media_change = lambda p, s, a: events.append((p, s, a))
+
+        for msg in load_fixture("media_change.json"):
+            adapter.handle_message(msg)
+
+        # USB: unmount then mount
+        usb_events = [(p, s, a) for p, s, a in events if s == "usb"]
+        assert usb_events == [(1, "usb", "unmounted"), (1, "usb", "mounted")]
+
+        # SD: unmount then mount
+        sd_events = [(p, s, a) for p, s, a in events if s == "sd"]
+        assert sd_events == [(1, "sd", "unmounted"), (1, "sd", "mounted")]
+
+    def test_multi_player_media_changes(self):
+        """media_change events from different players are distinguished."""
+        adapter = BridgeAdapter()
+        events: list[tuple[int, str, str]] = []
+        adapter.on_media_change = lambda p, s, a: events.append((p, s, a))
+
+        for msg in load_fixture("media_change_multi.json"):
+            adapter.handle_message(msg)
+
+        # Player 2: usb unmount + mount; Player 1: sd unmount
+        p2_events = [(p, s, a) for p, s, a in events if p == 2]
+        assert p2_events == [(2, "usb", "unmounted"), (2, "usb", "mounted")]
+
+        p1_events = [(p, s, a) for p, s, a in events if p == 1]
+        assert p1_events == [(1, "sd", "unmounted")]
+
+    def test_media_change_interleaved_with_player_status(self):
+        """media_change between player_status updates doesn't corrupt tracking state."""
+        adapter = BridgeAdapter()
+        events: list[tuple[int, str, str]] = []
+        adapter.on_media_change = lambda p, s, a: events.append((p, s, a))
+
+        for msg in load_fixture("media_change_multi.json"):
+            adapter.handle_message(msg)
+
+        # Player 1 had player_status before AND after player 2's media_change
+        assert 1 in adapter._players
+        p1 = adapter._players[1]
+        assert p1.bpm == 128.0
+        assert p1.pitch == 0.02  # Second status update value
+        assert p1.playback_state == "playing"
+
+        # Player 2 has no player_status — only media_change (which doesn't create state)
+        assert 2 not in adapter._players
+
+    def test_unmount_payload_defaults(self):
+        """Unmount payloads carry media_name=None and track_count=-1."""
+        from scue.bridge.messages import parse_typed_payload
+
+        messages = load_fixture("media_change.json")
+        unmounts = [m for m in messages if m.type == MEDIA_CHANGE
+                    and m.payload.get("action") == "unmounted"]
+        assert len(unmounts) == 2
+
+        for msg in unmounts:
+            p = parse_typed_payload(msg)
+            assert isinstance(p, MediaChangePayload)
+            assert p.media_name is None
+            assert p.track_count == -1
+
+    def test_mount_payload_has_media_details(self):
+        """Mount payloads carry media_name and positive track_count."""
+        from scue.bridge.messages import parse_typed_payload
+
+        messages = load_fixture("media_change.json")
+        mounts = [m for m in messages if m.type == MEDIA_CHANGE
+                   and m.payload.get("action") == "mounted"]
+        assert len(mounts) == 2
+
+        for msg in mounts:
+            p = parse_typed_payload(msg)
+            assert isinstance(p, MediaChangePayload)
+            assert p.media_name is not None
+            assert p.track_count > 0
+
+    def test_media_change_callback_receives_correct_args(self):
+        """Callback signature is (player_number, slot, action) — verify all three."""
+        adapter = BridgeAdapter()
+        received = {}
+        def capture(player_number, slot, action):
+            received["player_number"] = player_number
+            received["slot"] = slot
+            received["action"] = action
+        adapter.on_media_change = capture
+
+        # Feed just the first media_change (usb unmount)
+        messages = load_fixture("media_change.json")
+        media_msgs = [m for m in messages if m.type == MEDIA_CHANGE]
+        adapter.handle_message(media_msgs[0])
+
+        assert received["player_number"] == 1
+        assert received["slot"] == "usb"
+        assert received["action"] == "unmounted"

@@ -172,6 +172,26 @@ async def startup() -> None:
 
     _tracker.on_live_strata = _on_live_strata
 
+    # Wire media change broadcast
+    def _on_media_change(player_number: int, slot: str, action: str) -> None:
+        """Broadcast media slot changes to all WebSocket clients."""
+        if not _ws_manager:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_ws_manager.broadcast({
+                "type": "media_change",
+                "payload": {
+                    "player_number": player_number,
+                    "slot": slot,
+                    "action": action,
+                },
+            }))
+        except RuntimeError:
+            pass
+
+    adapter.on_media_change = _on_media_change
+
     await _bridge_manager.start()
     logger.info("Bridge status: %s", _bridge_manager.status)
 
@@ -186,6 +206,8 @@ async def shutdown() -> None:
     """Clean up bridge on app shutdown."""
     if _bridge_manager is not None:
         await _bridge_manager.stop()
+        # Safety net: kill any orphan Java processes on the bridge port
+        _bridge_manager._kill_stale_bridges()
     logger.info("SCUE stopped")
 
 

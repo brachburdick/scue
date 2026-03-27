@@ -13,6 +13,7 @@ from scue.bridge.messages import (
     CUE_POINTS,
     DEVICE_FOUND,
     DEVICE_LOST,
+    MEDIA_CHANGE,
     PHRASE_ANALYSIS,
     PLAYER_STATUS,
     TRACK_METADATA,
@@ -23,6 +24,7 @@ from scue.bridge.messages import (
     BridgeStatusPayload,
     CuePointsPayload,
     DevicePayload,
+    MediaChangePayload,
     PhraseAnalysisPayload,
     PlayerStatusPayload,
     TrackMetadataPayload,
@@ -302,3 +304,88 @@ class TestFixtureParsing:
         messages = load_fixture("transition.json")
         players = {m["player_number"] for m in messages if m["player_number"] is not None}
         assert len(players) >= 2
+
+
+class TestMediaChangeMessages:
+    """Tests for media_change message parsing and round-trip."""
+
+    def test_media_change_fixture_has_correct_types(self):
+        messages = load_fixture("media_change.json")
+        media_msgs = [m for m in messages if m["type"] == MEDIA_CHANGE]
+        assert len(media_msgs) == 4
+
+    def test_media_change_parse_roundtrip(self):
+        """media_change messages survive parse → serialize → parse."""
+        messages = load_fixture("media_change.json")
+        media_raw = [m for m in messages if m["type"] == MEDIA_CHANGE]
+
+        for raw in media_raw:
+            parsed = parse_message(json.dumps(raw))
+            serialized = message_to_json(parsed)
+            reparsed = parse_message(serialized)
+            assert reparsed.type == MEDIA_CHANGE
+            assert reparsed.payload["slot"] == raw["payload"]["slot"]
+            assert reparsed.payload["action"] == raw["payload"]["action"]
+
+    def test_media_change_payload_typing(self):
+        """MediaChangePayload is resolved by parse_typed_payload."""
+        from scue.bridge.messages import parse_typed_payload
+
+        messages = load_fixture("media_change.json")
+        media_raw = [m for m in messages if m["type"] == MEDIA_CHANGE]
+
+        for raw in media_raw:
+            parsed = parse_message(json.dumps(raw))
+            payload = parse_typed_payload(parsed)
+            assert isinstance(payload, MediaChangePayload)
+            assert payload.slot in ("usb", "sd")
+            assert payload.action in ("mounted", "unmounted")
+
+    def test_media_change_minimal_payload(self):
+        """media_change with only required fields parses correctly."""
+        msg = BridgeMessage(
+            type=MEDIA_CHANGE,
+            timestamp=1.0,
+            player_number=1,
+            payload={
+                "slot": "usb",
+                "action": "unmounted",
+                "player_number": 1,
+            },
+        )
+        p = parse_typed_payload(msg)
+        assert isinstance(p, MediaChangePayload)
+        assert p.slot == "usb"
+        assert p.action == "unmounted"
+        assert p.media_name is None
+        assert p.track_count == -1
+
+    def test_media_change_full_payload(self):
+        """media_change with all optional fields parses correctly."""
+        msg = BridgeMessage(
+            type=MEDIA_CHANGE,
+            timestamp=1.0,
+            player_number=1,
+            payload={
+                "slot": "sd",
+                "action": "mounted",
+                "player_number": 1,
+                "media_name": "NYE SET",
+                "track_count": 128,
+            },
+        )
+        p = parse_typed_payload(msg)
+        assert isinstance(p, MediaChangePayload)
+        assert p.media_name == "NYE SET"
+        assert p.track_count == 128
+
+    def test_media_change_multi_player_fixture(self):
+        """Multi-player fixture has correct message distribution."""
+        messages = load_fixture("media_change_multi.json")
+        media_msgs = [m for m in messages if m["type"] == MEDIA_CHANGE]
+        assert len(media_msgs) == 3  # 2 from player 2, 1 from player 1
+
+        p2_msgs = [m for m in media_msgs if m["player_number"] == 2]
+        p1_msgs = [m for m in media_msgs if m["player_number"] == 1]
+        assert len(p2_msgs) == 2
+        assert len(p1_msgs) == 1

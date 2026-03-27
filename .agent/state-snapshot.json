@@ -1,59 +1,48 @@
 {
-  "session_id": "qa-ingestion-fix-pass-usb-qa",
-  "timestamp": "2026-03-25T22:30:00Z",
+  "session_id": "3d810fbc-76ba-4b3d-b3b1-a33fb76cb633",
+  "timestamp": "2026-03-27T19:14:43Z",
   "project_root": "/Users/brach/Documents/THE_FACTORY/projects/DjTools/scue",
   "branch": "main",
-  "last_commit": "f9733eddf6abeaef4a54223d98e345c9a179a3bd apply changes from factory v 2.1",
+  "last_commit": "d03cc16c2169fb09e32c104820e83b45d807ce3a saving lots of bug fixes",
   "modified_files": [
-    "frontend/src/components/strata/ArrangementMap.tsx",
-    "frontend/src/components/shared/WaveformCanvas.tsx",
-    "frontend/src/components/annotations/AnnotationTimeline.tsx",
-    "frontend/src/components/ingestion/HardwareTab.tsx",
-    "frontend/src/components/ingestion/ScanProgressPanel.tsx",
-    "frontend/src/components/ingestion/UsbBrowser.tsx",
-    "docs/bugs/frontend.md"
+    ".agent/incidents.jsonl",
+    ".agent/runs.jsonl",
+    ".agent/state-snapshot.json",
+    ".agent/tasks.jsonl",
+    ".claude/settings.json",
+    "LEARNINGS.md",
+    "bridge-java/.gradle/8.14/checksums/checksums.lock",
+    "bridge-java/.gradle/8.14/executionHistory/executionHistory.bin",
+    "bridge-java/.gradle/8.14/executionHistory/executionHistory.lock",
+    "bridge-java/.gradle/8.14/fileHashes/fileHashes.bin",
+    "bridge-java/.gradle/8.14/fileHashes/fileHashes.lock",
+    "bridge-java/.gradle/8.14/fileHashes/resourceHashesCache.bin",
+    "bridge-java/.gradle/buildOutputCleanup/buildOutputCleanup.lock",
+    "bridge-java/.gradle/file-system.probe",
+    "bridge-java/build/classes/java/main/com/scue/bridge/BeatLinkBridge$1.class",
+    "bridge-java/build/classes/java/main/com/scue/bridge/BeatLinkBridge.class",
+    "bridge-java/build/classes/java/main/com/scue/bridge/MessageEmitter.class",
+    "bridge-java/build/libs/beat-link-bridge.jar",
+    "bridge-java/build/tmp/compileJava/previous-compilation-data.bin",
+    "bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java"
   ],
   "staged_files": [],
   "active_tasks": [
     {
       "id": "bridge-resilience",
-      "status": "pending",
+      "status": "in_progress",
       "taskType": "feature",
-      "summary": "Bridge resilience: add MediaDetailsListener to Java bridge for media_change events, graceful DLP session recovery without crash-restart. See live USB QA findings in docs/bugs/frontend.md."
-    },
-    {
-      "id": "playlist-deep-nav",
-      "status": "blocked",
-      "taskType": "debug",
-      "summary": "Playlist sub-navigation still loops at deeper levels. Root (folder_id=0) works, but navigating into a specific playlist returns the same list. Java bridge requestPlaylistMenuFrom returns identical data for all folder IDs. Beat-link API research says it should work — may be XDJ-AZ-specific or a sort_order parameter issue."
-    },
-    {
-      "id": "rescan-confirmation",
-      "status": "pending",
-      "taskType": "feature",
-      "summary": "Re-scan confirmation dialog: when scanning tracks that are already scanned, prompt user to skip or rescan. LOW priority."
+      "summary": "Bridge Resilience: MediaSlotMonitor (active polling + MountListener) for graceful USB/SD hot-swap on XDJ-AZ. Emits media_change WS messages. ConnectionManager restart on unmount prevents crash-on-reinsertion. Python adapter + frontend cache invalidation. Java build clean, 27 message tests + 26 adapter tests pass, TypeScript strict passes."
     }
   ],
-  "working_directory": "/Users/brach/Documents/THE_FACTORY/projects/DjTools/scue",
-  "hardware": {
-    "model": "XDJ-AZ",
-    "type": "all-in-one",
-    "slots": {
-      "slot_1_left": "usb (DLP: usb)",
-      "slot_2_right": "sd (DLP: sd)"
-    },
-    "dlp_identity": "Both decks share Player 1. Player 2 browse commands fail.",
-    "device_announcements": "3 devices: Player 1, Player 2, XDJ-AZ (mixer). Mixer shares Player 1 device_number."
+  "session_friction": {
+    "mutations_since_test": 0,
+    "total_mutations": 0,
+    "test_cycles": 0,
+    "unique_files_modified": 0,
+    "incidents_logged": 60
   },
-  "session_notes": "Interactive QA + fix session with operator (Brach). Fixed 8 FE bugs (scroll wheel, XDJ-AZ dedup, scan dismiss, selection clear, shift-click, stem label, TRACK/PLAYLIST routing). USB hot-swap QA revealed asymmetric slot behavior: slot 1 removal corrupts DLP for all slots, slot 2 removal handled gracefully. Bridge crash is the only DLP recovery mechanism — needs resilience work. Key pipeline feedback: (1) agents should self-test UI before asking operator, (2) context handoff between agents is broken — prior agents didn't record hardware model, column semantics, or UX requirements, (3) 'other' stem means different things per tier (Live=full mix, Standard=demucs synth/fx). TypeScript strict passes. All fixes are uncommitted.",
-  "fixes_applied": {
-    "scroll_wheel_bleed": "Replaced React onWheel (passive) with native addEventListener('wheel', ..., {passive: false}) in WaveformCanvas, ArrangementMap, AnnotationTimeline",
-    "xdj_az_triple_device": "Deduplicated cdjDevices by device_number in HardwareTab",
-    "scan_progress_dismiss": "Added onDismiss prop + X button to ScanProgressPanel when terminal",
-    "selection_clear": "useEffect watches scanProgress status, clears selectedTrackIds on completed/failed",
-    "shift_click": "Added lastClickedIndex ref, toggleTrack accepts (id, index, shiftKey), range select on shift",
-    "stem_label": "STEM_LABELS map in ArrangementMap render: other → synth/fx",
-    "track_menu": "UsbBrowser flatMode state: TRACK clicks use browse_all_tracks instead of browse_folder",
-    "playlist_root": "UsbBrowser PLAYLIST clicks use folder_id=0 instead of menu item ID. Unsupported menus greyed out with 'coming soon'"
-  }
+  "session_knowledge": {},
+  "working_directory": "/Users/brach/Documents/THE_FACTORY/projects/DjTools/scue",
+  "baseline_test_failures": []
 }

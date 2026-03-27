@@ -135,6 +135,7 @@ async def route_status() -> dict:
         "correct": result.correct,
         "fix_available": result.fix_available,
         "sudoers_installed": check_sudoers_installed(),
+        "competing_interfaces": result.competing_interfaces,
     }
 
 

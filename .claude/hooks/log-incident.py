@@ -1,0 +1,1 @@
+/Users/brach/Documents/THE_FACTORY/.claude/hooks/log-incident.py

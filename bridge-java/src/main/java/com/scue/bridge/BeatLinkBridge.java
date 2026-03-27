@@ -73,6 +73,8 @@ public class BeatLinkBridge {
     private final Map<Integer, Integer> lastRekordboxId = new ConcurrentHashMap<>();
     // Track which devices use DLP (detected from device name)
     private final Set<String> dlpDeviceIps = ConcurrentHashMap.newKeySet();
+    // Media slot monitor for graceful USB/SD hot-swap handling
+    private MediaSlotMonitor mediaSlotMonitor;
 
     public BeatLinkBridge(int port, int playerNumber, int retryInterval, String requestedInterface, String databaseKey) {
         this.port = port;
@@ -451,6 +453,16 @@ public class BeatLinkBridge {
         // Register Finder listeners (metadata, beatgrid, waveform, phrase, cues)
         registerFinderListeners();
 
+        // Start media slot monitor (must be after MetadataFinder is running)
+        mediaSlotMonitor = new MediaSlotMonitor(emitter);
+        // Seed known players (devices discovered before monitor was created)
+        for (DeviceAnnouncement device : DeviceFinder.getInstance().getCurrentDevices()) {
+            if (device.getDeviceNumber() <= 6) {
+                mediaSlotMonitor.addPlayer(device.getDeviceNumber());
+            }
+        }
+        mediaSlotMonitor.start();
+
         // Emit connected status with interface info
         beatLinkConnected = true;
         int deviceCount = DeviceFinder.getInstance().getCurrentDevices().size();
@@ -471,6 +483,10 @@ public class BeatLinkBridge {
             public void deviceFound(DeviceAnnouncement device) {
                 try {
                     emitDeviceFound(device);
+                    // Notify media monitor of new player for slot polling
+                    if (mediaSlotMonitor != null && device.getDeviceNumber() <= 6) {
+                        mediaSlotMonitor.addPlayer(device.getDeviceNumber());
+                    }
                     int count = DeviceFinder.getInstance().getCurrentDevices().size();
                     emitter.emitBridgeStatus(true, count, VERSION, null,
                         selectedInterfaceName, selectedInterfaceAddress, interfaceCandidates, interfaceWarning);
@@ -484,6 +500,10 @@ public class BeatLinkBridge {
                 try {
                     emitDeviceLost(device);
                     dlpDeviceIps.remove(device.getAddress().getHostAddress());
+                    // Notify media monitor
+                    if (mediaSlotMonitor != null) {
+                        mediaSlotMonitor.removePlayer(device.getDeviceNumber());
+                    }
                     if (DeviceFinder.getInstance().isRunning()) {
                         int count = DeviceFinder.getInstance().getCurrentDevices().size();
                         emitter.emitBridgeStatus(true, count, VERSION, null,
@@ -940,6 +960,7 @@ public class BeatLinkBridge {
      * Clean up beat-link components so we can reinitialize cleanly.
      */
     private void cleanupBeatLink() {
+        try { if (mediaSlotMonitor != null) mediaSlotMonitor.stop(); } catch (Exception e) { /* ignore */ }
         try { ArtFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
         try { AnalysisTagFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
         try { WaveformFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
@@ -989,6 +1010,9 @@ public class BeatLinkBridge {
         running = false;
 
         try {
+            // Stop media monitor first
+            try { if (mediaSlotMonitor != null) mediaSlotMonitor.stop(); } catch (Exception e) { /* ignore */ }
+
             // Stop Finders first (reverse of start order)
             try { ArtFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }
             try { AnalysisTagFinder.getInstance().stop(); } catch (Exception e) { /* ignore */ }

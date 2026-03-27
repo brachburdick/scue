@@ -8,6 +8,7 @@ Arrangement analysis engine. Produces structured arrangement formulas (per-stem 
 scue/layer1/strata/           — engine, models, storage, per_stem, patterns, energy, transitions, separation, live_analyzer
 tests/test_layer1/test_strata_sources.py   — storage + source qualification tests
 tests/test_layer1/test_strata_standard.py  — tier routing, stem separation, cross-stem transition tests
+tests/test_layer1/test_strata_priors.py    — beat-grid prior and trust scoring tests
 ```
 
 ## Incoming Inputs
@@ -45,6 +46,6 @@ tests/test_layer1/test_strata_standard.py  — tier routing, stem separation, cr
 
 ## How to Verify
 ```bash
-.venv/bin/python -m pytest tests/test_layer1/test_strata_sources.py tests/test_layer1/test_strata_standard.py -v
+.venv/bin/python -m pytest tests/test_layer1/test_strata_sources.py tests/test_layer1/test_strata_standard.py tests/test_layer1/test_strata_priors.py -v
 ```
 All strata tests must pass. Tests mock demucs availability and use synthetic audio fixtures.

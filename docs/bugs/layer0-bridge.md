@@ -256,3 +256,44 @@ Symptom: `rbox.Anlz()` constructor causes Rust panic (process abort) when openin
 Root cause: rbox v0.1.7's Rust ANLZ parser doesn't handle all ANLZ section variants exported by the XDJ-AZ. The parser encounters unknown section tags at certain file offsets and panics instead of returning an error.
 Fix: Replaced rbox ANLZ parsing with two-tier pure-Python strategy (ADR-013): pyrekordbox (primary) + custom anlz_parser.py (fallback). rbox retained for exportLibrary.db reading only. ANLZ reading re-enabled.
 File(s): scue/layer1/usb_scanner.py, scue/layer1/anlz_parser.py, pyproject.toml
+
+### Bridge crash on USB re-insertion (XDJ-AZ slot 1)
+Date: 2026-03-25
+Milestone: M-0
+Symptom: Removing USB from slot 1 (left) on XDJ-AZ corrupts DLP session for ALL slots. Re-inserting the USB triggers an unhandled exception in beat-link's internal threads, crashing the bridge. Only recovery is crash → auto-restart (~10s). Slot 2 (SD) removal is handled gracefully.
+Root cause: XDJ-AZ is an all-in-one unit that does NOT send unsolicited media broadcast packets (unlike standalone CDJs). The bridge had no media change detection — no MountListener, no MediaDetailsListener, no polling. When slot 1 is removed, the per-player dbserver connection (shared across all slots via ConnectionManager) goes stale. On re-insertion, beat-link's internal state is inconsistent (stale NFS/dbserver refs), causing a crash.
+Fix: Added `MediaSlotMonitor` to the Java bridge — a new class that combines active media polling (`VirtualCdj.sendMediaQuery()` every 2s for each known player's USB/SD slots) with passive `MountListener` registration on MetadataFinder. On unmount, the monitor emits a `media_change` WS message and restarts ConnectionManager to clear stale dbserver sessions. On mount, emits `media_change` with media details. Python adapter and frontend updated to propagate and handle `media_change` events (cache invalidation on the FE side).
+File(s): bridge-java/src/main/java/com/scue/bridge/MediaSlotMonitor.java (new), bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java, bridge-java/src/main/java/com/scue/bridge/MessageEmitter.java, scue/bridge/messages.py, scue/bridge/adapter.py, scue/main.py, frontend/src/types/ws.ts, frontend/src/api/ws.ts
+
+### Stale TanStack Query cache on USB removal (frontend)
+Date: 2026-03-25
+Milestone: FE-Ingestion
+Symptom: When USB or SD media is removed from the XDJ-AZ, the frontend continues showing stale browse/menu/track data with no error indication. CDJ's own screen correctly shows media changes in real time but SCUE does not react.
+Root cause: No mechanism existed to notify the frontend of media changes. TanStack Query caches were never invalidated on media removal.
+Fix: Frontend WS handler now listens for `media_change` messages and invalidates all `["scanner"]` query keys (covers browse, menu, folder, and track queries). This causes any visible USB browser to refetch data, which will reflect the current media state.
+File(s): frontend/src/types/ws.ts, frontend/src/api/ws.ts
+
+### HIGH PRIORITY: route_correct check passes despite competing en0 subnet route
+Date: 2026-03-26
+Milestone: M-0
+Priority: HIGH — blocks all hardware QA and development. Every backend reload triggers the bug.
+Symptom: Bridge reports `route_correct: true` and sits in `waiting_for_hardware` indefinitely despite XDJ-AZ being connected and powered on. Manual `scue-route-fix en16` sometimes fixes the broadcast route for 169.254.255.255, but recovery is unreliable — the bridge often stays in `waiting_for_hardware` even after the route fix. Backend reloads (uvicorn --reload during dev) consistently trigger this: the bridge process restarts, loses device discovery, and cannot recover without manual intervention or luck.
+Root cause: macOS adds a link-local subnet route (169.254.0.0/16) for every active interface. When both en0 (Wi-Fi) and en16 (USB-Ethernet) are up, two competing routes exist (`link#16` via en0, `link#9` via en16). The `scue-route-fix` script only deletes/adds the `169.254.255.255` host route but doesn't address the subnet-level conflict. The bridge's `route_correct` property only verifies the host route, giving a false positive. Additionally, the sudoers entry only permits the host route fix — deleting the en0 subnet route requires full sudo access.
+Impact: Blocks all hardware-dependent development and QA. Every `uvicorn --reload` cycle (triggered by any Python file save) kills the bridge and requires manual route-fix + wait + sometimes multiple restart attempts to recover.
+Fix: OPEN — route fix script and route_correct check both need to handle the en0 subnet route conflict. Required changes: (1) scue-route-fix must also `route delete -net 169.254.0.0/16 -interface en0` to eliminate the competing route, (2) sudoers entry must permit this additional route command, (3) route_correct check should detect competing subnet routes and report them, (4) consider running the route fix automatically on bridge startup.
+File(s): tools/install-route-fix.sh, /usr/local/bin/scue-route-fix, scue/bridge/manager.py (route_correct property)
+
+### [FIXED] Playlist sub-navigation returns root listing for all folder IDs
+Date: 2026-03-26
+Milestone: M-0B
+Symptom: Navigating into a playlist or folder from the USB browser always returns the same root-level listing, creating an infinite loop. Root (folder_id=0) works, but any specific folder ID returns identical data.
+Root cause: `CommandHandler.handleBrowsePlaylist()` called `MenuLoader.requestPlaylistMenuFrom(slotRef, folderId)`, but that method's second parameter is `sortOrder`, NOT `folderId`. The method always returns the root playlist listing regardless of what value is passed. The correct beat-link API is `MetadataFinder.requestPlaylistItemsFrom(player, slot, sortOrder, playlistOrFolderId, isFolder)` which supports folder hierarchy navigation with a boolean `isFolder` flag to distinguish folder navigation (true → returns sub-folders/playlists) from track listing (false → returns tracks within a leaf playlist).
+Fix: Full-stack fix across 6 files:
+- **Java** (`CommandHandler.java`): Replaced `MenuLoader.requestPlaylistMenuFrom(slotRef, folderId)` with `MetadataFinder.requestPlaylistItemsFrom(playerNumber, slot, 0, folderId, isFolder)`. Added `toBool()` helper. Reads `is_folder` param from command, defaults to `true`.
+- **Python command** (`commands.py`): Added `is_folder: bool = True` field to `BrowsePlaylistCommand`, included in wire format.
+- **Python scanner** (`scanner.py`): `browse_playlist()` accepts and forwards `is_folder` param.
+- **Python API** (`scanner.py`): `browse_folder` endpoint accepts `?is_folder=` query param. Renamed `_is_folder_item` to `_is_navigable_item` — both folders and playlists are navigable, but playlists have `is_folder=False` so the frontend passes the correct flag.
+- **Frontend hook** (`ingestion.ts`): `useUsbFolder` accepts and passes `isFolder` to API URL.
+- **Frontend component** (`UsbBrowser.tsx`): Tracks `isFolder` state. Sets from `item.is_folder` during navigation. Resets to `true` on navigate-up, breadcrumb click, and root navigation.
+Verified: API tested against live XDJ-AZ SD slot — `folder/0?is_folder=true` returns 19 playlists, `folder/2?is_folder=false` returns tracks inside "New THE GOOD STUFF". Hardware QA of the full UI flow pending (blocked by route fix bug).
+File(s): bridge-java/src/main/java/com/scue/bridge/CommandHandler.java, scue/bridge/commands.py, scue/layer1/scanner.py, scue/api/scanner.py, frontend/src/api/ingestion.ts, frontend/src/components/ingestion/UsbBrowser.tsx

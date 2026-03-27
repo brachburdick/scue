@@ -91,6 +91,8 @@ export interface BridgeState {
   next_retry_in_s: number | null;
   route_correct: boolean | null;
   route_warning: string | null;
+  route_competing_interfaces: string[];
+  last_crash_reason: string | null;
   devices: Record<string, DeviceInfo>;
   players: Record<string, PlayerInfo>;
 }

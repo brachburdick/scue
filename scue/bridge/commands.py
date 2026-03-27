@@ -28,10 +28,15 @@ class BrowseRootMenuCommand:
 
 @dataclass
 class BrowsePlaylistCommand:
-    """List tracks/folders within a specific folder."""
+    """List tracks/folders within a specific folder or playlist.
+
+    is_folder=True navigates into a folder (returns sub-folders/playlists).
+    is_folder=False lists tracks within a leaf playlist.
+    """
     player_number: int
     slot: str  # "usb" | "sd"
     folder_id: int
+    is_folder: bool = True
     sort_order: str = "default"
 
     def to_wire(self) -> tuple[str, dict]:
@@ -39,6 +44,7 @@ class BrowsePlaylistCommand:
             "player_number": self.player_number,
             "slot": self.slot,
             "folder_id": self.folder_id,
+            "is_folder": self.is_folder,
             "sort_order": self.sort_order,
         }
 

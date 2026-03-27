@@ -207,11 +207,16 @@ class TrackScanner:
         return await self._ws.send_command(cmd, timeout=10.0)
 
     async def browse_playlist(
-        self, player: int, slot: str, folder_id: int
+        self, player: int, slot: str, folder_id: int, is_folder: bool = True
     ) -> CommandResponse:
-        """List tracks/folders within a folder."""
+        """List tracks/folders within a folder or playlist.
+
+        is_folder=True navigates into a folder (returns sub-items).
+        is_folder=False lists tracks within a leaf playlist.
+        """
         cmd = BrowsePlaylistCommand(
-            player_number=player, slot=slot, folder_id=folder_id
+            player_number=player, slot=slot, folder_id=folder_id,
+            is_folder=is_folder,
         )
         return await self._ws.send_command(cmd, timeout=10.0)
 
@@ -309,7 +314,8 @@ class TrackScanner:
             for p in target_players:
                 self._slots[p] = DeckCaptureSlot(player_number=p)
                 self._progress.deck_progress[p] = {
-                    "scanned": 0, "errors": 0, "current_track": "",
+                    "status": "idle", "scanned": 0, "errors": 0,
+                    "current_track": "", "total": 0,
                 }
 
             # Fill the shared work queue
@@ -397,6 +403,7 @@ class TrackScanner:
         # Update per-deck progress
         if player in self._progress.deck_progress:
             self._progress.deck_progress[player]["current_track"] = track_label
+            self._progress.deck_progress[player]["status"] = "scanning"
         await self._emit_progress()
 
         logger.info(

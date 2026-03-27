@@ -874,6 +874,7 @@ class TestRouteFriendlyError:
     @pytest.mark.asyncio
     async def test_success_result_passes_through(self):
         """Successful fix_route() result is unchanged."""
+        from scue.network.models import RouteCheckResult
         mgr = BridgeManager(network_interface="en16")
 
         raw_result = RouteFixResult(
@@ -882,8 +883,16 @@ class TestRouteFriendlyError:
             previous_interface="en0",
             new_interface="en16",
         )
+        recheck_result = RouteCheckResult(
+            correct=True,
+            current_interface="en16",
+            expected_interface="en16",
+            fix_available=True,
+            competing_interfaces=[],
+        )
 
-        with patch("scue.bridge.manager.network_fix_route", return_value=raw_result):
+        with patch("scue.bridge.manager.network_fix_route", return_value=raw_result), \
+             patch("scue.bridge.manager.network_check_route", return_value=recheck_result):
             result = await mgr.fix_route()
 
         assert result.success is True

@@ -20,6 +20,7 @@ from .messages import (
     CUE_POINTS,
     DEVICE_FOUND,
     DEVICE_LOST,
+    MEDIA_CHANGE,
     PHRASE_ANALYSIS,
     PLAYER_STATUS,
     TRACK_METADATA,
@@ -31,6 +32,7 @@ from .messages import (
     BeatPayload,
     CuePointsPayload,
     DevicePayload,
+    MediaChangePayload,
     PhraseAnalysisPayload,
     PlayerStatusPayload,
     TrackMetadataPayload,
@@ -114,6 +116,7 @@ OnDeviceChange = Callable[[DeviceInfo, str], None]  # (device, "found"|"lost")
 OnPlayerUpdate = Callable[[PlayerState], None]
 OnBeat = Callable[[int, int, float], None]  # (player_number, beat_within_bar, bpm)
 OnTrackLoaded = Callable[[int, str, str], None]  # (player_number, title, artist)
+OnMediaChange = Callable[[int, str, str], None]  # (player_number, slot, action)
 
 
 # ── BridgeAdapter ─────────────────────────────────────────────────────────
@@ -141,6 +144,9 @@ class BridgeAdapter:
         self.on_player_update: OnPlayerUpdate | None = None
         self.on_beat: OnBeat | None = None
         self.on_track_loaded: OnTrackLoaded | None = None
+
+        # Media change callback — fires on USB/SD mount/unmount
+        self.on_media_change: OnMediaChange | None = None
 
         # Scanner callback — receives raw Finder payloads for scan data capture
         # Signature: (player_number: int, msg_type: str, payload: dict) -> None
@@ -526,6 +532,19 @@ class BridgeAdapter:
         if self.on_device_change is not None:
             self.on_device_change(device, "found")
 
+    def _handle_media_change(self, msg: BridgeMessage) -> None:
+        payload = parse_typed_payload(msg)
+        if not isinstance(payload, MediaChangePayload):
+            return
+
+        logger.info(
+            "Media %s: player %d slot %s",
+            payload.action, payload.player_number, payload.slot,
+        )
+
+        if self.on_media_change is not None:
+            self.on_media_change(payload.player_number, payload.slot, payload.action)
+
     # Handler dispatch table
     _handlers: dict[str, Callable[["BridgeAdapter", BridgeMessage], None]] = {
         BRIDGE_STATUS: _handle_bridge_status,
@@ -539,4 +558,5 @@ class BridgeAdapter:
         PHRASE_ANALYSIS: _handle_phrase_analysis,
         CUE_POINTS: _handle_cue_points,
         BEAT: _handle_beat,
+        MEDIA_CHANGE: _handle_media_change,
     }

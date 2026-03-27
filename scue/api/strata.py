@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from ..layer1.strata.models import formula_from_dict, formula_to_dict
 from ..layer1.strata.storage import DEFAULT_SOURCE, VALID_SOURCES, VALID_TIERS, StrataStore
+from .tracks import invalidate_strata_cache
 from .strata_jobs import (
     StrataBatchJob,
     StrataJob,
@@ -145,6 +146,7 @@ async def save_strata_tier(fingerprint: str, tier: str, req: SaveStrataRequest) 
     if formula.fingerprint != fingerprint:
         raise HTTPException(400, "Formula fingerprint does not match URL")
     store.save(formula, tier, source=req.source)
+    invalidate_strata_cache()
     return {"ok": True, "tier": tier, "source": req.source}
 
 
@@ -191,6 +193,7 @@ def _run_strata_analysis(
             analysis_version=analysis_version,
             progress_callback=_progress,
         )
+        invalidate_strata_cache()
         logger.info("Strata analysis complete for %s: %s",
                      fingerprint[:16], list(results.keys()))
         if job:
@@ -249,6 +252,7 @@ async def analyze_strata(
         engine = StrataEngine(tracks_dir=_tracks_dir, strata_store=store)
         try:
             results = engine.analyze(fingerprint, req.tiers, analysis_version=analysis_version)
+            invalidate_strata_cache()
             return {
                 "fingerprint": fingerprint,
                 "completed_tiers": list(results.keys()),
@@ -356,6 +360,7 @@ def _run_strata_batch(batch: StrataBatchJob) -> None:
     batch.status = "running"
     for job in batch.jobs:
         _run_strata_analysis(job.fingerprint, [job.tier], job=job)
+    invalidate_strata_cache()
     # Determine overall status
     if all(j.status == "complete" for j in batch.jobs):
         batch.status = "complete"
@@ -378,6 +383,7 @@ async def delete_strata_tier(
     deleted = store.delete(fingerprint, tier, source)
     if not deleted:
         raise HTTPException(404, f"No {tier}/{source} strata for track: {fingerprint[:16]}")
+    invalidate_strata_cache()
     return {"ok": True, "tier": tier, "source": source}
 
 

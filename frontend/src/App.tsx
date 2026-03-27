@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "sonner";
 import { Shell } from "./components/layout/Shell.tsx";
 import { TracksPage } from "./pages/TracksPage.tsx";
 import { BridgePage } from "./pages/BridgePage.tsx";
@@ -24,6 +25,8 @@ function App() {
   }, []);
 
   return (
+    <>
+    <Toaster position="top-right" theme="dark" richColors closeButton />
     <Routes>
       <Route element={<Shell />}>
         <Route index element={<Navigate to="/data/db" replace />} />
@@ -41,6 +44,7 @@ function App() {
         <Route path="dev/waveforms" element={<WaveformTuningPage />} />
       </Route>
     </Routes>
+    </>
   );
 }
 

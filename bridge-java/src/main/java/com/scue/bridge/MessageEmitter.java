@@ -199,6 +199,32 @@ public class MessageEmitter {
         emit("cue_points", playerNumber, payload);
     }
 
+    // ── Media change ─────────────────────────────────────────────────────────
+
+    /**
+     * Emit a media_change message when a USB/SD slot is mounted or unmounted.
+     *
+     * @param playerNumber the player whose slot changed
+     * @param slot         "usb" or "sd"
+     * @param action       "mounted" or "unmounted"
+     * @param mediaName    name of the media (from MediaDetails), or null
+     * @param trackCount   number of tracks on the media, or -1 if unknown
+     */
+    public void emitMediaChange(int playerNumber, String slot, String action,
+                                 String mediaName, int trackCount) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("slot", slot);
+        payload.put("action", action);
+        payload.put("player_number", playerNumber);
+        if (mediaName != null) {
+            payload.put("media_name", mediaName);
+        }
+        if (trackCount >= 0) {
+            payload.put("track_count", trackCount);
+        }
+        emit("media_change", playerNumber, payload);
+    }
+
     // ── Command response (bidirectional channel) ─────────────────────────────
 
     /**

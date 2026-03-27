@@ -28,12 +28,13 @@ CUE_POINTS = "cue_points"
 BEAT = "beat"
 TRACK_WAVEFORM = "track_waveform"
 COMMAND_RESPONSE = "command_response"
+MEDIA_CHANGE = "media_change"
 
 ALL_TYPES = frozenset({
     DEVICE_FOUND, DEVICE_LOST, BRIDGE_STATUS,
     PLAYER_STATUS, TRACK_METADATA, BEAT_GRID,
     WAVEFORM_DETAIL, PHRASE_ANALYSIS, CUE_POINTS, BEAT,
-    TRACK_WAVEFORM, COMMAND_RESPONSE,
+    TRACK_WAVEFORM, COMMAND_RESPONSE, MEDIA_CHANGE,
 })
 
 
@@ -183,6 +184,16 @@ class BeatPayload:
 
 
 @dataclass
+class MediaChangePayload:
+    """Payload for media_change messages — USB/SD slot mounted or unmounted."""
+    slot: str  # "usb" | "sd"
+    action: str  # "mounted" | "unmounted"
+    player_number: int
+    media_name: str | None = None
+    track_count: int = -1
+
+
+@dataclass
 class CommandResponsePayload:
     """Payload for command_response messages (bidirectional command channel)."""
     request_id: str
@@ -207,6 +218,7 @@ PAYLOAD_TYPES: dict[str, type] = {
     BEAT: BeatPayload,
     TRACK_WAVEFORM: TrackWaveformPayload,
     COMMAND_RESPONSE: CommandResponsePayload,
+    MEDIA_CHANGE: MediaChangePayload,
 }
 
 

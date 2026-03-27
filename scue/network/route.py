@@ -123,8 +123,60 @@ def get_current_route() -> RouteStatus:
         return RouteStatus(interface=None, gateway=None, raw_output=str(e))
 
 
+def check_subnet_routes(expected_interface: str) -> list[str]:
+    """Find interfaces with competing 169.254.0.0/16 subnet routes.
+
+    Parses ``netstat -rn -f inet`` for link-local subnet entries (not the
+    169.254.255.255 host route) and returns the names of interfaces that are
+    NOT the expected interface.  An empty list means no competing routes.
+
+    On non-macOS, returns an empty list (link-local routing is automatic).
+    """
+    if platform.system() != "Darwin":
+        return []
+
+    try:
+        ns = subprocess.run(
+            ["netstat", "-rn", "-f", "inet"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        competing: list[str] = []
+        for line in ns.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            dest = parts[0]
+            netif = parts[3]
+            # Match subnet routes like "169.254" or "169.254/16" but NOT
+            # the exact host route "169.254.255.255"
+            if (
+                dest.startswith("169.254")
+                and dest != "169.254.255.255"
+                and netif != expected_interface
+            ):
+                if netif not in competing:
+                    competing.append(netif)
+        if competing:
+            logger.debug(
+                "Competing 169.254 subnet routes on: %s (expected %s)",
+                ", ".join(competing),
+                expected_interface,
+            )
+        return competing
+    except Exception as e:
+        logger.debug("Could not check subnet routes: %s", e)
+        return []
+
+
 def check_route(expected_interface: str) -> RouteCheckResult:
     """Compare the current broadcast route against the expected interface.
+
+    Checks both the 169.254.255.255 host route and any competing 169.254.0.0/16
+    subnet routes.  The route is only considered correct when the host route
+    points to the expected interface AND no competing subnet routes exist on
+    other interfaces.
 
     On Linux, link-local routing works differently so this always returns correct=True.
     """
@@ -139,13 +191,16 @@ def check_route(expected_interface: str) -> RouteCheckResult:
         )
 
     status = get_current_route()
-    correct = status.interface == expected_interface
+    host_correct = status.interface == expected_interface
+    competing = check_subnet_routes(expected_interface)
+    correct = host_correct and len(competing) == 0
 
     return RouteCheckResult(
         correct=correct,
         current_interface=status.interface,
         expected_interface=expected_interface,
         fix_available=True,
+        competing_interfaces=competing,
     )
 
 

@@ -43,14 +43,14 @@ const tierColumns = [
     enableColumnFilter: true,
   }),
   col.accessor("has_live", {
-    header: "L",
+    header: () => <span title="Live tier — real-time Pioneer hardware analysis">L</span>,
     cell: (info) => <TierDot active={info.getValue()} color="text-green-400" />,
     size: 28,
     filterFn: "equals",
     enableColumnFilter: true,
   }),
   col.accessor("has_live_offline", {
-    header: "L-O",
+    header: () => <span title="Live Offline — analysis from saved Pioneer data (no hardware needed)">L-O</span>,
     cell: (info) => <TierDot active={info.getValue()} color="text-emerald-400" />,
     size: 32,
     filterFn: "equals",

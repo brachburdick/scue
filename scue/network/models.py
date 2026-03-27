@@ -44,6 +44,7 @@ class RouteCheckResult:
     current_interface: str | None
     expected_interface: str
     fix_available: bool  # True on macOS, False on Linux
+    competing_interfaces: list[str] = field(default_factory=list)
 
 
 @dataclass

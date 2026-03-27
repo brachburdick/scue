@@ -38,6 +38,14 @@ interface BridgeStoreState {
   lastMessageAgeMs: number;
   bridgeConnected: boolean;
 
+  // Per-aspect health (from pioneer_status WS messages)
+  routeOk: boolean | null;
+  devicesCount: number;
+  playersCount: number;
+
+  // Last crash reason (from bridge_status)
+  lastCrashReason: string | null;
+
   // Computed status for TopBar StatusDot
   dotStatus: DotStatus;
 
@@ -61,7 +69,7 @@ interface BridgeStoreState {
   // Actions
   setWsConnected: (connected: boolean) => void;
   setBridgeState: (state: BridgeState) => void;
-  setPioneerStatus: (isReceiving: boolean, ageMs: number, bridgeConnected: boolean) => void;
+  setPioneerStatus: (isReceiving: boolean, ageMs: number, bridgeConnected: boolean, routeOk?: boolean | null, devicesCount?: number, playersCount?: number) => void;
 }
 
 function computeDotStatus(wsConnected: boolean, status: BridgeStatus): DotStatus {
@@ -173,6 +181,10 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
   isReceiving: false,
   lastMessageAgeMs: -1,
   bridgeConnected: false,
+  routeOk: null,
+  devicesCount: 0,
+  playersCount: 0,
+  lastCrashReason: null,
   dotStatus: "disconnected",
   isStartingUp: true,
   isRecovering: false,
@@ -211,7 +223,14 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
     set((prev) => {
       const isRunning = state.status === "running";
       const wasNonRunning = NON_RUNNING_STATUSES.has(prev.status);
-      const devices = isRunning ? state.devices : {};
+      // Keep devices/players during "starting" if we were previously running
+      // (e.g. during uvicorn --reload restart). Clear on terminal states.
+      const isRestarting = state.status === "starting" && prev.status === "running";
+      const devices = isRunning
+        ? state.devices
+        : isRestarting
+          ? prev.devices
+          : {};
       const hasDevices = Object.keys(devices).length > 0;
 
       // --- isRecovering logic ---
@@ -266,7 +285,8 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
         routeCorrect: state.route_correct,
         routeWarning: state.route_warning,
         devices,
-        players: isRunning ? state.players : {},
+        players: isRunning ? state.players : isRestarting ? prev.players : {},
+        lastCrashReason: state.last_crash_reason ?? prev.lastCrashReason,
         dotStatus: computeDotStatus(prev.wsConnected, state.status),
         isStartingUp: computeIsStartingUp(prev.wsConnected, state.status),
         isRecovering,
@@ -277,11 +297,14 @@ export const useBridgeStore = create<BridgeStoreState>((set) => ({
     updateHwDisconnectState(s.status, s.devices, s.isReceiving);
   },
 
-  setPioneerStatus: (isReceiving: boolean, ageMs: number, bridgeConnected: boolean) => {
+  setPioneerStatus: (isReceiving: boolean, ageMs: number, bridgeConnected: boolean, routeOk?: boolean | null, devicesCount?: number, playersCount?: number) => {
     set((prev) => ({
       isReceiving,
       lastMessageAgeMs: ageMs,
       bridgeConnected,
+      ...(routeOk !== undefined ? { routeOk } : {}),
+      ...(devicesCount !== undefined ? { devicesCount } : {}),
+      ...(playersCount !== undefined ? { playersCount } : {}),
       dotStatus: computeDotStatus(prev.wsConnected, prev.status),
     }));
     // Post-set: pioneer liveness changes affect hw-disconnect detection.

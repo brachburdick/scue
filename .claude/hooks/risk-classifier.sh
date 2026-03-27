@@ -1,0 +1,1 @@
+/Users/brach/Documents/THE_FACTORY/.claude/hooks/risk-classifier.sh

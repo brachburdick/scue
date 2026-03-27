@@ -50,6 +50,7 @@ export function StatusBanner() {
   const devices = useBridgeStore((s) => s.devices);
   const restartAttempt = useBridgeStore((s) => s.restartAttempt);
   const countdownSecondsRemaining = useBridgeStore((s) => s.countdownSecondsRemaining);
+  const lastCrashReason = useBridgeStore((s) => s.lastCrashReason);
 
   // Priority: WS disconnected > hardware disconnected > bridge status.
   const effectiveKey = !wsConnected
@@ -98,7 +99,8 @@ export function StatusBanner() {
       restartAttempt === 2
         ? " If next attempt fails, bridge will enter slow-poll mode."
         : "";
-    narrative = `Restart attempt ${restartAttempt} of 3. ${countdownText}${thresholdWarning}`;
+    const crashInfo = lastCrashReason ? ` Last error: ${lastCrashReason.slice(0, 120)}` : "";
+    narrative = `Restart attempt ${restartAttempt} of 3. ${countdownText}${thresholdWarning}${crashInfo}`;
   } else if (status === "starting") {
     // S4
     narrative = (

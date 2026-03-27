@@ -6,6 +6,7 @@
 
 import type { WSMessage } from "../types";
 import type { BridgeStatus } from "../types/bridge";
+import { toast } from "sonner";
 import { useBridgeStore } from "../stores/bridgeStore";
 import { useConsoleStore } from "../stores/consoleStore";
 import { useIngestionStore } from "../stores/ingestionStore";
@@ -43,6 +44,17 @@ function dispatch(msg: WSMessage): void {
         queryClient.invalidateQueries({ queryKey: ["network", "route"] });
         queryClient.invalidateQueries({ queryKey: ["network", "interfaces"] });
       }
+
+      // Toast notifications for bridge state transitions
+      if (prevBridgeStatus !== null) {
+        if (newStatus === "running" && prevBridgeStatus !== "running") {
+          toast.success("Bridge connected");
+        } else if (prevBridgeStatus === "running" && newStatus !== "running") {
+          toast.error("Pioneer hardware disconnected");
+        } else if (newStatus === "waiting_for_hardware" && prevBridgeStatus !== "waiting_for_hardware") {
+          toast.warning("Waiting for hardware...");
+        }
+      }
       prevBridgeStatus = newStatus;
 
       useBridgeStore.getState().setBridgeState(msg.payload);
@@ -55,6 +67,9 @@ function dispatch(msg: WSMessage): void {
           msg.payload.is_receiving,
           msg.payload.last_message_age_ms,
           msg.payload.bridge_connected,
+          msg.payload.route_ok,
+          msg.payload.devices_count,
+          msg.payload.players_count,
         );
       break;
     case "strata_live":
@@ -80,6 +95,10 @@ function dispatch(msg: WSMessage): void {
       queryClient.invalidateQueries({ queryKey: ["tracks"] });
       queryClient.invalidateQueries({ queryKey: ["scanner", "history"] });
       break;
+    case "media_change":
+      // Invalidate all scanner/browse caches — media content changed
+      queryClient.invalidateQueries({ queryKey: ["scanner"] });
+      break;
   }
   dispatchToConsole(msg);
 }
@@ -91,6 +110,7 @@ function onOpen(): void {
   resetMapperState();
   prevBridgeStatus = null;
   useBridgeStore.getState().setWsConnected(true);
+  toast.success("Connected to backend");
   useConsoleStore.getState().addEntry({
     source: "system",
     severity: "info",
@@ -123,6 +143,7 @@ function onMessage(event: MessageEvent): void {
 function onClose(): void {
   ws = null;
   useBridgeStore.getState().setWsConnected(false);
+  toast.error("Backend connection lost");
   useConsoleStore.getState().addEntry({
     source: "system",
     severity: "error",

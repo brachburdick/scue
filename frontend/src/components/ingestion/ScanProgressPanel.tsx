@@ -56,6 +56,12 @@ export function ScanProgressPanel({ progress, onStop, onDismiss, isStopping }: S
         <span>{Math.round(pct)}%</span>
       </div>
 
+      {progress.status === "scanning" && progress.current_track && (
+        <p className="text-xs text-blue-400 truncate">
+          Scanning: {progress.current_track}
+        </p>
+      )}
+
       {Object.keys(progress.deck_progress).length > 0 && (
         <div className="space-y-1">
           {Object.entries(progress.deck_progress).map(([deck, dp]) => (
@@ -64,11 +70,11 @@ export function ScanProgressPanel({ progress, onStop, onDismiss, isStopping }: S
               <span className={dp.status === "scanning" ? "text-blue-400" : "text-gray-500"}>
                 {dp.status === "scanning" && dp.current_track
                   ? `scanning "${dp.current_track}"`
-                  : dp.status}
+                  : dp.status || "idle"}
               </span>
-              {dp.total > 0 && (
+              {dp.scanned > 0 && (
                 <span className="text-gray-600 ml-auto">
-                  {dp.scanned}/{dp.total}
+                  {dp.scanned} scanned{dp.errors > 0 ? `, ${dp.errors} errors` : ""}
                 </span>
               )}
             </div>

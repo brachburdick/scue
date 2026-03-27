@@ -39,8 +39,17 @@ export function HardwareTab() {
     });
   }, [devices]);
 
-  // Auto-select first player if none selected
-  const activePlayer = selectedPlayer ?? (cdjDevices.length > 0 ? cdjDevices[0].device_number : null);
+  // Detect all-in-one units (XDJ-AZ, Opus Quad) — uses_dlp flag + same device name
+  const isAllInOne = useMemo(() => {
+    if (cdjDevices.length < 2) return false;
+    // All-in-one: all CDJs use DLP and share a device name
+    const names = new Set(cdjDevices.map((d) => d.device_name));
+    return cdjDevices.every((d) => d.uses_dlp) && names.size === 1;
+  }, [cdjDevices]);
+
+  // For browsing: all-in-one units must always use Player 1 (shared DLP identity)
+  const selectedOrDefault = selectedPlayer ?? (cdjDevices.length > 0 ? cdjDevices[0].device_number : null);
+  const activePlayer = isAllInOne ? 1 : selectedOrDefault;
 
   const scannedIds = useMemo(() => {
     return new Set((history?.tracks ?? []).map((t) => t.rekordbox_id));
@@ -88,15 +97,42 @@ export function HardwareTab() {
     );
   }
 
-  const handleStartScan = (scanAll: boolean) => {
+  // Track how many selected tracks are already scanned (for confirmation)
+  const alreadyScannedCount = useMemo(() => {
+    if (forceRescan) return 0; // user explicitly asked for rescan
+    let count = 0;
+    for (const id of selectedTrackIds) {
+      if (scannedIds.has(id)) count++;
+    }
+    return count;
+  }, [selectedTrackIds, scannedIds, forceRescan]);
+
+  const [showRescanConfirm, setShowRescanConfirm] = useState(false);
+
+  const doStartScan = (scanAll: boolean, skipScanned: boolean) => {
     if (!activePlayer) return;
+    const ids = scanAll ? undefined : skipScanned
+      ? [...selectedTrackIds].filter((id) => !scannedIds.has(id))
+      : [...selectedTrackIds];
+    if (!scanAll && ids && ids.length === 0) return; // nothing left after filtering
     startScan.mutate({
       player: activePlayer,
       slot: selectedSlot,
       target_players: [...effectiveTargetDecks],
-      track_ids: scanAll ? undefined : [...selectedTrackIds],
+      track_ids: ids,
       force_rescan: forceRescan,
     });
+    setShowRescanConfirm(false);
+  };
+
+  const handleStartScan = (scanAll: boolean) => {
+    if (!activePlayer) return;
+    // Show confirmation if some selected tracks are already scanned
+    if (!scanAll && alreadyScannedCount > 0 && !forceRescan) {
+      setShowRescanConfirm(true);
+      return;
+    }
+    doStartScan(scanAll, false);
   };
 
   const handleStopScan = () => {
@@ -118,7 +154,7 @@ export function HardwareTab() {
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-medium text-gray-300">USB Browser</h3>
-          {cdjDevices.length > 1 && (
+          {cdjDevices.length > 1 && !isAllInOne && (
             <select
               value={activePlayer ?? ""}
               onChange={(e) => {
@@ -133,6 +169,11 @@ export function HardwareTab() {
                 </option>
               ))}
             </select>
+          )}
+          {isAllInOne && (
+            <span className="text-xs text-gray-500" title="All-in-one unit detected — both decks share one library connection">
+              {cdjDevices[0]?.device_name ?? "All-in-one"} (Player 1)
+            </span>
           )}
           <select
             value={selectedSlot}
@@ -208,6 +249,34 @@ export function HardwareTab() {
             Scan All
           </button>
         </div>
+
+        {showRescanConfirm && (
+          <div className="rounded border border-yellow-700 bg-yellow-900/30 p-3 space-y-2">
+            <p className="text-yellow-400 text-xs">
+              {alreadyScannedCount} of {selectedTrackIds.size} selected tracks have already been scanned.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => doStartScan(false, true)}
+                className="px-3 py-1 text-xs font-medium rounded bg-blue-600 hover:bg-blue-500 text-white"
+              >
+                Skip Already Scanned
+              </button>
+              <button
+                onClick={() => doStartScan(false, false)}
+                className="px-3 py-1 text-xs font-medium rounded bg-gray-700 hover:bg-gray-600 text-white"
+              >
+                Scan All Again
+              </button>
+              <button
+                onClick={() => setShowRescanConfirm(false)}
+                className="px-3 py-1 text-xs font-medium rounded text-gray-400 hover:text-gray-200"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {startScan.isError && (
           <p className="text-red-400 text-xs">Failed to start scan: {startScan.error.message}</p>

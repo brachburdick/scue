@@ -7,7 +7,13 @@ from .models import (
     RouteFixResult,
     RouteStatus,
 )
-from .route import check_route, enumerate_interfaces, fix_route, get_current_route
+from .route import (
+    check_route,
+    check_subnet_routes,
+    enumerate_interfaces,
+    fix_route,
+    get_current_route,
+)
 
 __all__ = [
     "InterfaceAddress",
@@ -16,6 +22,7 @@ __all__ = [
     "RouteFixResult",
     "RouteStatus",
     "check_route",
+    "check_subnet_routes",
     "enumerate_interfaces",
     "fix_route",
     "get_current_route",

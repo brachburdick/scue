@@ -83,12 +83,13 @@ export function useUsbFolder(
   slot: string,
   folderId: number | null,
   enabled: boolean,
+  isFolder: boolean = true,
 ) {
   return useQuery<UsbFolderResponse>({
-    queryKey: ["scanner", "folder", player, slot, folderId],
+    queryKey: ["scanner", "folder", player, slot, folderId, isFolder],
     queryFn: () =>
       apiFetch<UsbFolderResponse>(
-        `/scanner/browse/${player}/${slot}/folder/${folderId}`,
+        `/scanner/browse/${player}/${slot}/folder/${folderId}?is_folder=${isFolder}`,
       ),
     enabled: enabled && folderId !== null,
     retry: false,
@@ -106,7 +107,7 @@ export function useStartHardwareScan() {
       // Immediately reflect "scan starting" in the UI so the button disables
       // and old progress clears. WS events will take over once they arrive.
       const { setScanProgress } = useIngestionStore.getState();
-      setScanProgress({ status: "scanning", scanned: 0, skipped: 0, errors: 0, total: 0, deck_progress: {} });
+      setScanProgress({ status: "scanning", scanned: 0, skipped: 0, errors: 0, total: 0, current_track: "", deck_progress: {} });
     },
     onError: () => {
       // Revert optimistic update on failure

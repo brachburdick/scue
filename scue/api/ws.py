@@ -86,12 +86,20 @@ def _build_pioneer_status() -> dict:
         age_ms = -1
         is_receiving = False
 
+    # Per-aspect health for TopBar indicators
+    route_ok = getattr(_bridge_manager, "_route_correct", None)
+    devices_count = len(_bridge_manager._adapter.devices) if _bridge_manager._adapter else 0
+    players_count = len(_bridge_manager._adapter.players) if _bridge_manager._adapter else 0
+
     return {
         "type": "pioneer_status",
         "payload": {
             "is_receiving": is_receiving,
             "bridge_connected": bridge_connected,
             "last_message_age_ms": age_ms,
+            "route_ok": route_ok,
+            "devices_count": devices_count,
+            "players_count": players_count,
         },
     }
 

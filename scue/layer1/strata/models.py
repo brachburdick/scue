@@ -219,6 +219,9 @@ class ArrangementFormula:
     compute_time_seconds: float = 0.0
     created_at: float = field(default_factory=time.time)
 
+    # Beat-grid trust report (optional, populated by LiveStrataAnalyzer)
+    grid_trust: dict | None = None
+
 
 # ---------------------------------------------------------------------------
 # Serialization Helpers
@@ -474,6 +477,7 @@ def formula_to_dict(f: ArrangementFormula) -> dict:
         "stem_separation_model": f.stem_separation_model,
         "compute_time_seconds": f.compute_time_seconds,
         "created_at": f.created_at,
+        **({"grid_trust": f.grid_trust} if f.grid_trust is not None else {}),
     }
 
 
@@ -495,4 +499,5 @@ def formula_from_dict(d: dict) -> ArrangementFormula:
         stem_separation_model=d.get("stem_separation_model", ""),
         compute_time_seconds=d.get("compute_time_seconds", 0.0),
         created_at=d.get("created_at", 0.0),
+        grid_trust=d.get("grid_trust"),
     )

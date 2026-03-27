@@ -232,7 +232,8 @@ Root cause: `UsbBrowser` kept stale `folderId`/`folderPath` state across player 
 Fix: Added `useEffect` in `UsbBrowser` that resets `folderId` and `folderPath` to root when `player` or `slot` props change. Added `setSelectedTrackIds(new Set())` to the player change handler in `HardwareTab`.
 File(s): frontend/src/components/ingestion/UsbBrowser.tsx, frontend/src/components/ingestion/HardwareTab.tsx
 
-### [OPEN] XDJ-AZ Player 2 USB browsing returns 500 — all-in-one DLP identity
+### [FIXED] XDJ-AZ Player 2 USB browsing returns 500 — all-in-one DLP identity
+Fixed: 2026-03-26 — see fix entry below.
 Date: 2026-03-25
 Milestone: FE-Ingestion
 Severity: MEDIUM (blocks Player 2 browsing on all-in-one units)
@@ -287,7 +288,8 @@ Key findings:
 
 Next step: Bridge resilience task — add `MediaDetailsListener` to the Java bridge, emit `media_change` WS events, gracefully re-establish DLP sessions without crashing. See bridge-java/src/main/java/com/scue/bridge/BeatLinkBridge.java.
 
-### [OPEN] Per-deck progress status and total never render in ScanProgressPanel
+### [FIXED] Per-deck progress status and total never render in ScanProgressPanel
+Fixed: 2026-03-26 — see fix entry below.
 Date: 2026-03-25
 Milestone: FE-Ingestion
 Severity: LOW (cosmetic — overall progress works fine)
@@ -306,14 +308,14 @@ Fix: Backend change needed — detect repeated consecutive timeouts as likely ha
 File(s): scue/layer1/scanner.py (_scan_one_track, _deck_worker)
 
 ### [FIXED] Playlist sub-navigation loops instead of opening playlist contents
-Date: 2026-03-25
+Date: 2026-03-25 (fixed 2026-03-26)
 Milestone: FE-Ingestion
 Severity: HIGH (blocks playlist-based track selection)
 Symptom: Clicking a playlist folder in UsbBrowser adds it to the breadcrumb path but does not show the tracks inside. Instead, the same folder list re-renders, and clicking again adds another level (screenshot shows: Root / PLAYLIST / post-hibernation / post-hibernation / post-hibernation / post-hibernation). The folder appears to re-list its own children recursively.
-Root cause: **Confirmed via live QA (2026-03-25).** The Java bridge's `MenuLoader.requestPlaylistMenuFrom(slotRef, folderId)` returns the same 19 top-level playlists regardless of which `folderId` is passed. Tested: `/api/scanner/browse/1/usb/folder/5` (PLAYLIST root) and `/api/scanner/browse/1/usb/folder/8` ("NYE Skald") both return identical `items` arrays with 19 playlists and 0 tracks. The DLP `requestPlaylistMenuFrom` is not navigating into sub-playlists — likely a beat-link API usage issue (folder ID semantics, sort order parameter, or missing parent-child navigation step).
-Expected behavior: Clicking a leaf playlist shows the tracks inside it. Clicking a playlist folder shows sub-playlists and/or tracks.
-Fix: Investigate beat-link `requestPlaylistMenuFrom` API — the `folder` parameter may need different values or a different traversal pattern. This is a Java bridge bug, not a frontend bug.
-File(s): bridge-java/src/main/java/com/scue/bridge/CommandHandler.java (handleBrowsePlaylist, line 147), scue/api/scanner.py (browse_folder), frontend/src/components/ingestion/UsbBrowser.tsx
+Root cause: **Confirmed via live QA (2026-03-25).** The Java bridge called the wrong beat-link API: `MenuLoader.requestPlaylistMenuFrom(slotRef, folderId)` — the second parameter is `sortOrder`, NOT `folderId`. This method always returns the root playlist listing. The correct API is `MetadataFinder.requestPlaylistItemsFrom(player, slot, sortOrder, folderId, isFolder)`, which takes a boolean `isFolder` flag: `true` returns sub-folders/playlists, `false` returns tracks within a leaf playlist.
+Fix: Full-stack fix (2026-03-26). See `docs/bugs/layer0-bridge.md` entry "Playlist sub-navigation returns root listing" for complete details. Key changes: Java handler now calls `MetadataFinder.requestPlaylistItemsFrom`, Python command/scanner/API pass `is_folder` boolean, frontend UsbBrowser tracks `isFolder` state and passes it through the API call.
+Verified: API tested against live XDJ-AZ — playlist navigation returns correct sub-items and tracks. Full UI flow QA pending.
+File(s): bridge-java/src/main/java/com/scue/bridge/CommandHandler.java, scue/bridge/commands.py, scue/layer1/scanner.py, scue/api/scanner.py, frontend/src/api/ingestion.ts, frontend/src/components/ingestion/UsbBrowser.tsx
 
 ### [FIXED] TRACK root menu navigates to playlist content instead of track list
 Date: 2026-03-25
@@ -345,7 +347,8 @@ Root cause: Same as the XDJ-AZ three-device bug above — the mixer/controller d
 Fix: Same dedup fix as above — `cdjDevices` deduplication by device_number eliminates the duplicate.
 File(s): frontend/src/components/ingestion/HardwareTab.tsx (cdjDevices, availableDecks)
 
-### [OPEN] Single-track scan progress doesn't update — appears to hang
+### [FIXED] Single-track scan progress doesn't update — appears to hang
+Fixed: 2026-03-26 — per-deck progress fields + current track display fix resolves this.
 Date: 2026-03-25
 Milestone: FE-Ingestion
 Severity: HIGH (user thinks scan is broken)
@@ -379,7 +382,8 @@ Symptom: When scanning multiple tracks with both Deck 1 and Deck 2 checked, only
 Root cause: Needs investigation. Check: (1) Is the backend `_deck_worker` for player 2 actually dequeuing tracks? (2) Does the `load_track` command work for player 2 on XDJ-AZ? (3) Is this the same DLP identity issue where player 2 commands go to player 1? Prior session notes say multi-deck scanning was "confirmed working (Deck 1: 5 tracks, Deck 2: 1 track)" — may be a regression or XDJ-AZ-specific issue after USB slot change.
 File(s): scue/layer1/scanner.py (_deck_worker, _scan_one_track)
 
-### [OPEN] Live tier columns (L, L-O) not lit in Track Library after hardware scan
+### [FIXED] Live tier columns (L, L-O) not lit in Track Library after hardware scan
+Fixed: 2026-03-26 — strata cache invalidation + tooltips. See fix entry below.
 Date: 2026-03-25
 Milestone: FE-Ingestion / Strata
 Severity: MEDIUM (misleading — data exists but UI doesn't reflect it)
@@ -428,7 +432,8 @@ QA update (2026-03-25): Brach confirms the data does not appear stale — each t
 Status: Not a bug. No fix needed.
 File(s): scue/layer1/strata/live_analyzer.py, scue/layer1/tracking.py
 
-### [OPEN] Scan progress panel has no dismiss button after scan completes
+### [FIXED] Scan progress panel has no dismiss button after scan completes
+Fixed: 2026-03-25 (prior session) — already implemented but bug entry not updated.
 Date: 2026-03-25
 Milestone: FE-Ingestion
 Severity: MEDIUM (scan progress panel persists indefinitely after scan)
@@ -438,7 +443,8 @@ Fix: Add a dismiss X button to the ScanProgressPanel header when status is termi
 File(s): frontend/src/components/ingestion/ScanProgressPanel.tsx
 Pipeline note: Brach reports this UX requirement was communicated to the prior agent but was not implemented or tested. Pipeline improvement needed — ensure UX specs from operator are tracked as explicit requirements, not just conversation context.
 
-### [OPEN] Re-scanning already-scanned tracks needs confirmation dialog
+### [FIXED] Re-scanning already-scanned tracks needs confirmation dialog
+Fixed: 2026-03-26 — see fix entry below.
 Date: 2026-03-25
 Milestone: FE-Ingestion
 Severity: LOW (UX improvement)
@@ -447,6 +453,61 @@ Expected behavior: When starting a scan where some/all selected tracks have alre
 Fix: Check `selectedTrackIds` against the scan history (`useScanHistory`) before starting scan. If overlap exists, show confirmation dialog.
 File(s): frontend/src/components/ingestion/HardwareTab.tsx, frontend/src/api/ingestion.ts (useScanHistory)
 Pipeline note: Same as above — Brach communicated this requirement to the prior agent.
+
+### [FIXED] Strata page — Live tier rendering gate ignores persisted data
+Date: 2026-03-25
+Fixed: 2026-03-25
+Milestone: FE-Strata
+Severity: HIGH (regression — previously working)
+Symptom: Selecting a track in the Strata page with Live tier selected showed "Waiting for Pioneer phrase analysis data..." even when persisted live strata data existed for the track.
+Root cause: StrataPage.tsx line 447 gated Live tier content on `!liveFormula` (real-time WS data only). A prior fix on line 143-144 correctly added `persistedLiveFormula` as a fallback to `formula`, but the rendering gate was never updated to match. So persisted data was fetched and resolved into `formula`, but the gate blocked rendering before it could be used.
+Fix: Changed line 447 from `isLiveTier && !liveFormula` to `isLiveTier && !formula`. Now the gate accounts for both real-time and persisted live data.
+File(s): frontend/src/pages/StrataPage.tsx (line 447)
+Pipeline note: Not caught by QA because (1) the QA agent ran without a live frontend, and (2) code-only review didn't trace the rendering conditional against the formula resolution logic. If non-live tiers (quick/standard) are also broken, the cause is runtime — needs server-up testing.
+
+### [FIXED] Strata page — clicking tracks no longer shows Live tier analysis
+Date: 2026-03-25
+Fixed: 2026-03-26
+Milestone: FE-Strata
+Symptom: Selecting a track in the Strata page with the Live tier selected showed nothing. Previously worked during QA when hardware was connected.
+Root cause: When `isLiveTier`, the code forced `tierSources = undefined` (line 137) and `formula` only used real-time live data from `/strata/live` endpoint. Persisted live strata data from `data.tiers.live` (saved during hardware scans) was completely ignored. Without hardware connected, the real-time endpoint returns empty, so nothing displayed. Not a true regression — masked by hardware being connected during QA.
+Fix: Added `persistedLiveFormula` fallback: `formula = liveFormula ?? persistedLiveFormula`. Updated `tierHasData("live")` to also check `availableTiers.includes("live")`. Updated `availableSourcesForTier` to use `persistedLiveSources` when live tier is selected.
+File(s): frontend/src/pages/StrataPage.tsx
+
+### [FIXED] Per-deck progress status and total never render in ScanProgressPanel
+Date: 2026-03-25
+Fixed: 2026-03-26
+Milestone: FE-Ingestion
+Symptom: Per-deck status text always gray, never "scanning". Per-deck scanned/total counter never appeared.
+Root cause: Backend `deck_progress` initialized with only `scanned`, `errors`, `current_track` — missing `status` and `total`. Frontend required both fields.
+Fix: Added `status: "idle"` and `total: 0` to backend deck_progress initialization. Set `status` to `"scanning"` when deck starts processing. Updated ScanProgressPanel to show scanned count instead of requiring total (shared queue model means per-deck totals aren't meaningful). Added `current_track` to `HardwareScanStatus` type and display in progress panel.
+File(s): scue/layer1/scanner.py, frontend/src/types/ingestion.ts, frontend/src/components/ingestion/ScanProgressPanel.tsx, frontend/src/api/ingestion.ts
+
+### [FIXED] XDJ-AZ Player 2 USB browsing returns 500
+Date: 2026-03-25
+Fixed: 2026-03-26
+Milestone: FE-Ingestion
+Symptom: Selecting Player 2 in USB Browser on XDJ-AZ returns 500 error.
+Root cause: XDJ-AZ is all-in-one — both decks share Player 1 DLP identity.
+Fix: Auto-detect all-in-one units (all CDJs have `uses_dlp` + same device name). Hide player selector for USB browsing on all-in-one, always browse via Player 1. Scan deck selector still shows both decks.
+File(s): frontend/src/components/ingestion/HardwareTab.tsx
+
+### [FIXED] Re-scanning already-scanned tracks needs confirmation dialog
+Date: 2026-03-25
+Fixed: 2026-03-26
+Milestone: FE-Ingestion
+Symptom: Scanning already-scanned tracks starts without warning.
+Root cause: No check against scan history before starting.
+Fix: Added overlap check between `selectedTrackIds` and `scannedIds`. When overlap found and `forceRescan` is off, shows confirmation dialog with "Skip Already Scanned", "Scan All Again", and "Cancel" options.
+File(s): frontend/src/components/ingestion/HardwareTab.tsx
+
+### [FIXED] Strata tier columns (L, L-O, Q, S, D) stale after analysis
+Date: 2026-03-26
+Milestone: FE-Tracks / Strata
+Symptom: After running strata analysis, the tier availability dots in the Track Library table didn't update until backend restart.
+Root cause: `_strata_cache` in `tracks.py` was populated once on first request and never invalidated. Strata API endpoints (analyze, save, delete, batch, reanalyze) all create/modify strata files but never called `invalidate_strata_cache()`.
+Fix: Added `invalidate_strata_cache()` calls after all strata mutation operations: synchronous analysis, background analysis completion, batch completion, save, and delete. Also added tooltips to L and L-O column headers.
+File(s): scue/api/strata.py, frontend/src/components/tracks/TrackTable.tsx
 
 ### HTML entity strings rendered as literal text in sort indicators
 Date: 2026-03-16

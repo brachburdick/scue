@@ -21,6 +21,8 @@ export function UsbBrowser({
   const [folderPath, setFolderPath] = useState<{ id: number; name: string }[]>([]);
   // "flat" mode shows all tracks via browse_all_tracks (for TRACK root menu)
   const [flatMode, setFlatMode] = useState(false);
+  // Whether the current folderId points to a folder (true) or leaf playlist (false)
+  const [isFolder, setIsFolder] = useState(true);
 
   // Root menu items that need special navigation
   const PLAYLIST_NAMES = new Set(["PLAYLIST", "playlist"]);
@@ -33,10 +35,11 @@ export function UsbBrowser({
     setFolderId(null);
     setFolderPath([]);
     setFlatMode(false);
+    setIsFolder(true);
   }, [player, slot]);
 
   const { data: menu, isLoading: menuLoading } = useUsbMenu(player, slot, folderId === null && !flatMode);
-  const { data: folder, isLoading: folderLoading } = useUsbFolder(player, slot, folderId, folderId !== null);
+  const { data: folder, isLoading: folderLoading } = useUsbFolder(player, slot, folderId, folderId !== null, isFolder);
   const { data: rootTracks } = useUsbBrowse(player, slot, folderId === null || flatMode);
 
   const navigateToFolder = (item: UsbMenuItem) => {
@@ -64,6 +67,7 @@ export function UsbBrowser({
 
     setFolderPath((prev) => [...prev, { id: item.id, name: item.name }]);
     setFolderId(item.id);
+    setIsFolder(item.is_folder);
   };
 
   const navigateUp = () => {
@@ -71,10 +75,12 @@ export function UsbBrowser({
       setFolderId(null);
       setFolderPath([]);
       setFlatMode(false);
+      setIsFolder(true);
     } else {
       const newPath = folderPath.slice(0, -1);
       setFolderPath(newPath);
       setFolderId(newPath[newPath.length - 1].id);
+      setIsFolder(true); // Parent is always a folder
     }
   };
 
@@ -82,6 +88,7 @@ export function UsbBrowser({
     setFolderId(null);
     setFolderPath([]);
     setFlatMode(false);
+    setIsFolder(true);
   };
 
   const items: UsbMenuItem[] = flatMode ? [] : folderId === null ? (menu?.items ?? []) : (folder?.items ?? []);
@@ -135,6 +142,7 @@ export function UsbBrowser({
               onClick={() => {
                 setFolderPath((p) => p.slice(0, i + 1));
                 setFolderId(crumb.id);
+                setIsFolder(true); // Breadcrumb targets are always folders
               }}
               className="hover:text-gray-200 transition-colors"
             >

@@ -103,6 +103,7 @@ export interface HardwareScanStatus {
   scanned: number;
   skipped: number;
   errors: number;
+  current_track: string;
   deck_progress: Record<number, DeckProgress>;
 }
 

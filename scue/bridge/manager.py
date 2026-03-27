@@ -20,6 +20,7 @@ from .fallback import FallbackParser
 from .messages import BRIDGE_STATUS, BridgeMessage
 from ..network.models import RouteFixResult
 from ..network.route import check_route as network_check_route
+from ..network.route import check_subnet_routes as network_check_subnet_routes
 from ..network.route import fix_route as network_fix_route
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ _MIN_STABLE_UPTIME_S = 30.0
 # Polling interval (seconds) when waiting for hardware to reappear after the
 # bridge has reached its crash threshold. Chosen to be infrequent enough to
 # avoid OS focus-steal nuisance while still recovering reasonably quickly.
-_HARDWARE_POLL_INTERVAL_S = 30.0
+_HARDWARE_POLL_INTERVAL_S = 10.0
 
 # JVM flags that suppress macOS AWT/Dock behaviour for headless subprocesses.
 # -Djava.awt.headless=true  — prevents AWT from opening a display connection,
@@ -103,7 +104,10 @@ class BridgeManager:
         self._last_stable_start_time: float = 0.0  # time.time() when last "running" began
         self._route_correct: bool | None = None
         self._route_warning: str | None = None
+        self._route_competing_interfaces: list[str] = []
         self._fallback_parser: FallbackParser | None = None
+        self._stderr_file = None  # tempfile for bridge subprocess stderr
+        self._last_crash_reason: str | None = None
 
         # Callback for state change notifications (used by WebSocket broadcaster)
         self.on_state_change: Callable[[], None] | None = None
@@ -182,6 +186,7 @@ class BridgeManager:
         if self._status == "running":
             return
 
+        self._kill_stale_bridges()
         self._last_message_time = 0.0
         self._last_pioneer_message_time = 0.0
         self._adapter.clear()
@@ -222,6 +227,7 @@ class BridgeManager:
             logger.info("Bridge started on port %d", self._port)
         except Exception as e:
             logger.error("Bridge start failed: %s", e)
+            self._last_crash_reason = str(e)
             self._status = "crashed"
             self._notify_state_change()
             await self._cleanup()
@@ -261,6 +267,7 @@ class BridgeManager:
         try:
             result = network_check_route(self._network_interface)
             self._route_correct = result.correct
+            self._route_competing_interfaces = result.competing_interfaces
 
             if result.correct:
                 logger.info(
@@ -270,11 +277,20 @@ class BridgeManager:
                 self._route_warning = None
                 return
 
-            # Route is wrong — try to fix if auto_fix is enabled
+            # Route is wrong — build a diagnostic message
+            issues: list[str] = []
+            if result.current_interface != self._network_interface:
+                issues.append(
+                    f"host route points to {result.current_interface or 'none'}"
+                )
+            if result.competing_interfaces:
+                issues.append(
+                    f"competing subnet routes on {', '.join(result.competing_interfaces)}"
+                )
             logger.warning(
-                "macOS routes 169.254.255.255 via %s, not %s",
-                result.current_interface,
+                "macOS route problem for %s: %s",
                 self._network_interface,
+                "; ".join(issues) if issues else "unknown",
             )
 
             if self._auto_fix_route:
@@ -285,8 +301,18 @@ class BridgeManager:
                         fix_result.previous_interface,
                         fix_result.new_interface,
                     )
-                    self._route_correct = True
-                    self._route_warning = None
+                    # Re-check to confirm subnet routes are also resolved
+                    recheck = network_check_route(self._network_interface)
+                    self._route_correct = recheck.correct
+                    self._route_competing_interfaces = recheck.competing_interfaces
+                    if recheck.correct:
+                        self._route_warning = None
+                    else:
+                        self._route_warning = (
+                            f"Host route fixed, but competing subnet routes remain on "
+                            f"{', '.join(recheck.competing_interfaces)}. "
+                            f"Re-run: sudo ./tools/install-route-fix.sh {self._network_interface}"
+                        )
                     return
                 else:
                     logger.warning("Auto-fix failed: %s", fix_result.error)
@@ -295,13 +321,13 @@ class BridgeManager:
             # Could not fix — log the manual fix command
             if not self._route_warning:
                 self._route_warning = (
-                    f"macOS routes 169.254.255.255 via {result.current_interface}, "
-                    f"not {self._network_interface}. Fix with: "
-                    f"sudo ./tools/fix-djlink-route.sh {self._network_interface}"
+                    f"macOS route problem ({'; '.join(issues)}). Fix with: "
+                    f"sudo scue-route-fix {self._network_interface}"
                 )
         except Exception as e:
             logger.debug("Could not check macOS broadcast route: %s", e)
             self._route_correct = None
+            self._route_competing_interfaces = []
             self._route_warning = None
 
     async def fix_route(self) -> RouteFixResult:
@@ -315,8 +341,14 @@ class BridgeManager:
             )
         result = network_fix_route(self._network_interface)
         if result.success:
-            self._route_correct = True
-            self._route_warning = None
+            # Re-check to see if subnet routes are also resolved
+            recheck = network_check_route(self._network_interface)
+            self._route_correct = recheck.correct
+            self._route_competing_interfaces = recheck.competing_interfaces
+            self._route_warning = None if recheck.correct else (
+                f"Host route fixed, but competing subnet routes remain on "
+                f"{', '.join(recheck.competing_interfaces)}"
+            )
             self._notify_state_change()
         elif result.error:
             # Wrap raw kernel errors with a user-friendly message.
@@ -347,6 +379,54 @@ class BridgeManager:
         """
         self._check_and_fix_route()
 
+    def _kill_stale_bridges(self) -> None:
+        """Kill any stale Java bridge processes on the configured port.
+
+        When the Python process crashes or exits uncleanly, the Java subprocess
+        may survive as an orphan holding the port.  The new bridge then fails to
+        bind and enters a crash loop.  This method finds and kills those orphans.
+        """
+        try:
+            result = subprocess.run(
+                ["lsof", "-ti", f":{self._port}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return  # No processes on this port
+
+            own_pid = self._process.pid if self._process else None
+            for pid_str in result.stdout.strip().split("\n"):
+                pid = int(pid_str.strip())
+                if pid == own_pid:
+                    continue
+                import os
+                import signal
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    logger.info("Killed stale bridge process (PID %d) on port %d", pid, self._port)
+                except ProcessLookupError:
+                    pass  # Already gone
+                except PermissionError:
+                    logger.warning("Cannot kill PID %d on port %d (permission denied)", pid, self._port)
+        except Exception as e:
+            logger.debug("Could not check for stale bridges: %s", e)
+
+    def _read_stderr_tail(self, max_chars: int = 500) -> str:
+        """Read the last ``max_chars`` characters from the bridge stderr log file."""
+        if not hasattr(self, "_stderr_file") or self._stderr_file is None:
+            return ""
+        try:
+            self._stderr_file.flush()
+            with open(self._stderr_file.name, "r") as f:
+                f.seek(0, 2)  # seek to end
+                size = f.tell()
+                f.seek(max(0, size - max_chars))
+                return f.read(max_chars)
+        except Exception:
+            return ""
+
     async def _launch_subprocess(self) -> None:
         """Launch the bridge JAR as a subprocess."""
         self._check_and_fix_route()
@@ -367,18 +447,21 @@ class BridgeManager:
         db_key = os.environ.get("SCUE_DLP_DATABASE_KEY", "")
         if db_key:
             cmd.extend(["--database-key", db_key])
+        import tempfile
+        self._stderr_file = tempfile.NamedTemporaryFile(
+            prefix="scue-bridge-", suffix=".log", delete=False, mode="w",
+        )
         self._process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=self._stderr_file,
         )
         # Java bridge needs several seconds to start WebSocket server + join network
-        for attempt in range(10):
-            await asyncio.sleep(1.0)
+        for attempt in range(20):
+            await asyncio.sleep(0.5)
             if self._process.poll() is not None:
-                stderr_bytes = await asyncio.to_thread(self._process.stderr.read) if self._process.stderr else b""
-                stderr = stderr_bytes.decode() if stderr_bytes else ""
-                raise RuntimeError(f"Bridge subprocess exited (code {self._process.returncode}): {stderr[:500]}")
+                stderr = self._read_stderr_tail()
+                raise RuntimeError(f"Bridge subprocess exited (code {self._process.returncode}): {stderr}")
             # Check if WebSocket port is accepting connections
             try:
                 reader, writer = await asyncio.wait_for(
@@ -386,7 +469,7 @@ class BridgeManager:
                 )
                 writer.close()
                 await writer.wait_closed()
-                logger.info("Bridge subprocess ready after %ds", attempt + 1)
+                logger.info("Bridge subprocess ready after %.1fs", (attempt + 1) * 0.5)
                 return
             except (ConnectionRefusedError, asyncio.TimeoutError, OSError):
                 continue
@@ -583,6 +666,21 @@ class BridgeManager:
             )
             await self.start()
 
+            # If start() failed, it called _schedule_restart() which may have
+            # kicked off the fast crash-restart cycle. Override back to
+            # waiting_for_hardware to stay in the slow-poll pattern.
+            if self._status != "running":
+                # Cancel any tasks that _schedule_restart may have created
+                if self._listen_task and not self._listen_task.done():
+                    self._listen_task.cancel()
+                if self._health_task and not self._health_task.done():
+                    self._health_task.cancel()
+                self._status = "waiting_for_hardware"
+                self._consecutive_failures = 0
+                self._last_crash_reason = self._read_stderr_tail() or "start() failed"
+                self._notify_state_change()
+                logger.info("start() failed during hardware poll — staying in waiting_for_hardware")
+
     def _cancel_wait_task(self) -> None:
         """Cancel the hardware-wait polling task if it is running."""
         if self._wait_task is not None and not self._wait_task.done():
@@ -656,6 +754,16 @@ class BridgeManager:
                 pass
             self._process = None
 
+        # Clean up stderr temp file
+        if self._stderr_file is not None:
+            try:
+                self._stderr_file.close()
+                import os
+                os.unlink(self._stderr_file.name)
+            except Exception:
+                pass
+            self._stderr_file = None
+
         # Clear accumulated adapter state so to_status_dict() returns empty
         # devices/players until fresh data arrives from the new bridge session.
         self._adapter.clear()
@@ -687,6 +795,8 @@ class BridgeManager:
             "next_retry_in_s": next_retry_in_s,
             "route_correct": self._route_correct,
             "route_warning": self._route_warning,
+            "route_competing_interfaces": self._route_competing_interfaces,
+            "last_crash_reason": self._last_crash_reason,
             "devices": {
                 ip: {
                     "device_name": d.device_name,

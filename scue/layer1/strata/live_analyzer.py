@@ -25,6 +25,7 @@ import time
 
 from ...bridge.adapter import PlayerState
 from ..models import RGBWaveform
+from .grid_trust import score_beat_grid
 from .models import (
     ActivitySpan,
     ArrangementFormula,
@@ -335,6 +336,16 @@ class LiveStrataAnalyzer:
         # (real fingerprint requires audio file)
         fingerprint = f"live_{player.rekordbox_id}"
 
+        # --- 6. Score beat-grid trust ---
+        grid_bpm = bg[0].get("bpm", 120.0) if bg else 0.0
+        trust_report = score_beat_grid(
+            beat_grid=bg,
+            phrases=player.phrases,
+            bpm=grid_bpm,
+            duration=player.duration,
+            source_id="pioneer_network",
+        )
+
         return ArrangementFormula(
             fingerprint=fingerprint,
             version=1,
@@ -352,6 +363,7 @@ class LiveStrataAnalyzer:
             analysis_source="pioneer_live",
             stem_separation_model="",
             compute_time_seconds=round(elapsed, 4),
+            grid_trust=trust_report.to_dict(),
         )
 
 

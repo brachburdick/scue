@@ -63,6 +63,19 @@ class TestCommandSerialization:
         data = json.loads(json_str)
         assert data["command"] == "browse_playlist"
         assert data["params"]["folder_id"] == 42
+        assert data["params"]["is_folder"] is True  # default
+
+    def test_browse_playlist_leaf_serialization(self):
+        """is_folder=False for leaf playlist (list tracks, not sub-folders)."""
+        cmd = BrowsePlaylistCommand(
+            player_number=1, slot="usb", folder_id=8, is_folder=False
+        )
+        _, json_str = serialize_command(cmd)
+
+        data = json.loads(json_str)
+        assert data["command"] == "browse_playlist"
+        assert data["params"]["folder_id"] == 8
+        assert data["params"]["is_folder"] is False
 
     def test_unique_request_ids(self):
         cmd = LoadTrackCommand(

@@ -134,13 +134,19 @@ export function StrataPage() {
   const isLiveTier = selectedTier === "live";
 
   const availableTiers = data?.available_tiers ?? [];
+  // For live tier: prefer real-time data, fall back to persisted data from useStrataAllTiers
+  const persistedLiveSources = data?.tiers?.["live"];
+  const persistedLiveFormula: ArrangementFormula | null = persistedLiveSources
+    ? persistedLiveSources[selectedSource] ?? Object.values(persistedLiveSources)[0] ?? null
+    : null;
   const tierSources = !isLiveTier ? data?.tiers?.[selectedTier] : undefined;
   const formula: ArrangementFormula | null = isLiveTier
-    ? liveFormula
+    ? liveFormula ?? persistedLiveFormula
     : tierSources?.[selectedSource] ?? (tierSources ? Object.values(tierSources)[0] ?? null : null);
   const hasAnyData = availableTiers.length > 0 || hasLiveData;
 
-  const availableSourcesForTier = tierSources ? Object.keys(tierSources) as AnalysisSource[] : [];
+  const activeTierSources = isLiveTier ? persistedLiveSources : tierSources;
+  const availableSourcesForTier = activeTierSources ? Object.keys(activeTierSources) as AnalysisSource[] : [];
   const compareTierSources = data?.tiers?.[compareTier];
   const compareFormula: ArrangementFormula | null = compareTierSources?.[compareSource] ?? (compareTierSources ? Object.values(compareTierSources)[0] ?? null : null);
   const totalCombos = Object.entries(data?.tiers ?? {}).reduce((acc, [, sources]) => acc + Object.keys(sources ?? {}).length, 0);
@@ -150,7 +156,7 @@ export function StrataPage() {
   const hasV3 = versionsData?.versions?.some((v) => v.source === "pioneer_reanalyzed") ?? false;
 
   const tierHasData = (tier: StrataTier) =>
-    tier === "live" ? hasLiveData : availableTiers.includes(tier);
+    tier === "live" ? hasLiveData || availableTiers.includes("live") : availableTiers.includes(tier);
 
   const handleAnalyze = useCallback((tier: StrataTier) => {
     analyzeMutation.mutate(
@@ -438,7 +444,7 @@ export function StrataPage() {
           )}
 
           {/* Content Area */}
-          {isLiveTier && !liveFormula ? (
+          {isLiveTier && !formula ? (
             <div className="h-48 flex flex-col items-center justify-center bg-gray-950 rounded border border-gray-800 gap-3">
               <p className="text-gray-500 text-sm">
                 {hardwareConnected

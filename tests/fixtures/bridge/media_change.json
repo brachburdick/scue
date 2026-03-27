@@ -1,0 +1,72 @@
+[
+  {
+    "type": "bridge_status",
+    "timestamp": 1710700000.0,
+    "player_number": null,
+    "payload": {
+      "connected": true,
+      "devices_online": 1,
+      "version": "2.0.0"
+    }
+  },
+  {
+    "type": "device_found",
+    "timestamp": 1710700001.0,
+    "player_number": 1,
+    "payload": {
+      "device_name": "XDJ-AZ",
+      "device_number": 1,
+      "device_type": "cdj",
+      "ip_address": "169.254.20.101",
+      "uses_dlp": true
+    }
+  },
+  {
+    "type": "media_change",
+    "timestamp": 1710700010.0,
+    "player_number": 1,
+    "payload": {
+      "slot": "usb",
+      "action": "unmounted",
+      "player_number": 1,
+      "media_name": null,
+      "track_count": -1
+    }
+  },
+  {
+    "type": "media_change",
+    "timestamp": 1710700015.0,
+    "player_number": 1,
+    "payload": {
+      "slot": "usb",
+      "action": "mounted",
+      "player_number": 1,
+      "media_name": "PIONEER DJ",
+      "track_count": 342
+    }
+  },
+  {
+    "type": "media_change",
+    "timestamp": 1710700020.0,
+    "player_number": 1,
+    "payload": {
+      "slot": "sd",
+      "action": "unmounted",
+      "player_number": 1,
+      "media_name": null,
+      "track_count": -1
+    }
+  },
+  {
+    "type": "media_change",
+    "timestamp": 1710700025.0,
+    "player_number": 1,
+    "payload": {
+      "slot": "sd",
+      "action": "mounted",
+      "player_number": 1,
+      "media_name": "NYE SET",
+      "track_count": 128
+    }
+  }
+]
