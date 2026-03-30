@@ -13,6 +13,14 @@ Standard tier stages:
   C. Per-stem analysis (energy, events, patterns, activity)
   D. Cross-stem transition detection
   E. Assemble ArrangementFormula with real stem data
+
+Hybrid tier stages:
+  A. Load Pioneer phrases from live_pioneer.json → Section objects
+  B. Load track analysis for M7 drum patterns + audio features
+  C. Compute per-bar energy from audio (same as quick)
+  D. Discover patterns from M7 drum patterns (same as quick)
+  E. Detect transitions at Pioneer section boundaries (same as quick)
+  F. Assemble ArrangementFormula with Pioneer sections + audio detail
 """
 
 from __future__ import annotations
@@ -22,7 +30,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from ..models import TrackAnalysis
+from ..models import Section, TrackAnalysis
 from ..storage import TrackStore
 from .energy import EnergyAnalysis, compute_energy_analysis
 from .models import (
@@ -256,6 +264,9 @@ class StrataEngine:
                 progress_callback=progress_callback,
             )
 
+        if "hybrid" in tiers:
+            results["hybrid"] = self.analyze_hybrid(fingerprint, analysis_version=analysis_version)
+
         if "live_offline" in tiers:
             results["live_offline"] = self.analyze_live_offline(fingerprint)
 
@@ -280,7 +291,7 @@ class StrataEngine:
         logger.info("Strata live_offline tier: starting for %s", fingerprint[:16])
 
         # Look for saved Pioneer data sidecar
-        tracks_dir = self._track_store._base_dir
+        tracks_dir = self._track_store.tracks_dir
         sidecar_path = tracks_dir / fingerprint / "live_pioneer.json"
         if not sidecar_path.exists():
             raise ValueError(
@@ -304,6 +315,123 @@ class StrataEngine:
         logger.info(
             "Strata live_offline tier complete: %d sections, %d transitions, %.3fs",
             len(formula.sections), len(formula.transitions), elapsed,
+        )
+        return formula
+
+    def analyze_hybrid(
+        self, fingerprint: str, analysis_version: int | None = None,
+    ) -> ArrangementFormula:
+        """Run the hybrid tier: Pioneer sections + audio energy/patterns.
+
+        Uses Pioneer phrase analysis for section boundaries (high confidence,
+        DJ-verified structure) combined with audio-derived energy analysis,
+        drum pattern discovery, and transition detection from the quick tier.
+
+        Requires both:
+          - A TrackAnalysis with audio path + M7 output
+          - A live_pioneer.json sidecar with phrase analysis + beat grid
+        """
+        import json
+
+        from .live_analyzer import PHRASE_KIND_MAP, _beat_to_bar, _beat_to_time_s
+
+        start_time = time.time()
+        logger.info("Strata hybrid tier: starting for %s", fingerprint[:16])
+
+        # --- Load Pioneer sidecar data ---
+        tracks_dir = self._track_store.tracks_dir
+        sidecar_path = tracks_dir / fingerprint / "live_pioneer.json"
+        if not sidecar_path.exists():
+            raise ValueError(
+                f"No saved Pioneer data for {fingerprint[:16]}. "
+                "Hybrid tier requires Pioneer phrase analysis."
+            )
+        saved = json.loads(sidecar_path.read_text())
+        phrases = saved.get("phrases", [])
+        beat_grid = saved.get("beat_grid", [])
+        if not phrases or not beat_grid:
+            raise ValueError(
+                f"Pioneer data for {fingerprint[:16]} missing phrases or beat grid."
+            )
+
+        # --- Stage A: Convert Pioneer phrases → Section objects ---
+        logger.info("  Stage A: Building sections from Pioneer phrases")
+        pioneer_sections: list[Section] = []
+        for phrase in phrases:
+            start_beat = phrase["start_beat"]
+            end_beat = phrase["end_beat"]
+            kind_raw = str(phrase.get("kind", "")).lower().strip()
+            label = PHRASE_KIND_MAP.get(kind_raw, kind_raw or "unknown")
+
+            start_s = _beat_to_time_s(start_beat, beat_grid)
+            end_s = _beat_to_time_s(end_beat, beat_grid)
+            bar_start = _beat_to_bar(start_beat)
+            bar_end = _beat_to_bar(end_beat)
+
+            pioneer_sections.append(Section(
+                label=label,
+                start=start_s,
+                end=end_s,
+                confidence=0.85,
+                bar_count=bar_end - bar_start,
+                expected_bar_count=bar_end - bar_start,
+                source="pioneer_phrases",
+            ))
+
+        # --- Stage B: Load TrackAnalysis for audio features + M7 ---
+        logger.info("  Stage B: Loading track analysis for audio features")
+        if analysis_version is not None:
+            analysis = self._track_store.load(fingerprint, version=analysis_version)
+        else:
+            analysis = self._track_store.load_latest(fingerprint)
+        if analysis is None:
+            raise ValueError(
+                f"No track analysis found for {fingerprint[:16]}. Run analysis first."
+            )
+
+        # --- Stage C: Energy analysis from audio ---
+        logger.info("  Stage C: Computing per-bar energy from audio")
+        energy = self._compute_energy(analysis)
+
+        # --- Stage D: Pattern discovery from M7 drum patterns ---
+        logger.info("  Stage D: Discovering patterns from M7 output")
+        patterns = discover_patterns(
+            analysis.drum_patterns,
+            analysis.downbeats,
+            analysis.beats,
+        )
+
+        # --- Stage E: Transition detection at Pioneer section boundaries ---
+        logger.info("  Stage E: Detecting transitions at Pioneer boundaries")
+        transitions = detect_transitions(
+            pioneer_sections,
+            energy,
+            analysis.downbeats,
+        )
+
+        # --- Stage F: Assembly (Pioneer sections + audio detail) ---
+        logger.info("  Stage F: Assembling hybrid formula")
+
+        # Temporarily swap analysis.sections with Pioneer sections for assembly
+        original_sections = analysis.sections
+        analysis.sections = pioneer_sections
+        formula = self._assemble(
+            fingerprint=fingerprint,
+            analysis=analysis,
+            energy=energy,
+            patterns=patterns,
+            transitions=transitions,
+            tier="hybrid",
+            start_time=start_time,
+        )
+        analysis.sections = original_sections  # Restore
+
+        formula.analysis_source = "pioneer_sections+audio_detail"
+        self._strata_store.save(formula, "hybrid", source="pioneer_live")
+        elapsed = time.time() - start_time
+        logger.info(
+            "Strata hybrid tier complete: %d sections, %d patterns, %d transitions, %.1fs",
+            len(pioneer_sections), len(patterns), len(transitions), elapsed,
         )
         return formula
 

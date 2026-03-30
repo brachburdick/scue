@@ -92,7 +92,7 @@ INTERFACE="$ARG"
 #    macOS adds 169.254.0.0/16 for every link-local-capable interface.
 #    When en0 (Wi-Fi) and en16 (USB-Ethernet) both have one, beat-link's
 #    non-broadcast link-local traffic goes out the wrong interface.
-for competing in $(netstat -rn -f inet | awk '/^169\.254[[:space:]]/ && !/169\.254\.255\.255/ {print $NF}' | sort -u); do
+for competing in $(netstat -rn -f inet | awk '/^169\.254[[:space:]]/ && !/169\.254\.255\.255/ {print $(NF-1)}' | sort -u); do
     if [ "$competing" != "$INTERFACE" ]; then
         route delete -net 169.254.0.0/16 -interface "$competing" 2>/dev/null && \
             echo "Deleted competing subnet route: 169.254.0.0/16 via $competing" || true

@@ -150,10 +150,10 @@ def check_subnet_routes(expected_interface: str) -> list[str]:
             dest = parts[0]
             netif = parts[3]
             # Match subnet routes like "169.254" or "169.254/16" but NOT
-            # the exact host route "169.254.255.255"
+            # host routes like "169.254.11.53" or "169.254.255.255".
+            # Subnet destinations are just "169.254" (no further octets).
             if (
-                dest.startswith("169.254")
-                and dest != "169.254.255.255"
+                (dest == "169.254" or dest.startswith("169.254/"))
                 and netif != expected_interface
             ):
                 if netif not in competing:

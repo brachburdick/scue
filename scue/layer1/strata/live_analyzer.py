@@ -197,6 +197,8 @@ class LiveStrataAnalyzer:
         transitions: list[ArrangementTransition] = []
         prev_energy = 0.0
 
+        has_waveform = bool(player.pioneer_waveform)
+
         for phrase in player.phrases:
             start_beat = phrase["start_beat"]
             end_beat = phrase["end_beat"]
@@ -208,8 +210,14 @@ class LiveStrataAnalyzer:
             bar_start = _beat_to_bar(start_beat)
             bar_end = _beat_to_bar(end_beat)
 
-            energy_level = SECTION_ENERGY.get(label, 0.5)
-            energy_trend = SECTION_TREND.get(label, "stable")
+            # Use real waveform energy when available, fall back to heuristic
+            if has_waveform:
+                energy_level, energy_trend = _waveform_section_energy(
+                    player.pioneer_waveform, start_s, end_s,
+                )
+            else:
+                energy_level = SECTION_ENERGY.get(label, 0.5)
+                energy_trend = SECTION_TREND.get(label, "stable")
 
             sections.append(SectionArrangement(
                 section_label=label,
@@ -261,7 +269,7 @@ class LiveStrataAnalyzer:
                 high=pw.get("high", []),
             )
 
-        # Full-track activity span
+        # Activity spans — real waveform-derived when available, else full-track
         if sections:
             track_start = sections[0].section_start
             track_end = sections[-1].section_end
@@ -269,18 +277,47 @@ class LiveStrataAnalyzer:
             track_start = 0.0
             track_end = player.duration
 
+        if has_waveform:
+            activity_spans = _waveform_activity_spans(player.pioneer_waveform, bg)
+        else:
+            activity_spans = {}
+
+        # Build stems from activity spans when available
+        if activity_spans:
+            for stem_type, spans in activity_spans.items():
+                stems.append(StemAnalysis(
+                    stem_type=stem_type,
+                    audio_path=None,
+                    layer_role="unknown",
+                    activity=spans,
+                    events=[],
+                    patterns=[],
+                ))
+
+            # Populate active_layers on sections from real activity
+            for sec in sections:
+                active: list[str] = []
+                for stem_type, spans in activity_spans.items():
+                    for span in spans:
+                        if span.start < sec.section_end and span.end > sec.section_start:
+                            if stem_type not in active:
+                                active.append(stem_type)
+                            break
+                sec.active_layers = active if active else ["mix"]
+                sec.layer_count = len(sec.active_layers)
+
+        # Mix stem carries energy curve and waveform visual data
+        full_activity = [ActivitySpan(
+            start=track_start, end=track_end,
+            bar_start=0,
+            bar_end=_beat_to_bar(bg[-1]["beat_number"]) if bg else 0,
+            energy=0.5, confidence=0.7,
+        )]
         mix_stem = StemAnalysis(
-            stem_type="other",  # "other" maps to the "mix" lane in ArrangementMap
+            stem_type="other",
             audio_path=None,
             layer_role="unknown",
-            activity=[ActivitySpan(
-                start=track_start,
-                end=track_end,
-                bar_start=0,
-                bar_end=_beat_to_bar(player.beat_grid[-1]["beat_number"]) if player.beat_grid else 0,
-                energy=0.5,
-                confidence=0.7,
-            )],
+            activity=full_activity if not activity_spans else [],
             events=[],
             patterns=[],
             energy_curve=_build_energy_curve(sections, track_end),
@@ -353,7 +390,7 @@ class LiveStrataAnalyzer:
             patterns=[],  # No pattern discovery without audio
             sections=sections,
             transitions=transitions,
-            total_layers=1,
+            total_layers=len(stems),
             total_patterns=0,
             arrangement_complexity=round(
                 min(1.0, len(sections) * 0.1 + len(transitions) * 0.05), 3
@@ -409,6 +446,188 @@ def _build_energy_curve(
             curve[i] = sec.energy_level
 
     return curve
+
+
+# --- Pioneer waveform energy extraction ---
+
+def _waveform_section_energy(
+    waveform: dict, section_start: float, section_end: float,
+) -> tuple[float, str]:
+    """Compute real energy level and trend from Pioneer waveform for a section.
+
+    Args:
+        waveform: dict with keys low, mid, high (lists of 0.0-1.0),
+                  sample_rate (samples/sec), duration (seconds).
+        section_start: Section start time in seconds.
+        section_end: Section end time in seconds.
+
+    Returns:
+        (energy_level, energy_trend) where energy_level is 0.0-1.0 and
+        trend is "rising" | "falling" | "stable" | "peak" | "valley".
+    """
+    sr = waveform.get("sample_rate", 150.0)
+    low = waveform.get("low", [])
+    mid = waveform.get("mid", [])
+    high = waveform.get("high", [])
+
+    if not low or sr <= 0:
+        return 0.5, "stable"
+
+    n = len(low)
+    i_start = max(0, int(section_start * sr))
+    i_end = min(n, int(section_end * sr))
+
+    if i_end <= i_start:
+        return 0.5, "stable"
+
+    # Compute mean energy across the 3 bands for this section
+    section_energy = 0.0
+    for i in range(i_start, i_end):
+        lo = low[i] if i < len(low) else 0.0
+        mi = mid[i] if i < len(mid) else 0.0
+        hi = high[i] if i < len(high) else 0.0
+        section_energy += lo + mi + hi
+    section_energy /= (i_end - i_start) * 3  # normalize to 0-1 range
+
+    # Compute trend: compare first quarter vs last quarter
+    quarter = max(1, (i_end - i_start) // 4)
+    first_q = 0.0
+    last_q = 0.0
+    for i in range(i_start, i_start + quarter):
+        lo = low[i] if i < len(low) else 0.0
+        mi = mid[i] if i < len(mid) else 0.0
+        hi = high[i] if i < len(high) else 0.0
+        first_q += lo + mi + hi
+    first_q /= quarter * 3
+
+    for i in range(i_end - quarter, i_end):
+        lo = low[i] if i < len(low) else 0.0
+        mi = mid[i] if i < len(mid) else 0.0
+        hi = high[i] if i < len(high) else 0.0
+        last_q += lo + mi + hi
+    last_q /= quarter * 3
+
+    delta = last_q - first_q
+    if delta > 0.08:
+        trend = "rising"
+    elif delta < -0.08:
+        trend = "falling"
+    elif section_energy > 0.65:
+        trend = "peak"
+    elif section_energy < 0.2:
+        trend = "valley"
+    else:
+        trend = "stable"
+
+    return round(section_energy, 3), trend
+
+
+def _waveform_activity_spans(
+    waveform: dict,
+    beat_grid: list[dict],
+    threshold_ratio: float = 0.15,
+    min_span_bars: int = 2,
+) -> dict[str, list[ActivitySpan]]:
+    """Derive pseudo-activity spans from Pioneer waveform bands.
+
+    Thresholds each band to find regions where that frequency range is
+    "active" (above threshold_ratio of max). Similar to energy.py's
+    pseudo-activity but using Pioneer waveform instead of STFT.
+
+    Returns dict mapping stem-like names to ActivitySpan lists:
+        "bass" from low band, "other" from mid+high bands.
+    """
+    sr = waveform.get("sample_rate", 150.0)
+    low = waveform.get("low", [])
+    mid = waveform.get("mid", [])
+    high = waveform.get("high", [])
+    duration = waveform.get("duration", 0.0)
+
+    if not low or sr <= 0 or duration <= 0:
+        return {}
+
+    # Compute per-bar averages using beat grid
+    # Build bar boundaries from beat grid
+    if not beat_grid:
+        return {}
+
+    bpm = beat_grid[0].get("bpm", 128.0)
+    bar_duration = 4 * 60.0 / bpm  # seconds per bar
+    n_bars = max(1, int(duration / bar_duration))
+
+    def _band_bar_energy(band: list[float]) -> list[float]:
+        """Average band energy per bar."""
+        result = []
+        for bar_idx in range(n_bars):
+            bar_start_s = bar_idx * bar_duration
+            bar_end_s = (bar_idx + 1) * bar_duration
+            i_start = max(0, int(bar_start_s * sr))
+            i_end = min(len(band), int(bar_end_s * sr))
+            if i_end <= i_start:
+                result.append(0.0)
+                continue
+            avg = sum(band[i_start:i_end]) / (i_end - i_start)
+            result.append(avg)
+        return result
+
+    low_bars = _band_bar_energy(low)
+    # Combine mid+high for "other" stem
+    combined_mh = [
+        (mid[i] if i < len(mid) else 0.0) + (high[i] if i < len(high) else 0.0)
+        for i in range(len(low))
+    ]
+    mh_bars = _band_bar_energy(combined_mh)
+
+    def _find_spans(
+        bar_energies: list[float], stem_type: str,
+    ) -> list[ActivitySpan]:
+        """Find contiguous bars above threshold and return ActivitySpan list."""
+        if not bar_energies:
+            return []
+        max_e = max(bar_energies) if bar_energies else 1.0
+        threshold = max_e * threshold_ratio
+        spans: list[ActivitySpan] = []
+        in_span = False
+        span_start = 0
+
+        for i, e in enumerate(bar_energies):
+            if e > threshold and not in_span:
+                in_span = True
+                span_start = i
+            elif e <= threshold and in_span:
+                if i - span_start >= min_span_bars:
+                    spans.append(ActivitySpan(
+                        start=span_start * bar_duration,
+                        end=i * bar_duration,
+                        bar_start=span_start,
+                        bar_end=i,
+                        energy=sum(bar_energies[span_start:i]) / (i - span_start),
+                        confidence=0.7,
+                    ))
+                in_span = False
+
+        # Close final span
+        if in_span and len(bar_energies) - span_start >= min_span_bars:
+            spans.append(ActivitySpan(
+                start=span_start * bar_duration,
+                end=len(bar_energies) * bar_duration,
+                bar_start=span_start,
+                bar_end=len(bar_energies),
+                energy=sum(bar_energies[span_start:]) / (len(bar_energies) - span_start),
+                confidence=0.7,
+            ))
+
+        return spans
+
+    result: dict[str, list[ActivitySpan]] = {}
+    bass_spans = _find_spans(low_bars, "bass")
+    if bass_spans:
+        result["bass"] = bass_spans
+    other_spans = _find_spans(mh_bars, "other")
+    if other_spans:
+        result["other"] = other_spans
+
+    return result
 
 
 def _generate_live_narrative(sections: list[SectionArrangement]) -> str:
