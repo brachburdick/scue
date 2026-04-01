@@ -1,0 +1,59 @@
+@startuml
+!theme plain
+skinparam backgroundColor #1a1a2e
+skinparam defaultFontColor #e0e0e0
+skinparam defaultFontName "JetBrains Mono"
+skinparam ArrowColor #7c8db5
+skinparam ActivityBorderColor #3a3a5c
+skinparam ActivityBackgroundColor #16213e
+
+title SCUE — Track Data Flow
+
+|#16213e|Library|
+start
+:User selects tracks;
+note right: Rekordbox DB, Hardware USB/SD, or local audio files
+
+if (Import mode?) then (Metadata only)
+  :Pull metadata\n(title, artist, BPM, key);
+else (Metadata + Base Analysis)
+  :Pull metadata;
+  :Run waveform generation\n(librosa FFT → frequency bins);
+  :Run beat/section detection\n(allin1-mlx);
+end if
+
+:Store track JSON\n(source of truth);
+:Update SQLite cache\n(derived);
+
+|#0f3460|Analysis|
+:User opens track\nin Analysis page;
+
+if (Tier selected?) then (Quick)
+  :M7 heuristics + energy\n(~3-7 seconds);
+else if (Standard) then
+  :Stem separation\n(~1-2 minutes);
+  :Per-stem pattern detection;
+else if (Deep) then
+  :Stem separation + ML models\n(~2-5 minutes);
+else if (Live) then
+  :Pioneer phrase data\n(real-time, no audio);
+else (Live Offline)
+  :Saved Pioneer data\n(no hardware needed);
+end if
+
+:Generate ArrangementFormula;
+note right
+  stems, patterns, transitions,
+  sections, energy narrative,
+  arrangement complexity score
+end note
+
+:Store strata JSON\nper tier/source;
+
+|#1a1a2e|Output|
+:Cue generation\n(arrangement → cue events);
+:Effect mapping\n(cues → abstract visuals);
+:Hardware output\n(DMX/OSC/MIDI);
+
+stop
+@enduml

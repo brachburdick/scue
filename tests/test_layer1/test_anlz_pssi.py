@@ -32,26 +32,34 @@ def _pssi_section(
 ) -> bytes:
     """Build a PSSI section from parameters.
 
-    Each entry is len_entry_bytes wide; only first 6 bytes are meaningful.
+    Matches the real rekordbox ANLZ PSSI layout:
+      Standard header (12 bytes): tag + header_len(32) + total_len
+      PSSI body header (20 bytes): len_entry_bytes + len_entries + mood + pad(6) + end_beat + capacity + pad(2)
+      Entries at offset 32 (= header_len)
     """
     entry_count = len(entries)
+    header_len = 32  # entries start here (standard 12B + 20B PSSI body header)
 
-    # Body: len_entry_bytes(4) + mood(2) + pad(6) + end_beat(2) + pad(2) + entry_count(2) = 18 bytes
-    body = struct.pack(">I", len_entry_bytes)
-    body += struct.pack(">H", mood)
-    body += b"\x00" * 6  # padding
-    body += struct.pack(">H", end_beat)
-    body += b"\x00" * 2  # padding
-    body += struct.pack(">H", entry_count)
+    # PSSI body header: 20 bytes (offsets 12–31 within section)
+    body_header = struct.pack(">I", len_entry_bytes)   # [12] len_entry_bytes
+    body_header += struct.pack(">H", entry_count)       # [16] len_entries (actual count)
+    body_header += struct.pack(">H", mood)              # [18] mood
+    body_header += b"\x00" * 6                          # [20] padding
+    body_header += struct.pack(">H", end_beat)          # [26] end_beat
+    body_header += struct.pack(">H", entry_count)       # [28] total_capacity
+    body_header += b"\x00" * 2                          # [30] padding
+    assert len(body_header) == 20
 
-    for phrase_number, beat, kind_id in entries:
+    entries_data = b""
+    for i, (phrase_number, beat, kind_id) in enumerate(entries):
+        # Real layout: index(+0) + beat(+2) + kind_id(+4) + zeros
         entry = struct.pack(">HHH", phrase_number, beat, kind_id)
-        entry += b"\x00" * (len_entry_bytes - 6)  # pad to len_entry_bytes
-        body += entry
+        entry += b"\x00" * max(0, len_entry_bytes - 6)
+        entries_data += entry
 
-    total_len = 12 + len(body)
-    header = struct.pack(">4sII", b"PSSI", 12, total_len)
-    return header + body
+    total_len = header_len + len(entries_data)
+    header = struct.pack(">4sII", b"PSSI", header_len, total_len)
+    return header + body_header + entries_data
 
 
 def _ppth_section(file_path: str) -> bytes:
@@ -168,22 +176,24 @@ class TestParsePssiUnknownKind:
 
 
 class TestParsePssiTruncated:
-    """test_parse_pssi_truncated — partial data raises AnlzParseError."""
+    """Truncated data returns partial results (graceful degradation)."""
 
-    def test_truncated_entries(self, tmp_path: Path) -> None:
+    def test_truncated_entries_returns_partial(self, tmp_path: Path) -> None:
         # Build a section that claims 3 entries but only has bytes for 1
         entries = [(1, 1, 1)]
         section = _pssi_section(mood=2, end_beat=33, entries=entries, len_entry_bytes=24)
 
-        # Patch entry_count to 3 while only having 1 entry's worth of data
+        # Patch len_entries to 3 while only having 1 entry's worth of data
         section_ba = bytearray(section)
-        struct.pack_into(">H", section_ba, 28, 3)  # offset 28 from section start = entry_count
+        struct.pack_into(">H", section_ba, 16, 3)  # offset 16 from section start = len_entries
         section = bytes(section_ba)
 
         p = _write_anlz(tmp_path, section)
 
-        with pytest.raises(AnlzParseError, match="truncated"):
-            parse_anlz_phrases(p)
+        # Should return the 1 entry it could parse, not raise
+        result = parse_anlz_phrases(p)
+        assert len(result) == 1
+        assert result[0]["start_beat"] == 1
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,10 @@ import type {
   LibraryScanParams,
   LibraryScanResult,
   LibraryScanStatus,
+  MasterDbDetectResponse,
+  MasterDbIngestParams,
+  MasterDbIngestResponse,
+  MasterDbScanResponse,
   UsbBrowseResponse,
   UsbMenuResponse,
   UsbFolderResponse,
@@ -51,6 +55,55 @@ export function useLibraryScan() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["local-library", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["tracks"] });
+    },
+  });
+}
+
+// ─── Rekordbox master.db ─────────────────────────────────────────────
+
+export function useMasterDbDetect(enabled: boolean) {
+  return useQuery<MasterDbDetectResponse>({
+    queryKey: ["master-db", "detect"],
+    queryFn: () => apiFetch<MasterDbDetectResponse>("/local-library/master-db/detect"),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useMasterDbScan() {
+  const queryClient = useQueryClient();
+  return useMutation<MasterDbScanResponse, Error>({
+    mutationFn: () =>
+      apiFetch<MasterDbScanResponse>("/local-library/master-db/scan", {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["master-db"] });
+      queryClient.invalidateQueries({ queryKey: ["tracks"] });
+    },
+  });
+}
+
+export function useMasterDbPlaylists(enabled: boolean) {
+  return useQuery<import("../types/ingestion").PlaylistTreeResponse>({
+    queryKey: ["master-db", "playlists"],
+    queryFn: () => apiFetch<import("../types/ingestion").PlaylistTreeResponse>("/local-library/master-db/playlists"),
+    enabled,
+    retry: false,
+    staleTime: 5 * 60 * 1000, // playlists rarely change during a session
+  });
+}
+
+export function useMasterDbIngest() {
+  const queryClient = useQueryClient();
+  return useMutation<MasterDbIngestResponse, Error, MasterDbIngestParams>({
+    mutationFn: (params) =>
+      apiFetch<MasterDbIngestResponse>("/local-library/master-db/ingest", {
+        method: "POST",
+        body: JSON.stringify(params),
+      }),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tracks"] });
     },
   });

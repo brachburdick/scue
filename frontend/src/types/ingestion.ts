@@ -133,6 +133,74 @@ export interface WSScanComplete {
 
 // ─── Track Library (unified view) ─────────────────────────────────────
 
+// ─── Rekordbox master.db Scanner ─────────────────────────────────────
+
+export interface MasterDbDetectResponse {
+  path: string;
+  size_mb: number;
+}
+
+export interface MasterDbTrack {
+  title: string;
+  artist: string;
+  bpm: number;
+  phrases: number;
+  beats: number;
+  fingerprint?: string;
+}
+
+export interface MasterDbScanResponse {
+  status: "complete";
+  total_tracks: number;
+  with_audio: number;
+  with_anlz: number;
+  matched_to_scue: number;
+  sidecars_created: number;
+  scan_time_seconds: number;
+  matched_tracks: MasterDbTrack[];
+  importable_tracks: Array<{
+    title: string;
+    artist: string;
+    bpm: number;
+    audio_path: string;
+    phrases: number;
+  }>;
+}
+
+export interface MasterDbIngestParams {
+  bpm_min?: number;
+  bpm_max?: number;
+  genre?: string;
+  search?: string;
+  skip_waveform?: boolean;
+}
+
+export interface MasterDbIngestResponse {
+  total_in_rekordbox: number;
+  already_in_scue: number;
+  queued_for_analysis: number;
+  sidecars_created: number;
+  sidecars_skipped: number;
+  job_id?: string;
+}
+
+// ─── Track Library (unified view) ─────────────────────────────────────
+
 export type IngestionSource = "library" | "hardware" | "audio";
 
-export type IngestionTab = "library" | "hardware" | "audio";
+export type IngestionTab = "rekordbox" | "hardware" | "audio";
+
+// ─── Rekordbox Playlists ─────────────────────────────────────────────
+
+export interface PlaylistNode {
+  id: number;
+  name: string;
+  is_folder: boolean;
+  track_count: number;
+  children: PlaylistNode[];
+  track_ids?: number[];
+}
+
+export interface PlaylistTreeResponse {
+  playlists: PlaylistNode[];
+}

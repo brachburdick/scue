@@ -208,6 +208,7 @@ def _local_to_usb(t: LocalTrack) -> UsbTrack:
         cue_points=t.cue_points,
         memory_points=t.memory_points,
         hot_cues=t.hot_cues,
+        phrases=t.phrases,
         waveform_pwv5=t.waveform_pwv5,
         waveform_pwv3=t.waveform_pwv3,
         waveform_pwv7=t.waveform_pwv7,

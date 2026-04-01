@@ -333,7 +333,7 @@ class StrataEngine:
         """
         import json
 
-        from .live_analyzer import PHRASE_KIND_MAP, _beat_to_bar, _beat_to_time_s
+        from .live_analyzer import PHRASE_KIND_MAP, _beat_to_bar
 
         start_time = time.time()
         logger.info("Strata hybrid tier: starting for %s", fingerprint[:16])
@@ -354,6 +354,32 @@ class StrataEngine:
                 f"Pioneer data for {fingerprint[:16]} missing phrases or beat grid."
             )
 
+        # --- Beat-to-time conversion ---
+        # ANLZ beatgrids have beat_number cycling 1,3,1,3 (positional, not
+        # absolute). Live bridge beatgrids have monotonically increasing
+        # beat_number. Detect format and choose conversion strategy.
+        # ANLZ beatgrids cycle beat_number (e.g., 1,3,1,3 — beat within bar).
+        # Live bridge beatgrids have strictly increasing beat_number.
+        # Detect ANLZ by checking if beat_numbers are NOT monotonically increasing.
+        bg_beats = [bg["beat_number"] for bg in beat_grid[:6]]
+        is_anlz_format = len(bg_beats) >= 4 and not all(
+            bg_beats[i] < bg_beats[i + 1] for i in range(min(3, len(bg_beats) - 1))
+        )
+
+        if is_anlz_format:
+            # ANLZ format: use BPM arithmetic from first entry
+            bpm = beat_grid[0].get("bpm", 120.0)
+            first_time_ms = beat_grid[0].get("time_ms", 0.0)
+            beat_duration_s = 60.0 / bpm if bpm > 0 else 0.5
+
+            def _beat_to_s(beat: int) -> float:
+                return first_time_ms / 1000.0 + (beat - 1) * beat_duration_s
+        else:
+            # Live bridge format: interpolate from absolute beat grid
+            from .live_analyzer import _beat_to_time_s
+            def _beat_to_s(beat: int) -> float:
+                return _beat_to_time_s(beat, beat_grid)
+
         # --- Stage A: Convert Pioneer phrases → Section objects ---
         logger.info("  Stage A: Building sections from Pioneer phrases")
         pioneer_sections: list[Section] = []
@@ -363,10 +389,15 @@ class StrataEngine:
             kind_raw = str(phrase.get("kind", "")).lower().strip()
             label = PHRASE_KIND_MAP.get(kind_raw, kind_raw or "unknown")
 
-            start_s = _beat_to_time_s(start_beat, beat_grid)
-            end_s = _beat_to_time_s(end_beat, beat_grid)
+            start_s = _beat_to_s(start_beat)
+            end_s = _beat_to_s(end_beat) if end_beat > 0 else saved.get("duration", 0.0)
+            # Clamp to track duration
+            track_dur = saved.get("duration", 0.0)
+            if track_dur > 0:
+                start_s = max(0.0, min(start_s, track_dur))
+                end_s = max(start_s, min(end_s, track_dur))
             bar_start = _beat_to_bar(start_beat)
-            bar_end = _beat_to_bar(end_beat)
+            bar_end = _beat_to_bar(end_beat) if end_beat > 0 else bar_start
 
             pioneer_sections.append(Section(
                 label=label,

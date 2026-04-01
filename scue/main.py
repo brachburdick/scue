@@ -108,10 +108,9 @@ async def startup() -> None:
     init_bridge_api(_bridge_manager)
     init_network_api(_bridge_manager)
     init_usb_api(store, cache, usb_config=config.usb)
-    init_local_library_api(store, cache)
-
     # Initialize WebSocket manager and wire to bridge state changes
     _ws_manager = WSManager()
+    init_local_library_api(store, cache, ws_manager=_ws_manager)
     init_ws(_ws_manager, _bridge_manager, watchdog_config=config.bridge.watchdog)
 
     # Initialize scanner API (bridge command channel for track scanning)

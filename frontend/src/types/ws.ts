@@ -45,10 +45,24 @@ export interface WSMediaChange {
   };
 }
 
+export interface WSRekordboxProgress {
+  type: "rekordbox_progress";
+  payload: {
+    phase: "scanning" | "ingesting" | "complete" | "error";
+    message: string;
+    detail?: {
+      current?: number;
+      total?: number;
+      [key: string]: unknown;
+    };
+  };
+}
+
 export type WSMessage =
   | WSBridgeStatus
   | WSPioneerStatus
   | WSStrataLive
   | WSScanProgress
   | WSScanComplete
-  | WSMediaChange;
+  | WSMediaChange
+  | WSRekordboxProgress;

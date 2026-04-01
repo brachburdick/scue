@@ -184,6 +184,24 @@ function mapPioneerStatus(payload: WSMessage & { type: "pioneer_status" }): Part
 
 // ---------- Public API ----------
 
+// ---------- Rekordbox progress mapping ----------
+
+function mapRekordboxProgress(payload: WSMessage & { type: "rekordbox_progress" }): PartialEntry[] {
+  const p = payload.payload;
+  const severity = p.phase === "error" ? "error" : "info";
+  const entries: PartialEntry[] = [];
+
+  let msg = p.message;
+  if (p.detail?.current !== undefined && p.detail?.total !== undefined) {
+    msg += ` (${p.detail.current}/${p.detail.total})`;
+  }
+
+  entries.push(clean("rekordbox", severity, msg, p));
+  return entries;
+}
+
+// ---------- Public API ----------
+
 /** Convert a WS message into zero or more console entries. */
 export function mapWSMessageToEntries(msg: WSMessage): PartialEntry[] {
   switch (msg.type) {
@@ -191,6 +209,8 @@ export function mapWSMessageToEntries(msg: WSMessage): PartialEntry[] {
       return mapBridgeStatus(msg);
     case "pioneer_status":
       return mapPioneerStatus(msg);
+    case "rekordbox_progress":
+      return mapRekordboxProgress(msg);
     default:
       return [];
   }

@@ -1,0 +1,54 @@
+@startuml
+!theme plain
+skinparam backgroundColor #1a1a2e
+skinparam defaultFontColor #e0e0e0
+skinparam defaultFontName "JetBrains Mono"
+skinparam ArrowColor #7c8db5
+skinparam RectangleBorderColor #3a3a5c
+skinparam RectangleBackgroundColor #16213e
+skinparam NoteBorderColor #3a3a5c
+skinparam NoteBackgroundColor #0f3460
+
+title SCUE — 5-Layer Architecture
+
+rectangle "**Layer 0: Beat-Link Bridge**\nJava subprocess → WebSocket → Python\nPro DJ Link protocol access" as L0 #1a1a2e;line:green
+rectangle "**Layer 1: Track Analysis**\nOffline analysis + live playback tracking\nlibrosa, allin1-mlx, Pioneer metadata" as L1 #1a1a2e;line:cyan
+rectangle "**Layer 2: Cue Generation**\nMusic events → semantic cue stream\nSection/beat/phrase detection" as L2 #1a1a2e;line:blue
+rectangle "**Layer 3: Effect Engine**\nCues → abstract visual output\nYAML effect definitions" as L3 #1a1a2e;line:purple
+rectangle "**Layer 4: Output & Hardware**\nAbstract → DMX/Art-Net, OSC, MIDI\nVenue config + fixture profiles" as L4 #1a1a2e;line:orange
+
+rectangle "**Frontend**\nReact 19 + TypeScript\nLibrary, Analysis, Live Monitor" as FE #1a1a2e;line:teal
+
+cloud "Pioneer Hardware\n(CDJs, XDJ-AZ, DJM)" as HW #0f3460
+rectangle "FastAPI Backend\nasyncio + WebSocket" as API #16213e;line:gray
+
+HW --> L0 : Pro DJ Link\n(UDP/TCP)
+L0 --> L1 : bridge messages\n(WebSocket JSON)
+L1 --> L2 : track data +\nplayback state
+L2 --> L3 : cue events
+L3 --> L4 : abstract effects
+
+API -up-> FE : REST + WebSocket
+L1 --> API
+L2 --> API
+L3 --> API
+L4 --> API
+
+note right of L0
+  Managed subprocess
+  Auto-restart on crash
+  JAR swap for updates
+end note
+
+note right of L1
+  JSON files = source of truth
+  SQLite = derived cache
+  Strata tiers: Quick/Standard/Deep/Live
+end note
+
+note right of L4
+  DMX/Art-Net (lighting)
+  OSC (visuals)
+  MIDI (controllers)
+end note
+@enduml

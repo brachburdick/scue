@@ -14,8 +14,8 @@ import { useStrataLiveStore } from "../stores/strataLiveStore";
 import { mapWSMessageToEntries, resetMapperState } from "../utils/consoleMapper";
 import { queryClient } from "./queryClient";
 
-const WS_PORT = import.meta.env.VITE_WS_PORT ?? "8000";
-const WS_URL = `ws://${window.location.hostname}:${WS_PORT}/ws`;
+// Use the same host:port as the page — Vite proxies /ws → backend:8000
+const WS_URL = `ws://${window.location.host}/ws`;
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -98,6 +98,14 @@ function dispatch(msg: WSMessage): void {
     case "media_change":
       // Invalidate all scanner/browse caches — media content changed
       queryClient.invalidateQueries({ queryKey: ["scanner"] });
+      break;
+    case "rekordbox_progress":
+      // Rekordbox scan/ingest progress — dispatched to console only
+      // (no store update needed; the HTTP response handles UI state)
+      if (msg.payload.phase === "complete") {
+        queryClient.invalidateQueries({ queryKey: ["master-db"] });
+        queryClient.invalidateQueries({ queryKey: ["tracks"] });
+      }
       break;
   }
   dispatchToConsole(msg);

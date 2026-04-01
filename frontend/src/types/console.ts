@@ -1,6 +1,6 @@
 /** Console panel types — log entries, sources, severities. */
 
-export type ConsoleSource = "bridge" | "pioneer" | "system";
+export type ConsoleSource = "bridge" | "pioneer" | "rekordbox" | "system";
 export type ConsoleSeverity = "info" | "warn" | "error";
 
 export interface ConsoleEntry {

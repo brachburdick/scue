@@ -262,46 +262,66 @@ def parse_anlz_phrases(path: Path) -> list[dict]:
             continue
 
         # PSSI body layout (offsets relative to section start):
+        #   4:  header_len (u32) — entries start at this offset
         #   12: len_entry_bytes (u32)
-        #   16: mood (u16)
-        #   18: padding (6 bytes)
-        #   24: end_beat (u16)
-        #   26: padding (2 bytes)
-        #   28: entry_count (u16)
-        #   30: entries start
-        if len(section_data) < 30:
+        #   16: len_entries (u16) — actual phrase count
+        #   18: mood (u16) — 1=high, 2=mid, 3=low
+        #   20: padding (6 bytes)
+        #   26: end_beat (u16) — last beat of the track
+        #   28: total_capacity (u16) — allocated slots (may exceed len_entries)
+        #   30: padding (2 bytes)
+        #   header_len: entries start
+        if len(section_data) < 32:
             raise AnlzParseError(
                 f"PSSI section too small: {len(section_data)} bytes"
             )
 
         try:
+            header_len = struct.unpack_from(">I", section_data, 4)[0]
             len_entry_bytes = struct.unpack_from(">I", section_data, 12)[0]
-            mood = struct.unpack_from(">H", section_data, 16)[0]
-            body_end_beat = struct.unpack_from(">H", section_data, 24)[0]
-            entry_count = struct.unpack_from(">H", section_data, 28)[0]
+            len_entries = struct.unpack_from(">H", section_data, 16)[0]
+            mood = struct.unpack_from(">H", section_data, 18)[0]
+            body_end_beat = struct.unpack_from(">H", section_data, 26)[0]
         except struct.error as e:
             raise AnlzParseError(f"PSSI header unpack failed: {e}") from e
 
         if len_entry_bytes == 0:
             raise AnlzParseError("PSSI len_entry_bytes is 0")
 
-        entries_offset = 30
+        # Use len_entries (actual count) for iteration; entries start at header_len
+        entry_count = len_entries
+        entries_offset = header_len
         raw_entries: list[tuple[int, int, int]] = []  # (beat, kind_id, phrase_number)
 
         for i in range(entry_count):
             entry_start = entries_offset + i * len_entry_bytes
             if entry_start + 6 > len(section_data):
-                raise AnlzParseError(
-                    f"PSSI truncated at entry {i}/{entry_count}"
+                # Rekordbox local ANLZ files often declare total capacity in
+                # entry_count but only fill a subset. Stop at the data boundary
+                # and return what we have rather than raising.
+                logger.debug(
+                    "PSSI: data ends at entry %d/%d in %s (expected %d bytes, have %d)",
+                    i, entry_count, path.name,
+                    entries_offset + entry_count * len_entry_bytes,
+                    len(section_data),
                 )
+                break
             try:
-                phrase_number = struct.unpack_from(">H", section_data, entry_start)[0]
+                # PSSI entry layout (verified against pyrekordbox):
+                #   offset 0: u16 — phrase index (1-based sequential)
+                #   offset 2: u16 — start beat (absolute)
+                #   offset 4: u16 — kind ID (maps via mood table)
+                #   offset 6: u16 — u1 (unknown, usually 0)
+                # Both 24-byte and 6-byte layouts use the same first 6 bytes.
+                phrase_number = struct.unpack_from(">H", section_data, entry_start + 0)[0]
                 beat = struct.unpack_from(">H", section_data, entry_start + 2)[0]
                 kind_id = struct.unpack_from(">H", section_data, entry_start + 4)[0]
             except struct.error as e:
-                raise AnlzParseError(
-                    f"PSSI entry {i} unpack failed: {e}"
-                ) from e
+                logger.debug("PSSI entry %d unpack failed: %s", i, e)
+                break
+            # Skip zero-beat entries (unfilled capacity slots)
+            if beat == 0 and i > 0:
+                break
             raw_entries.append((beat, kind_id, phrase_number))
 
         # Build output with end-beat derivation

@@ -6,18 +6,16 @@ type NavItem =
   | { label: string; header: true; collapsible?: boolean };
 
 const navItems: NavItem[] = [
-  { to: "/strata", label: "Strata" },
+  { to: "/library", label: "Library" },
+  { to: "/analysis", label: "Analysis" },
   { to: "/live", label: "Live Monitor" },
   { label: "Data", header: true },
-  { to: "/ingestion", label: "Ingestion" },
-  { to: "/data/db", label: "Tracks" },
   { to: "/data/bridge", label: "Bridge" },
   { to: "/data/enrichment", label: "Enrichment" },
   { label: "System", header: true },
   { to: "/logs", label: "Logs" },
   { to: "/network", label: "Network" },
   { label: "Archive", header: true, collapsible: true },
-  { to: "/analysis", label: "Analysis" },
   { to: "/dev/detectors", label: "Detectors" },
   { to: "/dev/annotate", label: "Annotate" },
   { to: "/dev/waveforms", label: "Waveforms" },

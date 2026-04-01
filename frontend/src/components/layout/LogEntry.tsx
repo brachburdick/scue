@@ -13,12 +13,14 @@ function formatTimestamp(ts: number): string {
 const SOURCE_LABELS: Record<ConsoleEntry["source"], string> = {
   bridge: "BRG",
   pioneer: "PIO",
+  rekordbox: "RBX",
   system: "SYS",
 };
 
 const SOURCE_STYLES: Record<ConsoleEntry["source"], string> = {
   bridge: "bg-blue-900 text-blue-300",
   pioneer: "bg-cyan-900 text-cyan-300",
+  rekordbox: "bg-purple-900 text-purple-300",
   system: "bg-gray-700 text-gray-300",
 };
 

@@ -9,7 +9,6 @@ import type { DeviceInfo } from "../../types/bridge";
 export function HardwareTab() {
   const status = useBridgeStore((s) => s.status);
   const devices = useBridgeStore((s) => s.devices);
-  const players = useBridgeStore((s) => s.players);
   const isStartingUp = useBridgeStore((s) => s.isStartingUp);
   const scanProgress = useIngestionStore((s) => s.hardwareScanProgress);
   const scanInProgress = useIngestionStore((s) => s.hardwareScanInProgress);
@@ -165,14 +164,14 @@ export function HardwareTab() {
             >
               {cdjDevices.map((d) => (
                 <option key={d.device_number} value={d.device_number}>
-                  Player {d.device_number} ({d.device_name})
+                  {d.device_name} (Player {d.device_number})
                 </option>
               ))}
             </select>
           )}
           {isAllInOne && (
             <span className="text-xs text-gray-500" title="All-in-one unit detected — both decks share one library connection">
-              {cdjDevices[0]?.device_name ?? "All-in-one"} (Player 1)
+              {cdjDevices[0]?.device_name ?? "All-in-one"} — {selectedSlot.toUpperCase()}
             </span>
           )}
           <select
