@@ -360,6 +360,26 @@ async def get_strata_batch_status(batch_id: str) -> dict:
     return strata_batch_to_dict(batch)
 
 
+@router.post("/api/strata/batch/{batch_id}/cancel")
+async def cancel_strata_batch(batch_id: str) -> dict:
+    """Cancel all pending/running jobs in a strata batch."""
+    batch = get_strata_batch(batch_id)
+    if batch is None:
+        raise HTTPException(404, f"No strata batch: {batch_id}")
+    if batch.status in ("complete", "failed"):
+        return {"ok": True, "status": batch.status, "message": "Batch already finished"}
+    cancelled_count = 0
+    for job in batch.jobs:
+        if job.status in ("pending", "running"):
+            job.cancelled = True
+            job.status = "failed"
+            job.error = "Cancelled by user"
+            cancelled_count += 1
+    batch.status = "failed"
+    logger.info("Cancelled %d jobs in batch %s", cancelled_count, batch_id)
+    return {"ok": True, "status": "cancelled", "cancelled_count": cancelled_count}
+
+
 def _run_strata_batch(batch: StrataBatchJob) -> None:
     """Run batch strata analysis with tier-aware parallelism.
 

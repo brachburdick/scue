@@ -114,7 +114,7 @@ def _get_cache() -> TrackCache:
 
 @router.get("")
 async def list_tracks(
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=5000),
     offset: int = Query(0, ge=0),
     sort_by: str = Query("created_at"),
     sort_desc: bool = Query(True),
@@ -374,7 +374,7 @@ async def set_last_scan_path(req: SetScanPathRequest) -> dict:
 @router.get("/folders")
 async def list_folder_contents(
     parent: str = Query(default=""),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=5000),
     offset: int = Query(0, ge=0),
     sort_by: str = Query("created_at"),
     sort_desc: bool = Query(True),
@@ -785,9 +785,12 @@ def _update_recent_paths(cache: TrackCache, path: str) -> None:
 
 
 async def resume_incomplete_jobs() -> None:
-    """Resume any incomplete analysis jobs from a previous session.
+    """Mark stale incomplete analysis jobs from a previous session.
 
     Called during app startup after init_tracks_api().
+    Auto-resuming large batch jobs on every restart/reload caused OOM crashes
+    and worker death. Instead, log what's pending and let the user re-trigger
+    analysis explicitly.
     """
     cache = _get_cache()
     incomplete = cache.get_incomplete_jobs()
@@ -796,48 +799,17 @@ async def resume_incomplete_jobs() -> None:
         job_id = job_data["job_id"]
         pending_files = cache.get_job_pending_files(job_id)
         if not pending_files:
-            # All files were processed; mark complete
             cache.update_job_progress(job_id, status="complete")
             continue
 
+        total = job_data.get("total", len(pending_files))
+        completed = job_data.get("completed", 0)
         logger.info(
-            "Resuming job %s: %d files remaining",
-            job_id, len(pending_files),
+            "Stale incomplete job %s: %d/%d files pending (not auto-resuming)",
+            job_id, len(pending_files), total,
         )
-
-        # Reconstruct in-memory job
-        from .jobs import AnalysisJob, FileResult
-        paths = [f["path"] for f in pending_files]
-        results = [
-            FileResult(path=f["path"], filename=f["filename"])
-            for f in pending_files
-        ]
-
-        all_files = cache.get_job(job_id)
-        total = all_files["total"] if all_files else len(pending_files)
-
-        job = AnalysisJob(
-            job_id=job_id,
-            total=total,
-            completed=job_data.get("completed", 0),
-            failed=job_data.get("failed", 0),
-            results=results,
-        )
-
-        # Register in the in-memory store
-        from .jobs import _jobs
-        _jobs[job_id] = job
-
-        # Spawn background task
-        import asyncio
-        asyncio.create_task(
-            _run_batch_analysis(
-                job=job,
-                skip_waveform=bool(job_data.get("skip_waveform", 0)),
-                scan_root=job_data.get("scan_root", ""),
-                destination_folder=job_data.get("destination_folder", ""),
-            )
-        )
+        # Mark as stale so it doesn't keep appearing on future restarts
+        cache.update_job_progress(job_id, status="stale")
 
 
 class RecomputeWaveformRequest(BaseModel):

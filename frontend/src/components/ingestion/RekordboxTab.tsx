@@ -119,6 +119,26 @@ function IngestPhase1Progress({ onCancel }: { onCancel: () => void }) {
 
   return (
     <div className="space-y-2">
+      {/* Primary phase indicator */}
+      {isActive && progress.totalSteps && (
+        <div>
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-gray-300 font-medium">
+              Step {progress.step ?? 1}/{progress.totalSteps}: {progress.stepName ?? "Starting"}
+            </span>
+            <span className="text-gray-500">
+              {Math.round(((progress.step ?? 1) / progress.totalSteps) * 100)}%
+            </span>
+          </div>
+          <div className="w-full bg-gray-800 rounded-full h-2">
+            <div
+              className="h-2 rounded-full bg-blue-500 transition-all"
+              style={{ width: `${((progress.step ?? 1) / progress.totalSteps) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+      {/* Detail progress + cancel */}
       <div className="flex items-center justify-between">
         <div className="text-xs text-gray-400">
           {isCancelled ? (
@@ -143,10 +163,10 @@ function IngestPhase1Progress({ onCancel }: { onCancel: () => void }) {
           </button>
         )}
       </div>
-      {isActive && (
-        <div className="w-full bg-gray-800 rounded-full h-2">
+      {isActive && progress.total && (
+        <div className="w-full bg-gray-800 rounded-full h-1">
           <div
-            className="h-2 rounded-full bg-blue-500 transition-all"
+            className="h-1 rounded-full bg-cyan-500 transition-all"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -342,25 +362,47 @@ export function RekordboxTab({ importMode: importModeProp }: RekordboxTabProps =
           )}
         </div>
         {phase === "scan" && (
-          <div className="mt-3">
-            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-              <span>{rekordboxIngest?.message ?? "Scanning rekordbox collection..."}</span>
-              {rekordboxIngest?.total ? (
-                <span className="text-gray-400">
-                  {rekordboxIngest.current ?? 0}/{rekordboxIngest.total}
-                  {" "}({Math.round(((rekordboxIngest.current ?? 0) / rekordboxIngest.total) * 100)}%)
-                </span>
-              ) : null}
-            </div>
-            <div className="w-full bg-gray-800 rounded-full h-1.5">
-              {rekordboxIngest?.total ? (
-                <div
-                  className="h-1.5 rounded-full bg-blue-500 transition-all"
-                  style={{ width: `${((rekordboxIngest.current ?? 0) / rekordboxIngest.total) * 100}%` }}
-                />
-              ) : (
-                <div className="h-1.5 rounded-full bg-blue-500 animate-pulse w-2/3" />
-              )}
+          <div className="mt-3 space-y-2">
+            {/* Primary phase indicator */}
+            {rekordboxIngest?.totalSteps && (
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-gray-300 font-medium">
+                    Step {rekordboxIngest.step ?? 1}/{rekordboxIngest.totalSteps}: {rekordboxIngest.stepName ?? "Starting"}
+                  </span>
+                  <span className="text-gray-500">
+                    {Math.round(((rekordboxIngest.step ?? 1) / rekordboxIngest.totalSteps) * 100)}%
+                  </span>
+                </div>
+                <div className="w-full bg-gray-800 rounded-full h-2">
+                  <div
+                    className="h-2 rounded-full bg-blue-500 transition-all"
+                    style={{ width: `${((rekordboxIngest.step ?? 1) / rekordboxIngest.totalSteps) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {/* Detail progress within current phase */}
+            <div>
+              <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                <span>{rekordboxIngest?.message ?? "Scanning rekordbox collection..."}</span>
+                {rekordboxIngest?.total ? (
+                  <span className="text-gray-400">
+                    {rekordboxIngest.current ?? 0}/{rekordboxIngest.total}
+                    {" "}({Math.round(((rekordboxIngest.current ?? 0) / rekordboxIngest.total) * 100)}%)
+                  </span>
+                ) : null}
+              </div>
+              <div className="w-full bg-gray-800 rounded-full h-1">
+                {rekordboxIngest?.total ? (
+                  <div
+                    className="h-1 rounded-full bg-cyan-500 transition-all"
+                    style={{ width: `${((rekordboxIngest.current ?? 0) / rekordboxIngest.total) * 100}%` }}
+                  />
+                ) : (
+                  <div className="h-1 rounded-full bg-cyan-500 animate-pulse w-2/3" />
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -381,13 +423,15 @@ export function RekordboxTab({ importMode: importModeProp }: RekordboxTabProps =
 
       {scanResult && phase !== "detect" && (
         <div className="space-y-4">
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-            <Stat label="Tracks with audio" value={scanResult.with_audio} />
-            <Stat label="With phrase analysis" value={scanResult.with_anlz} />
-            <Stat label="Already in SCUE" value={scanResult.matched_to_scue} />
-            <Stat label="Sidecars created" value={scanResult.sidecars_created} />
-          </div>
+          {/* Stats — show scan stats only until ingest completes, then show ingest stats */}
+          {!ingestResult && (
+            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+              <Stat label="Tracks with audio" value={scanResult.with_audio} />
+              <Stat label="With phrase analysis" value={scanResult.with_anlz} />
+              <Stat label="Already in SCUE" value={scanResult.matched_to_scue} />
+              <Stat label="Sidecars created" value={scanResult.sidecars_created} />
+            </div>
+          )}
 
           {/* Action bar */}
           {(phase === "review" || phase === "ingesting") && (
@@ -416,14 +460,13 @@ export function RekordboxTab({ importMode: importModeProp }: RekordboxTabProps =
             </div>
           )}
 
-          {/* Ingest stats */}
+          {/* Ingest summary — replaces scan stats after import */}
           {ingestResult && (
-            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
-              <Stat label="In rekordbox" value={ingestResult.total_in_rekordbox} />
+            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
               <Stat label="Already in SCUE" value={ingestResult.already_in_scue} />
-              <Stat label="Queued" value={ingestResult.queued_for_analysis} />
+              <Stat label="New tracks imported" value={ingestResult.queued_for_analysis} />
               <Stat label="Sidecars created" value={ingestResult.sidecars_created} />
-              <Stat label="No ANLZ" value={ingestResult.sidecars_skipped} muted />
+              <Stat label="Missing phrase data" value={ingestResult.sidecars_skipped} muted />
             </div>
           )}
 

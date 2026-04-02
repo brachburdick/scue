@@ -16,6 +16,14 @@ File(s): path/to/file.tsx
 
 ---
 
+### Ingest stuck at "Importing..." after sidecar creation completes (fast-path race)
+Date: 2026-04-02
+Milestone: N/A
+**Symptom:** After clicking "Import N Tracks" in metadata-only mode, progress bars hit 100% ("Creating sidecars 4500/4510 100%") but the UI never transitions to "done" — the "Importing..." button and "Stop" button persist indefinitely. Ingest result stats (5-card row) appear correctly, but the action bar stays visible.
+**Root Cause:** The fast-path ingest (`_run_ingest_background` when `_last_scan_result` is set) used `asyncio.run_coroutine_threadsafe()` to send progress events from a synchronous `for` loop inside an async function. Since the loop never yielded (`await`), progress coroutines were queued but couldn't be processed until the loop finished. After the loop, `await _broadcast_progress("ingest_complete", ...)` was sent and processed. But the previously queued "ingesting" progress events were then processed AFTER "ingest_complete", overwriting `rekordboxIngest.phase` back to "ingesting". This caused `isIngesting` to remain true in the frontend, keeping the action bar visible.
+**Fix:** Changed `asyncio.run_coroutine_threadsafe()` to `await _broadcast_progress()` + `await asyncio.sleep(0)` in the fast-path sidecar loop. Since this code already runs in an async function (not a thread), direct `await` is correct and ensures events are sent and flushed in order before `ingest_complete`.
+**Files:** `scue/api/local_library.py`
+
 ### Vite proxy drops long-running API requests (~120s+)
 Date: 2026-04-02
 Milestone: N/A
@@ -31,6 +39,14 @@ Milestone: N/A
 **Root Cause:** GIL contention. ThreadPoolExecutor holds GIL during SHA256, blocking asyncio event loop.
 **Fix:** Two issues in `batch.py`: (1) GIL yield was nested inside progress `if` block, so it only fired when both `progress_every` and `gil_yield_every` aligned — moved to its own block. (2) Changed `time.sleep(0)` to `time.sleep(0.001)` to give the OS scheduler a real context-switch window. `masterdb_scanner.py` already passes `gil_yield_every=20`.
 **Files:** `scue/batch.py`, `scue/layer1/masterdb_scanner.py`
+
+### No phased progress indicator during master.db scan/import
+Date: 2026-04-02
+Milestone: N/A
+**Symptom:** During "Scan Collection", the progress bar shows raw step names like "Parsing ANLZ data" and "Computing fingerprints" with no indication of which overall phase the scan is in or how many phases remain. Users couldn't tell if these were the expected scan steps or accidental full audio analysis.
+**Root Cause:** Backend only sent `message`, `current`, and `total` in `rekordbox_progress` WS events. No overall step/phase tracking.
+**Fix:** Backend now sends `step`, `total_steps`, and `step_name` fields with every progress event (e.g. `step=2, total_steps=4, step_name="Parsing ANLZ data"`). Frontend shows a primary phase bar ("Step 2/4: Parsing ANLZ data") above the detail progress bar, in both the scan panel and the `IngestPhase1Progress` component.
+**Files:** `scue/api/local_library.py`, `frontend/src/stores/ingestionStore.ts`, `frontend/src/components/ingestion/RekordboxTab.tsx`
 
 ### [NOT REPRODUCED] Strata GET endpoint returns empty for existing analysis files
 Date: 2026-04-02

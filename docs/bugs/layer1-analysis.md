@@ -137,3 +137,19 @@ Milestone: N/A
 **Root Cause:** `_VALID_TIERS` in `scue/api/tracks.py` was `{"quick", "standard", "deep", "live", "live_offline"}` — missing `"hybrid"`. The `_scan_strata()` function uses this set to filter filenames, so `{fp}.hybrid.pioneer_live.json` files were silently skipped.
 **Fix:** Added `"hybrid"` to `_VALID_TIERS`.
 **Files:** `scue/api/tracks.py`
+
+### resume_incomplete_jobs kills server on every restart
+Date: 2026-04-02
+Milestone: N/A
+**Symptom:** Backend worker process dies within minutes of every startup. uvicorn reload watcher parent holds port 8000 but no worker serves requests — frontend shows "Connecting…" indefinitely. Health endpoint times out. Happened repeatedly: the original session crash, every hot-reload from code edits, and every manual restart.
+**Root Cause:** `resume_incomplete_jobs()` in `tracks.py` ran on every startup (including `--reload` restarts) and blindly spawned `asyncio.create_task(_run_batch_analysis(...))` for ALL incomplete jobs (2253 + 2383 tracks). Each task ran full librosa audio analysis in `asyncio.to_thread`, consuming ~35MB per track. With 4000+ tracks queued instantly, the worker OOM'd and was killed by the OS. The reload watcher parent survived (holding the socket), creating a zombie server.
+**Fix:** `resume_incomplete_jobs()` no longer auto-resumes batch jobs. Instead it marks stale jobs with `status="stale"` (which `get_incomplete_jobs` won't re-select, since it only queries `pending`/`running`). Logged as informational. Users re-trigger analysis explicitly when ready.
+**Files:** `scue/api/tracks.py`
+
+### Ingest re-scans entire master.db instead of reusing scan results
+Date: 2026-04-02
+Milestone: N/A
+**Symptom:** Clicking "Import" after "Scan Collection" shows "Parsing ANLZ data" and "Computing fingerprints" progress bars again for all ~4500 tracks (~2 minutes), even though the scan just computed this exact data. The import processes all tracks, not just the ~1697 remaining.
+**Root Cause:** `_run_ingest_background()` called `ingest_from_master_db()` which re-reads master.db from scratch, re-opens pyrekordbox, re-parses all ANLZ files, and re-fingerprints every audio file — completely ignoring the `MasterDbScanResult` already in memory from the scan.
+**Fix:** The scan now stores the full `MasterDbScanResult` object in `_last_scan_result`. The ingest background task checks for this: if present, it reuses the already-computed fingerprints and ANLZ data to classify tracks and create sidecars directly (seconds instead of minutes). Falls back to full `ingest_from_master_db()` only when no prior scan exists.
+**Files:** `scue/api/local_library.py`

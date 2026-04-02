@@ -14,6 +14,10 @@ export interface RekordboxIngestProgress {
   message: string;
   current?: number;
   total?: number;
+  /** Overall phase step (e.g. 2 of 4: "Parsing ANLZ data") */
+  step?: number;
+  totalSteps?: number;
+  stepName?: string;
 }
 
 /** Scan result delivered via WS scan_complete event. */
@@ -85,6 +89,9 @@ export const useIngestionStore = create<IngestionState>((set) => ({
         message: payload.message,
         current: payload.detail?.current as number | undefined,
         total: payload.detail?.total as number | undefined,
+        step: payload.detail?.step as number | undefined,
+        totalSteps: payload.detail?.total_steps as number | undefined,
+        stepName: payload.detail?.step_name as string | undefined,
       },
     };
     // When scan_complete arrives, store the full scan result

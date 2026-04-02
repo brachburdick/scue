@@ -14,6 +14,7 @@ rely on filename matching — it uses the actual file paths from the database.
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import logging
 import time
@@ -57,6 +58,8 @@ class MasterDbTrack:
     memory_points: list[dict] = field(default_factory=list)
     # SCUE matching
     fingerprint: str | None = None
+    # Change tracking (from rekordbox DB)
+    updated_at: datetime.datetime | None = None
 
 
 @dataclass
@@ -68,6 +71,9 @@ class MasterDbScanResult:
     matched_to_scue: int
     tracks: list[MasterDbTrack]
     scan_time_seconds: float
+    # Change detection: master.db file stats at scan time
+    db_mtime: float = 0.0
+    db_size: int = 0
 
 
 def detect_master_db() -> Path | None:
@@ -189,8 +195,14 @@ def scan_master_db(
     match_scue: bool = True,
     store: TrackStore | None = None,
     progress_cb: callable | None = None,
+    previous_result: MasterDbScanResult | None = None,
 ) -> MasterDbScanResult:
     """Scan rekordbox master.db and optionally match to SCUE tracks.
+
+    Supports incremental scanning: when *previous_result* is provided,
+    tracks whose ``updated_at`` hasn't changed are carried forward without
+    re-parsing ANLZ or re-computing fingerprints.  Only new or modified
+    tracks go through the expensive steps.
 
     Args:
         db_path: Path to master.db. Auto-detected if None.
@@ -198,6 +210,7 @@ def scan_master_db(
                     and check if they exist in the SCUE track store.
         store: TrackStore for matching. Required if match_scue=True.
         progress_cb: Optional callback(current, total, message).
+        previous_result: Result of a prior scan.  Enables incremental mode.
 
     Returns:
         MasterDbScanResult with all tracks and match statistics.
@@ -211,6 +224,11 @@ def scan_master_db(
     if db_path is None:
         raise FileNotFoundError("rekordbox master.db not found at known paths")
 
+    # Capture DB file stats for level-1 change detection on next scan
+    db_stat = db_path.stat()
+    db_mtime = db_stat.st_mtime
+    db_size = db_stat.st_size
+
     logger.info("Opening master.db at %s", db_path)
     db = Rekordbox6Database(db_path)
 
@@ -218,9 +236,16 @@ def scan_master_db(
     total = len(contents)
     logger.info("master.db contains %d tracks", total)
 
+    # Build lookup from previous scan for incremental mode
+    prev_lookup: dict[int, MasterDbTrack] = {}
+    if previous_result is not None:
+        prev_lookup = {t.rekordbox_id: t for t in previous_result.tracks}
+
     tracks: list[MasterDbTrack] = []
+    changed_tracks: list[MasterDbTrack] = []  # Need ANLZ parse + fingerprint
     with_audio = 0
     with_anlz = 0
+    carried_forward = 0
 
     for i, c in enumerate(contents):
         if progress_cb and i % 100 == 0:
@@ -231,7 +256,25 @@ def scan_master_db(
         if "/Sampler/" in folder_path or not c.BPM:
             continue
 
-        # Resolve paths
+        rb_id = c.ID
+        row_updated_at = getattr(c, "updated_at", None)
+
+        # Check if we can carry forward from previous scan
+        prev_track = prev_lookup.get(rb_id)
+        if prev_track is not None and prev_track.updated_at == row_updated_at:
+            # Track unchanged — carry forward but re-check path existence
+            # (audio could have been moved/deleted since last scan)
+            prev_track.audio_exists = Path(prev_track.audio_path).exists() if prev_track.audio_path else False
+            prev_track.anlz_exists = Path(prev_track.anlz_path).exists() if prev_track.anlz_path else False
+            if prev_track.audio_exists:
+                with_audio += 1
+            if prev_track.anlz_exists:
+                with_anlz += 1
+            tracks.append(prev_track)
+            carried_forward += 1
+            continue
+
+        # New or modified track — build fresh
         audio_path = folder_path
         audio_exists = Path(audio_path).exists() if audio_path else False
 
@@ -251,7 +294,7 @@ def scan_master_db(
             genre_str = c.Genre.Name or ""
 
         track = MasterDbTrack(
-            rekordbox_id=c.ID,
+            rekordbox_id=rb_id,
             title=c.Title or "",
             artist=artist,
             bpm=c.BPM / 100.0 if c.BPM else 0.0,
@@ -263,6 +306,7 @@ def scan_master_db(
             anlz_path=anlz_full,
             audio_exists=audio_exists,
             anlz_exists=anlz_exists,
+            updated_at=row_updated_at,
         )
 
         if audio_exists:
@@ -271,45 +315,63 @@ def scan_master_db(
             with_anlz += 1
 
         tracks.append(track)
+        changed_tracks.append(track)
+
+    if carried_forward:
+        logger.info(
+            "Incremental scan: %d carried forward, %d new/modified",
+            carried_forward, len(changed_tracks),
+        )
 
     logger.info(
         "Filtered to %d real tracks (%d with audio, %d with ANLZ)",
         len(tracks), with_audio, with_anlz,
     )
 
-    # Parse ANLZ data only for tracks with audio on disk (these are the ones
-    # we can create sidecars for). Parsing all 6000+ ANLZ files via pyrekordbox
-    # is extremely slow; limiting to ~500 with audio keeps scan under 30s.
-    anlz_tracks = [t for t in tracks if t.anlz_exists and t.audio_exists]
-    run_batch(
-        anlz_tracks,
-        lambda track, _i: _parse_anlz_for_track(track),
-        progress=progress_cb,
-        progress_every=50,
-        progress_message="Parsing ANLZ data",
-    )
+    # Parse ANLZ data — only for new/changed tracks that have ANLZ + audio
+    anlz_targets = [t for t in changed_tracks if t.anlz_exists and t.audio_exists]
+    if anlz_targets:
+        run_batch(
+            anlz_targets,
+            lambda track, _i: _parse_anlz_for_track(track),
+            progress=progress_cb,
+            progress_every=50,
+            progress_message="Parsing ANLZ data",
+        )
+    elif progress_cb:
+        progress_cb(0, 0, "Parsing ANLZ data")  # Signal step completed
 
-    # Match to SCUE tracks by fingerprint
+    # Compute fingerprints — only for new/changed tracks with audio
     matched = 0
     if match_scue and store is not None:
-        audio_tracks = [t for t in tracks if t.audio_exists]
+        fp_targets = [t for t in changed_tracks if t.audio_exists]
+        if fp_targets:
+            def _fingerprint_and_match(track: MasterDbTrack, _i: int) -> str | None:
+                nonlocal matched
+                fp = _compute_fingerprint(Path(track.audio_path))
+                if fp:
+                    track.fingerprint = fp
+                    if store.exists(fp):
+                        matched += 1
+                return None
 
-        def _match_fingerprint(track: MasterDbTrack, _i: int) -> str | None:
-            nonlocal matched
-            fp = _compute_fingerprint(Path(track.audio_path))
-            if fp and store.exists(fp):
-                track.fingerprint = fp
-                matched += 1
-            return None
+            run_batch(
+                fp_targets,
+                _fingerprint_and_match,
+                progress=progress_cb,
+                progress_every=20,
+                progress_message="Computing fingerprints",
+                gil_yield_every=20,
+            )
+        elif progress_cb:
+            progress_cb(0, 0, "Computing fingerprints")  # Signal step completed
 
-        run_batch(
-            audio_tracks,
-            _match_fingerprint,
-            progress=progress_cb,
-            progress_every=20,
-            progress_message="Computing fingerprints",
-            gil_yield_every=20,
-        )
+        # Re-check store matches for carried-forward tracks (new analysis
+        # may have been added since the last scan)
+        for t in tracks:
+            if t.fingerprint and t not in changed_tracks:
+                if store.exists(t.fingerprint):
+                    matched += 1
 
     elapsed = round(time.time() - start_time, 2)
     logger.info(
@@ -324,6 +386,8 @@ def scan_master_db(
         matched_to_scue=matched,
         tracks=tracks,
         scan_time_seconds=elapsed,
+        db_mtime=db_mtime,
+        db_size=db_size,
     )
 
 

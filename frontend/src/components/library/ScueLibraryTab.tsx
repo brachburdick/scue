@@ -11,10 +11,13 @@ import {
   type ColumnDef,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTracks } from "../../api/tracks";
-import { useAnalyzeStrataBatch } from "../../api/strata";
+import { useAnalyzeStrataBatch, useCancelStrataBatch } from "../../api/strata";
+import { startBatchAnalysis, useJobStatus, useCancelJob } from "../../api/analyze";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { TrackPreviewRow } from "./TrackPreviewRow";
+import { StrataBatchProgress } from "../strata/TierAnalysisStatus";
 import { formatDuration, formatBpm, formatDate } from "../../utils/formatters";
 import type { TrackSummary } from "../../types";
 
@@ -47,7 +50,7 @@ type SourceFilter = "all" | "rekordbox" | "hardware" | "audio";
 
 export function ScueLibraryTab() {
   const navigate = useNavigate();
-  const { data: trackData, isLoading, error } = useTracks({ limit: 1000 });
+  const { data: trackData, isLoading, error } = useTracks({ limit: 5000 });
   const tracks = trackData?.tracks ?? [];
 
   const selectedTracks = useLibraryStore((s) => s.selectedTracks.scue_library);
@@ -61,8 +64,17 @@ export function ScueLibraryTab() {
   const [sorting, setSorting] = useState<SortingState>([{ id: "title", desc: false }]);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 
+  const queryClient = useQueryClient();
   const batchMutation = useAnalyzeStrataBatch();
+  const cancelBatch = useCancelStrataBatch();
   const [batchId, setBatchId] = useState<string | null>(null);
+  const [selectedTier, setSelectedTier] = useState<"quick" | "standard" | "deep">("quick");
+  const [skipAnalyzed, setSkipAnalyzed] = useState(true);
+
+  // Base audio analysis state
+  const [audioJobId, setAudioJobId] = useState<string | null>(null);
+  const { data: audioJob } = useJobStatus(audioJobId);
+  const cancelAudioJob = useCancelJob();
 
   // Columns
   const columns = useMemo<ColumnDef<TrackSummary, unknown>[]>(() => [
@@ -198,19 +210,72 @@ export function ScueLibraryTab() {
     }
   }, [allVisibleSelected, visibleTracks, setSelectedTracks]);
 
-  const handleRunQuickAnalysis = useCallback(() => {
-    if (selectedTracks.size === 0) return;
+  // Batch analysis: tier-aware stats
+  const tierHasField = { quick: "has_quick", standard: "has_standard", deep: "has_deep" } as const;
+  const selectedTrackData = useMemo(
+    () => tracks.filter((t) => selectedTracks.has(t.fingerprint)),
+    [tracks, selectedTracks],
+  );
+  const alreadyAnalyzedCount = useMemo(
+    () => selectedTrackData.filter((t) => t[tierHasField[selectedTier]]).length,
+    [selectedTrackData, selectedTier],
+  );
+  const fingerprintsToAnalyze = useMemo(
+    () =>
+      skipAnalyzed
+        ? selectedTrackData.filter((t) => !t[tierHasField[selectedTier]]).map((t) => t.fingerprint)
+        : [...selectedTracks],
+    [selectedTrackData, selectedTier, skipAnalyzed, selectedTracks],
+  );
+
+  // Base audio analysis: tracks that have no analysis yet (section_count === 0)
+  const needsAudioAnalysis = useMemo(
+    () => selectedTrackData.filter((t) => t.section_count === 0),
+    [selectedTrackData],
+  );
+  const audioAnalysisPaths = useMemo(
+    () => needsAudioAnalysis.filter((t) => t.audio_path).map((t) => t.audio_path),
+    [needsAudioAnalysis],
+  );
+  const isAudioJobRunning = audioJobId != null && audioJob?.status !== "complete" && audioJob?.status !== "complete_with_errors" && audioJob?.status !== "cancelled";
+
+  const handleRunAudioAnalysis = useCallback(async () => {
+    if (audioAnalysisPaths.length === 0) return;
+    try {
+      const result = await startBatchAnalysis(audioAnalysisPaths);
+      setAudioJobId(result.job_id);
+    } catch {
+      // mutation error handled by TanStack
+    }
+  }, [audioAnalysisPaths]);
+
+  const handleAudioJobDone = useCallback(() => {
+    setAudioJobId(null);
+    queryClient.invalidateQueries({ queryKey: ["tracks"] });
+  }, [queryClient]);
+
+  const handleRunAnalysis = useCallback(() => {
+    if (fingerprintsToAnalyze.length === 0) return;
     batchMutation.mutate(
-      { fingerprints: [...selectedTracks], tiers: ["quick"] },
+      { fingerprints: fingerprintsToAnalyze, tiers: [selectedTier] },
       { onSuccess: (result) => setBatchId(result.batch_id) },
     );
-  }, [selectedTracks, batchMutation]);
+  }, [fingerprintsToAnalyze, selectedTier, batchMutation]);
 
   const handleOpenInAnalysis = useCallback(() => {
     if (selectedTracks.size !== 1) return;
     const fp = [...selectedTracks][0];
     navigate(`/analysis?track=${fp}`);
   }, [selectedTracks, navigate]);
+
+  const handleBatchComplete = useCallback(() => {
+    setBatchId(null);
+    queryClient.invalidateQueries({ queryKey: ["tracks"] });
+  }, [queryClient]);
+
+  const handleBatchCancel = useCallback(() => {
+    if (batchId) cancelBatch.mutate(batchId);
+  }, [batchId, cancelBatch]);
 
   const handleRowClick = useCallback((fp: string) => {
     setExpandedPreview(expandedPreview === fp ? null : fp);
@@ -269,34 +334,170 @@ export function ScueLibraryTab() {
 
       {/* Bulk actions */}
       {selectedTracks.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2 bg-gray-950 rounded border border-gray-800">
-          <span className="text-sm text-gray-400">
-            {selectedTracks.size} selected
-          </span>
-          <button
-            onClick={handleRunQuickAnalysis}
-            disabled={batchMutation.isPending || !!batchId}
-            className={`px-3 py-1.5 text-sm rounded transition-colors ${
-              batchMutation.isPending || batchId
-                ? "bg-blue-800 text-blue-300 cursor-wait"
-                : "bg-blue-600 text-white hover:bg-blue-500"
-            }`}
-          >
-            {batchMutation.isPending ? "Starting..." : batchId ? "Analyzing..." : "Run Quick Analysis"}
-          </button>
-          <button
-            onClick={handleOpenInAnalysis}
-            disabled={selectedTracks.size !== 1}
-            title={selectedTracks.size !== 1 ? "Select exactly 1 track to open in Analysis" : ""}
-            className={`px-3 py-1.5 text-sm rounded transition-colors ${
-              selectedTracks.size === 1
-                ? "bg-gray-700 text-gray-200 hover:bg-gray-600"
-                : "bg-gray-800 text-gray-600 cursor-not-allowed"
-            }`}
-          >
-            Open in Analysis
-          </button>
+        <div className="px-4 py-2 bg-gray-950 rounded border border-gray-800 space-y-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm text-gray-400">
+              {selectedTracks.size} selected
+            </span>
+
+            {/* Audio analysis button — for tracks that lack base analysis */}
+            {needsAudioAnalysis.length > 0 && (
+              <>
+                <button
+                  onClick={handleRunAudioAnalysis}
+                  disabled={isAudioJobRunning || audioAnalysisPaths.length === 0}
+                  className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                    isAudioJobRunning || audioAnalysisPaths.length === 0
+                      ? "bg-emerald-800 text-emerald-300 cursor-not-allowed"
+                      : "bg-emerald-600 text-white hover:bg-emerald-500"
+                  }`}
+                >
+                  {isAudioJobRunning
+                    ? "Analyzing audio..."
+                    : `Analyze audio (${audioAnalysisPaths.length})`}
+                </button>
+                <span className="text-xs text-gray-500">
+                  {needsAudioAnalysis.length} need audio analysis
+                </span>
+              </>
+            )}
+
+            {/* Strata tier section — only when some tracks have base analysis */}
+            {selectedTrackData.length - needsAudioAnalysis.length > 0 && (
+              <>
+                <span className="text-gray-700">|</span>
+                <select
+                  value={selectedTier}
+                  onChange={(e) => setSelectedTier(e.target.value as "quick" | "standard" | "deep")}
+                  disabled={!!batchId || isAudioJobRunning}
+                  className="px-2 py-1 text-sm rounded bg-gray-800 text-gray-200 border border-gray-700 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+                >
+                  <option value="quick">Quick</option>
+                  <option value="standard">Standard</option>
+                  <option value="deep">Deep</option>
+                </select>
+
+                <span className="text-xs text-gray-500">
+                  {alreadyAnalyzedCount}/{selectedTracks.size} have {selectedTier}
+                </span>
+
+                <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={skipAnalyzed}
+                    onChange={(e) => setSkipAnalyzed(e.target.checked)}
+                    disabled={!!batchId || isAudioJobRunning}
+                    className="accent-blue-500"
+                  />
+                  Skip done
+                </label>
+
+                <button
+                  onClick={handleRunAnalysis}
+                  disabled={batchMutation.isPending || !!batchId || isAudioJobRunning || fingerprintsToAnalyze.length === 0}
+                  className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                    batchMutation.isPending || batchId || isAudioJobRunning || fingerprintsToAnalyze.length === 0
+                      ? "bg-blue-800 text-blue-300 cursor-not-allowed"
+                      : "bg-blue-600 text-white hover:bg-blue-500"
+                  }`}
+                >
+                  {batchMutation.isPending
+                    ? "Starting..."
+                    : batchId
+                      ? "Running..."
+                      : fingerprintsToAnalyze.length === 0
+                        ? "All done"
+                        : `Run ${selectedTier} (${fingerprintsToAnalyze.length})`}
+                </button>
+              </>
+            )}
+
+            {/* Open in Analysis */}
+            <button
+              onClick={handleOpenInAnalysis}
+              disabled={selectedTracks.size !== 1}
+              title={selectedTracks.size !== 1 ? "Select exactly 1 track to open in Analysis" : ""}
+              className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                selectedTracks.size === 1
+                  ? "bg-gray-700 text-gray-200 hover:bg-gray-600"
+                  : "bg-gray-800 text-gray-600 cursor-not-allowed"
+              }`}
+            >
+              Open in Analysis
+            </button>
+          </div>
         </div>
+      )}
+
+      {/* Audio analysis progress */}
+      {audioJobId && audioJob && (() => {
+        const pct = audioJob.total > 0 ? Math.round((audioJob.completed / audioJob.total) * 100) : 0;
+        const isDone = audioJob.status === "complete" || audioJob.status === "complete_with_errors";
+        const isCancelled = audioJob.status === "cancelled";
+        const isRunning = audioJob.status === "running" || audioJob.status === "pending";
+
+        return (
+          <div className="px-4 py-3 bg-gray-950 rounded border border-gray-800 space-y-2">
+            <div className="flex justify-between items-center text-xs text-gray-400">
+              <span>
+                {isCancelled
+                  ? <span className="text-yellow-400">Cancelled — {audioJob.completed}/{audioJob.total} completed</span>
+                  : isDone
+                    ? <span className="text-green-400">Audio analysis complete — {audioJob.completed} succeeded{audioJob.failed > 0 ? `, ${audioJob.failed} failed` : ""}</span>
+                    : `Analyzing: ${audioJob.current_file ?? "..."}`}
+              </span>
+              <div className="flex items-center gap-3">
+                <span>{audioJob.completed}/{audioJob.total} ({pct}%)</span>
+                {isRunning && (
+                  <button
+                    onClick={() => cancelAudioJob.mutate(audioJobId)}
+                    disabled={cancelAudioJob.isPending}
+                    className="px-2 py-0.5 text-xs font-medium rounded bg-red-900/50 hover:bg-red-800 text-red-300 border border-red-800 transition-colors"
+                  >
+                    Stop
+                  </button>
+                )}
+                {(isDone || isCancelled) && (
+                  <button
+                    onClick={handleAudioJobDone}
+                    className="px-2 py-0.5 text-xs font-medium rounded bg-gray-700 hover:bg-gray-600 text-gray-300 border border-gray-600 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="w-full bg-gray-800 rounded-full h-2">
+              <div
+                className={`h-2 rounded-full transition-all ${isCancelled ? "bg-yellow-500" : isDone ? "bg-green-500" : "bg-emerald-500"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            {isRunning && audioJob.current_step_name && (
+              <div>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>{audioJob.current_step_name}</span>
+                  <span>{audioJob.current_step}/{audioJob.total_steps}</span>
+                </div>
+                <div className="w-full bg-gray-800 rounded-full h-1">
+                  <div
+                    className="h-1 rounded-full bg-cyan-500 transition-all"
+                    style={{ width: `${audioJob.total_steps > 0 ? (audioJob.current_step / audioJob.total_steps) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Strata batch progress */}
+      {batchId && (
+        <StrataBatchProgress
+          batchId={batchId}
+          onComplete={handleBatchComplete}
+          onCancel={handleBatchCancel}
+        />
       )}
 
       {/* Table */}

@@ -99,7 +99,7 @@ type TrackPickerProps = TrackPickerSingleProps | TrackPickerMultiProps;
 
 export function TrackPicker(props: TrackPickerProps) {
   const isMulti = props.mode === "multi";
-  const { data, isLoading, error } = useTracks({ limit: 1000 });
+  const { data, isLoading, error } = useTracks({ limit: 5000 });
   const [sorting, setSorting] = useState<SortingState>([{ id: "title", desc: false }]);
   const [search, setSearch] = useState("");
 

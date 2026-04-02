@@ -1,5 +1,6 @@
 /** Progress indicators for strata analysis jobs (single-track and batch). */
 
+import { useEffect, useRef } from "react";
 import { useStrataJobStatus, useStrataBatchStatus } from "../../api/strata";
 import type { StrataTier } from "../../types/strata";
 
@@ -146,11 +147,38 @@ export function StrataJobProgress({
 export function StrataBatchProgress({
   batchId,
   onComplete,
+  onCancel,
 }: {
   batchId: string;
   onComplete?: () => void;
+  onCancel?: () => void;
 }) {
   const { data: batch } = useStrataBatchStatus(batchId);
+  const completeFired = useRef(false);
+
+  // Backend sets status="complete" when processing finishes, even if all jobs failed.
+  // Derive visual state from actual counts, not just the status string.
+  const isFinished = batch?.status === "complete" || batch?.status === "failed";
+  const isRunning = batch?.status === "running" || batch?.status === "pending";
+  const failedCount = batch?.failed ?? 0;
+  const completedCount = batch?.completed ?? 0;
+  const processed = completedCount + failedCount;
+  const pct = (batch?.total ?? 0) > 0 ? Math.round((processed / batch!.total) * 100) : 0;
+  const isCancelled = isFinished && (batch?.jobs.some((j) => j.error === "Cancelled by user") ?? false);
+  const isPureSuccess = isFinished && failedCount === 0;
+  const hasFailures = isFinished && failedCount > 0;
+
+  // Find the currently running job for detail display
+  const activeJob = batch?.jobs.find((j) => j.status === "running");
+
+  // Auto-dismiss only on pure success (all completed, none failed).
+  // Failures/cancellations stay visible so the user can see what happened.
+  useEffect(() => {
+    if (isPureSuccess && onComplete && !completeFired.current) {
+      completeFired.current = true;
+      onComplete();
+    }
+  }, [isPureSuccess, onComplete]);
 
   if (!batch) {
     return (
@@ -163,60 +191,93 @@ export function StrataBatchProgress({
     );
   }
 
-  const isDone = batch.status === "complete" || batch.status === "failed";
-  const pct = batch.total > 0 ? Math.round((batch.completed / batch.total) * 100) : 0;
-
-  if (isDone && onComplete) {
-    setTimeout(onComplete, 0);
-  }
+  const barColor = isCancelled
+    ? "bg-yellow-500"
+    : hasFailures
+      ? completedCount > 0 ? "bg-amber-500" : "bg-red-500"
+      : isPureSuccess
+        ? "bg-green-500"
+        : "bg-blue-500";
 
   return (
-    <div className="px-4 py-3 bg-gray-950 rounded border border-gray-800">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-sm text-gray-300">
-          {isDone
-            ? `Batch complete \u2014 ${batch.completed} succeeded${batch.failed > 0 ? `, ${batch.failed} failed` : ""}`
-            : `Analyzing: ${batch.completed + batch.failed}/${batch.total} tracks`}
+    <div className="px-4 py-3 bg-gray-950 rounded border border-gray-800 space-y-2">
+      {/* Header row */}
+      <div className="flex justify-between items-center text-xs text-gray-400">
+        <span>
+          {isCancelled
+            ? <span className="text-yellow-400">Cancelled — {completedCount}/{batch.total} completed</span>
+            : isPureSuccess
+              ? <span className="text-green-400">Complete — {completedCount} succeeded</span>
+              : hasFailures
+                ? <span className="text-red-400">{completedCount > 0 ? `Done — ${completedCount} succeeded, ${failedCount} failed` : `Failed — ${failedCount} failed`}</span>
+                : `Analyzing: ${activeJob?.current_step_name || "..."}`}
         </span>
-        {!isDone && <span className="text-xs text-gray-500">{pct}%</span>}
+        <div className="flex items-center gap-3">
+          <span>{processed}/{batch.total} ({pct}%)</span>
+          {isRunning && onCancel && (
+            <button
+              onClick={onCancel}
+              className="px-2 py-0.5 text-xs font-medium rounded bg-red-900/50 hover:bg-red-800 text-red-300 border border-red-800 transition-colors"
+            >
+              Stop
+            </button>
+          )}
+          {isFinished && !isPureSuccess && onComplete && (
+            <button
+              onClick={onComplete}
+              className="px-2 py-0.5 text-xs font-medium rounded bg-gray-700 hover:bg-gray-600 text-gray-300 border border-gray-600 transition-colors"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
       </div>
-      <div className="w-full bg-gray-800 rounded-full h-2 mb-2">
+
+      {/* Overall progress bar */}
+      <div className="w-full bg-gray-800 rounded-full h-2">
         <div
-          className={`h-2 rounded-full transition-all ${
-            batch.failed > 0 ? "bg-amber-500" : "bg-blue-500"
-          }`}
+          className={`h-2 rounded-full transition-all ${barColor}`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      {/* Per-job status list */}
-      <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-        {batch.jobs.map((job) => (
-          <div key={job.job_id} className="flex items-center gap-2 text-xs">
-            <span
-              className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                job.status === "complete"
-                  ? "bg-green-500"
-                  : job.status === "failed"
-                    ? "bg-red-500"
-                    : job.status === "running"
-                      ? "bg-blue-500 animate-pulse"
-                      : "bg-gray-600"
-              }`}
-            />
-            <span className="text-gray-400 font-mono truncate">
-              {job.fingerprint.slice(0, 12)}
-            </span>
-            <span className="text-gray-500">{job.tier}</span>
-            <span className="text-gray-500 ml-auto">
-              {job.status === "running" && job.current_step_name
-                ? job.current_step_name
-                : job.status === "failed"
-                  ? job.error?.slice(0, 40) ?? "failed"
-                  : job.status}
-            </span>
+
+      {/* Per-step progress for active job */}
+      {isRunning && activeJob && activeJob.current_step_name && (
+        <div>
+          <div className="flex justify-between text-xs text-gray-500 mb-1">
+            <span>{activeJob.current_step_name}</span>
+            <span>{activeJob.current_step}/{activeJob.total_steps}</span>
           </div>
-        ))}
-      </div>
+          <div className="w-full bg-gray-800 rounded-full h-1">
+            <div
+              className="h-1 rounded-full bg-cyan-500 transition-all"
+              style={{ width: `${activeJob.total_steps > 0 ? (activeJob.current_step / activeJob.total_steps) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Error summary — group failures by reason */}
+      {hasFailures && (() => {
+        const errorGroups: Record<string, number> = {};
+        for (const job of batch.jobs) {
+          if (job.status === "failed" && job.error) {
+            // Normalize errors that differ only by fingerprint
+            const key = job.error.replace(/[a-f0-9]{12,}/, "…");
+            errorGroups[key] = (errorGroups[key] ?? 0) + 1;
+          }
+        }
+        return (
+          <div className="flex flex-col gap-1 text-xs text-gray-500">
+            {Object.entries(errorGroups).map(([reason, count]) => (
+              <div key={reason} className="flex items-start gap-1.5">
+                <span className="text-red-400/70 flex-shrink-0">×{count}</span>
+                <span className="truncate" title={reason}>{reason}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }

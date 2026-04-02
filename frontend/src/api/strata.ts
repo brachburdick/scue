@@ -118,6 +118,20 @@ export function useStrataBatchStatus(batchId: string | null) {
   });
 }
 
+/** Cancel all pending/running jobs in a strata batch. */
+export function useCancelStrataBatch() {
+  const queryClient = useQueryClient();
+  return useMutation<{ ok: boolean; status: string }, Error, string>({
+    mutationFn: (batchId: string) =>
+      apiFetch<{ ok: boolean; status: string }>(`/strata/batch/${batchId}/cancel`, {
+        method: "POST",
+      }),
+    onSuccess: (_data, batchId) => {
+      queryClient.invalidateQueries({ queryKey: ["strata-batch", batchId] });
+    },
+  });
+}
+
 /** Trigger batch strata analysis for multiple tracks. */
 export function useAnalyzeStrataBatch() {
   const queryClient = useQueryClient();

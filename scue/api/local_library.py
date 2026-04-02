@@ -145,6 +145,7 @@ async def local_library_status() -> dict:
 # ---------------------------------------------------------------------------
 
 _last_masterdb_scan: dict | None = None
+_last_scan_result: object | None = None  # MasterDbScanResult, kept for ingest reuse
 
 
 @router.get("/master-db/detect")
@@ -188,34 +189,88 @@ async def scan_master_db_endpoint(background_tasks: BackgroundTasks) -> dict:
 
 async def _run_scan_background() -> None:
     """Background task: scan master.db, create sidecars, broadcast result."""
-    global _last_masterdb_scan, _scan_in_progress
+    global _last_masterdb_scan, _last_scan_result, _scan_in_progress
     _scan_in_progress = True
 
     try:
-        from ..layer1.masterdb_scanner import create_sidecars_from_master_db, scan_master_db
+        from ..layer1.masterdb_scanner import (
+            create_sidecars_from_master_db,
+            detect_master_db as _detect,
+            scan_master_db,
+        )
 
         loop = asyncio.get_event_loop()
 
+        # --- Level 1: mtime gate — skip entirely if master.db unchanged ---
+        db_path = _detect()
+        if db_path is None:
+            await _broadcast_progress("error", "rekordbox master.db not found")
+            return
+
+        prev = _last_scan_result
+        if prev is not None and hasattr(prev, "db_mtime") and prev.db_mtime:
+            db_stat = db_path.stat()
+            if db_stat.st_mtime == prev.db_mtime and db_stat.st_size == prev.db_size:
+                logger.info("master.db unchanged (mtime=%.0f, size=%d) — returning cached result", db_stat.st_mtime, db_stat.st_size)
+                await _broadcast_progress("scan_complete", "No changes — using cached result", _last_masterdb_scan)
+                return
+
+        # Track which overall phase we're in so the frontend can show
+        # "Step 2/4: Parsing ANLZ data" etc.
+        scan_phases = [
+            "Reading master.db",
+            "Parsing ANLZ data",
+            "Computing fingerprints",
+            "Creating Pioneer sidecars",
+        ]
+        current_phase = {"name": scan_phases[0], "step": 1}
+
         def progress_cb(current: int, total: int, message: str) -> None:
+            # Detect phase transitions from the message text
+            for i, phase_name in enumerate(scan_phases):
+                if message == phase_name:
+                    current_phase["name"] = phase_name
+                    current_phase["step"] = i + 1
+                    break
             asyncio.run_coroutine_threadsafe(
-                _broadcast_progress("scanning", message, {"current": current, "total": total}),
+                _broadcast_progress("scanning", message, {
+                    "current": current,
+                    "total": total,
+                    "step": current_phase["step"],
+                    "total_steps": len(scan_phases),
+                    "step_name": current_phase["name"],
+                }),
                 loop,
             )
 
-        await _broadcast_progress("scanning", "Opening rekordbox database…")
+        await _broadcast_progress("scanning", "Opening rekordbox database…", {
+            "step": 1, "total_steps": len(scan_phases), "step_name": scan_phases[0],
+        })
 
+        # --- Level 2: incremental diff — pass previous result for carry-forward ---
         result = await loop.run_in_executor(
-            None, lambda: scan_master_db(match_scue=True, store=_store, progress_cb=progress_cb)
+            None, lambda: scan_master_db(
+                db_path=db_path,
+                match_scue=True,
+                store=_store,
+                progress_cb=progress_cb,
+                previous_result=prev,
+            )
         )
 
-        await _broadcast_progress("scanning", "Creating Pioneer sidecars…")
+        # Keep full result for ingest reuse (avoids re-scanning on import)
+        _last_scan_result = result
+
+        await _broadcast_progress("scanning", "Creating Pioneer sidecars…", {
+            "step": 4, "total_steps": len(scan_phases), "step_name": scan_phases[3],
+        })
 
         sidecars = await loop.run_in_executor(
             None, lambda: create_sidecars_from_master_db(result, _store)
         )
 
-        matched = [t for t in result.tracks if t.fingerprint]
-        unmatched_with_audio = [t for t in result.tracks if t.audio_exists and not t.fingerprint]
+        matched = [t for t in result.tracks if t.fingerprint and _store.exists(t.fingerprint)]
+        unmatched_with_audio = [t for t in result.tracks if t.audio_exists and (not t.fingerprint or not _store.exists(t.fingerprint))]
 
         _last_masterdb_scan = {
             "status": "complete",
@@ -355,62 +410,187 @@ async def _run_ingest_background(
     skip_waveform: bool,
     metadata_only: bool,
 ) -> None:
-    """Background task: run ingest, broadcast progress + result via WS."""
+    """Background task: run ingest, broadcast progress + result via WS.
+
+    If a scan was already performed (``_last_scan_result`` is set), reuses
+    its fingerprints and ANLZ data instead of re-reading master.db from
+    scratch.  Only falls back to a full ``ingest_from_master_db()`` when no
+    prior scan exists.
+    """
     global _ingest_in_progress
 
     async with _ingest_lock:
         _ingest_cancel.clear()
 
         try:
-            from ..layer1.masterdb_scanner import IngestCancelled, ingest_from_master_db
-
             loop = asyncio.get_event_loop()
 
-            def progress_cb(current: int, total: int, message: str) -> None:
-                asyncio.run_coroutine_threadsafe(
-                    _broadcast_progress("ingesting", message, {"current": current, "total": total}),
-                    loop,
-                )
+            # ----- Fast path: reuse scan result ---------------------------
+            if _last_scan_result is not None:
+                from ..layer1.masterdb_scanner import MasterDbScanResult, MasterDbTrack, _compute_fingerprint
+                from pathlib import Path
 
-            await _broadcast_progress("ingesting", "Preparing ingest from rekordbox…")
+                scan: MasterDbScanResult = _last_scan_result  # type: ignore[assignment]
 
-            try:
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: ingest_from_master_db(
-                        store=_store,
-                        bpm_min=bpm_min,
-                        bpm_max=bpm_max,
-                        genre=genre,
-                        search=search,
-                        progress_cb=progress_cb,
-                        cancel_check=_ingest_cancel.is_set,
-                    ),
-                )
-            except IngestCancelled:
-                logger.info("Ingest cancelled — partial work preserved")
-                await _broadcast_progress("cancelled", "Ingest cancelled")
-                return
+                await _broadcast_progress("ingesting", "Creating sidecars from scan results…", {
+                    "step": 1, "total_steps": 1, "step_name": "Creating sidecars",
+                })
 
-            response = {
-                "total_in_rekordbox": result.total_in_rekordbox,
-                "already_in_scue": result.already_in_scue,
-                "queued_for_analysis": len(result.queued_for_analysis),
-                "sidecars_created": result.sidecars_created,
-                "sidecars_skipped": result.sidecars_skipped,
-            }
+                # Tracks already fingerprinted during scan — just classify
+                already_in_scue = 0
+                queued: list[str] = []
+                sidecars_created = 0
+                sidecars_skipped = 0
+
+                for i, track in enumerate(scan.tracks):
+                    if _ingest_cancel.is_set():
+                        logger.info("Ingest cancelled during sidecar creation")
+                        await _broadcast_progress("cancelled", "Ingest cancelled")
+                        return
+
+                    if not track.audio_exists:
+                        continue
+
+                    fp = track.fingerprint
+                    if fp is None:
+                        # Track wasn't fingerprinted during scan (no audio match)
+                        queued.append(track.audio_path)
+                        sidecars_skipped += 1
+                        continue
+
+                    if _store.exists(fp):
+                        already_in_scue += 1
+                    else:
+                        queued.append(track.audio_path)
+
+                    # Create sidecar if ANLZ data available
+                    if track.phrases or track.beatgrid:
+                        duration = 0.0
+                        if _store.exists(fp):
+                            analysis = _store.load_latest(fp)
+                            if analysis:
+                                duration = analysis.duration
+                        if duration <= 0 and track.duration_ms:
+                            duration = track.duration_ms / 1000.0
+
+                        sidecar = {
+                            "fingerprint": fp,
+                            "rekordbox_id": track.rekordbox_id,
+                            "title": track.title,
+                            "artist": track.artist,
+                            "bpm": track.bpm,
+                            "duration": duration,
+                            "phrases": track.phrases,
+                            "beat_grid": track.beatgrid,
+                            "hot_cues": track.hot_cues,
+                            "memory_points": track.memory_points,
+                            "source": "master_db",
+                        }
+                        _store.save_live_data(fp, sidecar)
+                        sidecars_created += 1
+                    else:
+                        sidecars_skipped += 1
+
+                    # Index in cache so track appears in SCUE Library
+                    # (version=0, INSERT OR IGNORE — won't overwrite real analysis)
+                    if _cache is not None:
+                        _cache.index_sidecar(
+                            fingerprint=fp,
+                            audio_path=track.audio_path,
+                            title=track.title,
+                            artist=track.artist,
+                            bpm=track.bpm,
+                            duration=(track.duration_ms / 1000.0) if track.duration_ms else 0.0,
+                        )
+
+                    if i % 100 == 0:
+                        await _broadcast_progress("ingesting", "Creating sidecars", {
+                            "current": i, "total": len(scan.tracks),
+                            "step": 1, "total_steps": 1,
+                            "step_name": "Creating sidecars",
+                        })
+                        await asyncio.sleep(0)  # yield so WS messages flush
+
+                total_with_audio = sum(1 for t in scan.tracks if t.audio_exists)
+
+                response = {
+                    "total_in_rekordbox": total_with_audio,
+                    "already_in_scue": already_in_scue,
+                    "queued_for_analysis": len(queued),
+                    "sidecars_created": sidecars_created,
+                    "sidecars_skipped": sidecars_skipped,
+                }
+
+            # ----- Slow path: no prior scan, do everything ----------------
+            else:
+                from ..layer1.masterdb_scanner import IngestCancelled, ingest_from_master_db
+
+                ingest_phases = [
+                    "Reading master.db",
+                    "Parsing ANLZ data",
+                    "Computing fingerprints",
+                ]
+                current_phase = {"name": ingest_phases[0], "step": 1}
+
+                def progress_cb(current: int, total: int, message: str) -> None:
+                    for i, phase_name in enumerate(ingest_phases):
+                        if message == phase_name:
+                            current_phase["name"] = phase_name
+                            current_phase["step"] = i + 1
+                            break
+                    asyncio.run_coroutine_threadsafe(
+                        _broadcast_progress("ingesting", message, {
+                            "current": current,
+                            "total": total,
+                            "step": current_phase["step"],
+                            "total_steps": len(ingest_phases),
+                            "step_name": current_phase["name"],
+                        }),
+                        loop,
+                    )
+
+                await _broadcast_progress("ingesting", "Preparing ingest from rekordbox…", {
+                    "step": 1, "total_steps": len(ingest_phases), "step_name": ingest_phases[0],
+                })
+
+                try:
+                    result = await loop.run_in_executor(
+                        None,
+                        lambda: ingest_from_master_db(
+                            store=_store,
+                            bpm_min=bpm_min,
+                            bpm_max=bpm_max,
+                            genre=genre,
+                            search=search,
+                            progress_cb=progress_cb,
+                            cancel_check=_ingest_cancel.is_set,
+                        ),
+                    )
+                except IngestCancelled:
+                    logger.info("Ingest cancelled — partial work preserved")
+                    await _broadcast_progress("cancelled", "Ingest cancelled")
+                    return
+
+                queued = result.queued_for_analysis
+                response = {
+                    "total_in_rekordbox": result.total_in_rekordbox,
+                    "already_in_scue": result.already_in_scue,
+                    "queued_for_analysis": len(queued),
+                    "sidecars_created": result.sidecars_created,
+                    "sidecars_skipped": result.sidecars_skipped,
+                }
 
             # Phase 2: Start batch analysis for new tracks
             # Skipped entirely when metadata_only — sidecars are the only output.
-            if result.queued_for_analysis and not metadata_only:
+            if queued and not metadata_only:
                 from .jobs import create_job
                 from .tracks import _run_batch_analysis, _get_cache
 
-                job = create_job(result.queued_for_analysis)
+                job = create_job(queued)
                 cache = _get_cache()
                 cache.create_job(
                     job_id=job.job_id,
-                    paths=result.queued_for_analysis,
+                    paths=queued,
                     scan_root="",
                     destination_folder="rekordbox",
                     skip_waveform=skip_waveform,
@@ -427,7 +607,7 @@ async def _run_ingest_background(
             await _broadcast_progress("ingest_complete", "Ingest complete", response)
             logger.info(
                 "Ingest complete: %d queued, %d sidecars",
-                len(result.queued_for_analysis), result.sidecars_created,
+                response["queued_for_analysis"], response["sidecars_created"],
             )
 
         except Exception as e:

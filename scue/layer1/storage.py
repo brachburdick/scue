@@ -15,6 +15,7 @@ import logging
 import os
 import sqlite3
 import tempfile
+import time
 from pathlib import Path
 
 from .models import (
@@ -477,6 +478,45 @@ class TrackCache:
                 "UPDATE tracks SET has_live_data = ? WHERE fingerprint = ?",
                 (int(value), fingerprint),
             )
+
+    def index_sidecar(
+        self,
+        fingerprint: str,
+        audio_path: str,
+        title: str = "",
+        artist: str = "",
+        bpm: float = 0.0,
+        duration: float = 0.0,
+    ) -> None:
+        """Create a minimal cache entry for a rekordbox-imported track.
+
+        Uses version=0 so any real analysis (version>=1) takes precedence
+        in the MAX(version) query used by list_tracks().  INSERT OR IGNORE
+        avoids overwriting if a cache entry already exists.
+        """
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT OR IGNORE INTO tracks
+                (fingerprint, version, source, audio_path, title, artist,
+                 bpm, duration, section_count, mood, key_name, created_at, folder,
+                 has_live_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                fingerprint,
+                0,  # version 0 — placeholder, real analysis is version>=1
+                "rekordbox_import",
+                audio_path,
+                title,
+                artist,
+                bpm,
+                duration,
+                0,  # no sections yet
+                "neutral",
+                "",  # no key detected
+                time.time(),
+                "",  # no folder
+                1,  # has_live_data = true (sidecar exists)
+            ))
 
     def list_tracks(
         self,
