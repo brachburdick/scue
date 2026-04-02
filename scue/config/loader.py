@@ -66,10 +66,16 @@ class UsbConfig:
 
 
 @dataclass
+class StrataConfig:
+    batch_max_parallel: int = 8
+
+
+@dataclass
 class ScueConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     bridge: BridgeConfig = field(default_factory=BridgeConfig)
     usb: UsbConfig = field(default_factory=UsbConfig)
+    strata: StrataConfig = field(default_factory=StrataConfig)
 
 
 def _load_yaml(path: Path) -> dict:
@@ -164,6 +170,18 @@ def _build_usb_config(data: dict) -> UsbConfig:
     )
 
 
+def _build_strata_config(data: dict) -> StrataConfig:
+    """Build StrataConfig from the 'strata' section of server.yaml."""
+    section = data.get("strata", {})
+    if not isinstance(section, dict):
+        return StrataConfig()
+    max_parallel = section.get("batch_max_parallel", 8)
+    if not isinstance(max_parallel, int) or max_parallel < 1:
+        logger.warning("Invalid strata.batch_max_parallel %r, using default 8", max_parallel)
+        max_parallel = 8
+    return StrataConfig(batch_max_parallel=max_parallel)
+
+
 def load_config(config_dir: Path = Path("config")) -> ScueConfig:
     """Load all configuration from YAML files in config_dir.
 
@@ -177,6 +195,7 @@ def load_config(config_dir: Path = Path("config")) -> ScueConfig:
         server=_build_server_config(server_data),
         bridge=_build_bridge_config(bridge_data),
         usb=_build_usb_config(usb_data),
+        strata=_build_strata_config(server_data),
     )
 
     _log_config(config)
@@ -218,4 +237,5 @@ def _log_config(config: ScueConfig) -> None:
         config.usb.db_relative_path,
         config.usb.anlz_relative_path,
     )
+    logger.info("Strata: batch_max_parallel=%d", config.strata.batch_max_parallel)
     logger.info("--- End Configuration ---")

@@ -6,6 +6,7 @@ library without requiring Pioneer hardware.
 
 import asyncio
 import logging
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -22,6 +23,10 @@ _store: TrackStore | None = None
 _cache: TrackCache | None = None
 _last_scan: dict | None = None
 _ws_manager = None  # WSManager, set by init
+
+# Singleton ingest guard — prevents concurrent ingest processes
+_ingest_lock = asyncio.Lock()
+_ingest_cancel = threading.Event()  # thread-safe flag checked by executor thread
 
 
 def init_local_library_api(store: TrackStore, cache: TrackCache, ws_manager=None) -> None:
@@ -153,86 +158,107 @@ async def detect_master_db() -> dict:
     return {"path": str(path), "size_mb": round(path.stat().st_size / 1e6, 1)}
 
 
+_scan_in_progress = False
+
+
 @router.post("/master-db/scan")
-async def scan_master_db_endpoint() -> dict:
-    """Scan rekordbox master.db and match tracks to SCUE.
+async def scan_master_db_endpoint(background_tasks: BackgroundTasks) -> dict:
+    """Start a rekordbox master.db scan in the background.
 
-    Returns collection stats and matched track list.
-    Also creates Pioneer sidecars for matched tracks with ANLZ data.
+    Returns immediately with ``{status: "started"}``. Progress is
+    broadcast via WS ``rekordbox_progress`` events. When the scan
+    finishes, a ``rekordbox_progress`` event with ``phase: "scan_complete"``
+    carries the full result, which is also stored in ``_last_masterdb_scan``
+    (available via ``GET /master-db/status``).
 
-    Runs CPU-bound work in a thread executor so the async event loop
-    stays responsive to other requests and WebSocket traffic.
+    This avoids the Vite-proxy / browser timeout that killed the
+    previous synchronous 130-second POST.
     """
-    global _last_masterdb_scan
+    global _scan_in_progress
 
     if _store is None:
         raise HTTPException(status_code=500, detail="Store not initialized")
 
-    from ..layer1.masterdb_scanner import create_sidecars_from_master_db, scan_master_db
+    if _scan_in_progress:
+        return {"status": "already_scanning"}
 
-    loop = asyncio.get_event_loop()
+    background_tasks.add_task(_run_scan_background)
+    return {"status": "started"}
 
-    # Progress callback bridges sync thread → async WS broadcast
-    def progress_cb(current: int, total: int, message: str) -> None:
-        asyncio.run_coroutine_threadsafe(
-            _broadcast_progress("scanning", message, {"current": current, "total": total}),
-            loop,
+
+async def _run_scan_background() -> None:
+    """Background task: scan master.db, create sidecars, broadcast result."""
+    global _last_masterdb_scan, _scan_in_progress
+    _scan_in_progress = True
+
+    try:
+        from ..layer1.masterdb_scanner import create_sidecars_from_master_db, scan_master_db
+
+        loop = asyncio.get_event_loop()
+
+        def progress_cb(current: int, total: int, message: str) -> None:
+            asyncio.run_coroutine_threadsafe(
+                _broadcast_progress("scanning", message, {"current": current, "total": total}),
+                loop,
+            )
+
+        await _broadcast_progress("scanning", "Opening rekordbox database…")
+
+        result = await loop.run_in_executor(
+            None, lambda: scan_master_db(match_scue=True, store=_store, progress_cb=progress_cb)
         )
 
-    await _broadcast_progress("scanning", "Opening rekordbox database…")
+        await _broadcast_progress("scanning", "Creating Pioneer sidecars…")
 
-    result = await loop.run_in_executor(
-        None, lambda: scan_master_db(match_scue=True, store=_store, progress_cb=progress_cb)
-    )
+        sidecars = await loop.run_in_executor(
+            None, lambda: create_sidecars_from_master_db(result, _store)
+        )
 
-    await _broadcast_progress("scanning", "Creating Pioneer sidecars…")
+        matched = [t for t in result.tracks if t.fingerprint]
+        unmatched_with_audio = [t for t in result.tracks if t.audio_exists and not t.fingerprint]
 
-    sidecars = await loop.run_in_executor(
-        None, lambda: create_sidecars_from_master_db(result, _store)
-    )
+        _last_masterdb_scan = {
+            "status": "complete",
+            "total_tracks": result.total_tracks,
+            "with_audio": result.with_audio,
+            "with_anlz": result.with_anlz,
+            "matched_to_scue": result.matched_to_scue,
+            "sidecars_created": sidecars,
+            "scan_time_seconds": result.scan_time_seconds,
+            "matched_tracks": [
+                {
+                    "fingerprint": t.fingerprint[:12],
+                    "title": t.title,
+                    "artist": t.artist,
+                    "bpm": t.bpm,
+                    "phrases": len(t.phrases),
+                    "beats": len(t.beatgrid),
+                }
+                for t in matched
+            ],
+            "importable_tracks": [
+                {
+                    "title": t.title,
+                    "artist": t.artist,
+                    "bpm": t.bpm,
+                    "audio_path": t.audio_path,
+                    "phrases": len(t.phrases),
+                }
+                for t in unmatched_with_audio[:100]
+            ],
+        }
 
-    matched = [t for t in result.tracks if t.fingerprint]
-    unmatched_with_audio = [t for t in result.tracks if t.audio_exists and not t.fingerprint]
+        await _broadcast_progress("scan_complete", "Scan complete", _last_masterdb_scan)
+        logger.info(
+            "Scan complete: %d tracks, %d matched, %d sidecars in %.1fs",
+            result.total_tracks, result.matched_to_scue, sidecars, result.scan_time_seconds,
+        )
 
-    _last_masterdb_scan = {
-        "status": "complete",
-        "total_tracks": result.total_tracks,
-        "with_audio": result.with_audio,
-        "with_anlz": result.with_anlz,
-        "matched_to_scue": result.matched_to_scue,
-        "sidecars_created": sidecars,
-        "scan_time_seconds": result.scan_time_seconds,
-        "matched_tracks": [
-            {
-                "fingerprint": t.fingerprint[:12],
-                "title": t.title,
-                "artist": t.artist,
-                "bpm": t.bpm,
-                "phrases": len(t.phrases),
-                "beats": len(t.beatgrid),
-            }
-            for t in matched
-        ],
-        "importable_tracks": [
-            {
-                "title": t.title,
-                "artist": t.artist,
-                "bpm": t.bpm,
-                "audio_path": t.audio_path,
-                "phrases": len(t.phrases),
-            }
-            for t in unmatched_with_audio[:100]
-        ],
-    }
-
-    await _broadcast_progress("complete", "Scan complete", {
-        "total_tracks": result.total_tracks,
-        "with_audio": result.with_audio,
-        "sidecars_created": sidecars,
-        "scan_time_seconds": result.scan_time_seconds,
-    })
-
-    return _last_masterdb_scan
+    except Exception as e:
+        logger.exception("Background scan failed: %s", e)
+        await _broadcast_progress("error", f"Scan failed: {e}")
+    finally:
+        _scan_in_progress = False
 
 
 @router.get("/master-db/status")
@@ -275,6 +301,10 @@ class MasterDbIngestRequest(BaseModel):
     genre: str | None = None
     search: str | None = None
     skip_waveform: bool = False
+    metadata_only: bool = False  # If True, only create sidecars — skip audio analysis
+
+
+_ingest_in_progress = False
 
 
 @router.post("/master-db/ingest")
@@ -282,77 +312,140 @@ async def ingest_from_master_db_endpoint(
     req: MasterDbIngestRequest,
     background_tasks: BackgroundTasks,
 ) -> dict:
-    """Ingest tracks from rekordbox into SCUE.
+    """Start ingestion from rekordbox master.db in the background.
 
-    1. Reads master.db → finds tracks with audio on disk
-    2. Creates Pioneer sidecars for all tracks with ANLZ data
-    3. Queues new tracks for audio analysis (returns job_id for progress)
+    Returns immediately with ``{status: "started"}``. Progress is
+    broadcast via WS ``rekordbox_progress`` events. When the ingest
+    finishes, a ``rekordbox_progress`` event with ``phase: "ingest_complete"``
+    carries the result summary.
 
-    Sidecars are created during the scan phase (run in executor) so Pioneer
-    data is immediately available. Audio analysis runs in the background.
+    Singleton: only one ingest runs at a time.
     """
+    global _ingest_in_progress
+
     if _store is None:
         raise HTTPException(status_code=500, detail="Store not initialized")
 
-    from ..layer1.masterdb_scanner import ingest_from_master_db
+    # Cancel any in-progress ingest before starting a new one
+    if _ingest_in_progress:
+        logger.info("Cancelling previous ingest to start a new one")
+        _ingest_cancel.set()
+        return {"status": "cancelling_previous", "message": "Previous ingest being cancelled, try again shortly"}
 
-    loop = asyncio.get_event_loop()
+    _ingest_in_progress = True  # Set immediately in endpoint, not background task
 
-    def progress_cb(current: int, total: int, message: str) -> None:
-        asyncio.run_coroutine_threadsafe(
-            _broadcast_progress("ingesting", message, {"current": current, "total": total}),
-            loop,
-        )
-
-    await _broadcast_progress("ingesting", "Preparing ingest from rekordbox…")
-
-    # Phase 1: Scan + create sidecars (in executor, ~20s)
-    result = await loop.run_in_executor(
-        None,
-        lambda: ingest_from_master_db(
-            store=_store,
-            bpm_min=req.bpm_min,
-            bpm_max=req.bpm_max,
-            genre=req.genre,
-            search=req.search,
-            progress_cb=progress_cb,
-        ),
+    background_tasks.add_task(
+        _run_ingest_background,
+        bpm_min=req.bpm_min,
+        bpm_max=req.bpm_max,
+        genre=req.genre,
+        search=req.search,
+        skip_waveform=req.skip_waveform,
+        metadata_only=req.metadata_only,
     )
+    return {"status": "started"}
 
-    response = {
-        "total_in_rekordbox": result.total_in_rekordbox,
-        "already_in_scue": result.already_in_scue,
-        "queued_for_analysis": len(result.queued_for_analysis),
-        "sidecars_created": result.sidecars_created,
-        "sidecars_skipped": result.sidecars_skipped,
-    }
 
-    # Phase 2: Start batch analysis for new tracks (background)
-    if result.queued_for_analysis:
-        from .jobs import create_job
-        from .tracks import _run_batch_analysis, _get_cache
+async def _run_ingest_background(
+    *,
+    bpm_min: float | None,
+    bpm_max: float | None,
+    genre: str | None,
+    search: str | None,
+    skip_waveform: bool,
+    metadata_only: bool,
+) -> None:
+    """Background task: run ingest, broadcast progress + result via WS."""
+    global _ingest_in_progress
 
-        job = create_job(result.queued_for_analysis)
-        cache = _get_cache()
-        cache.create_job(
-            job_id=job.job_id,
-            paths=result.queued_for_analysis,
-            scan_root="",
-            destination_folder="rekordbox",
-            skip_waveform=req.skip_waveform,
-        )
-        background_tasks.add_task(
-            _run_batch_analysis,
-            job=job,
-            skip_waveform=req.skip_waveform,
-            scan_root="",
-            destination_folder="rekordbox",
-        )
-        response["job_id"] = job.job_id
+    async with _ingest_lock:
+        _ingest_cancel.clear()
 
-    await _broadcast_progress("complete", "Ingest complete", {
-        "queued": len(result.queued_for_analysis),
-        "sidecars": result.sidecars_created,
-    })
+        try:
+            from ..layer1.masterdb_scanner import IngestCancelled, ingest_from_master_db
 
-    return response
+            loop = asyncio.get_event_loop()
+
+            def progress_cb(current: int, total: int, message: str) -> None:
+                asyncio.run_coroutine_threadsafe(
+                    _broadcast_progress("ingesting", message, {"current": current, "total": total}),
+                    loop,
+                )
+
+            await _broadcast_progress("ingesting", "Preparing ingest from rekordbox…")
+
+            try:
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: ingest_from_master_db(
+                        store=_store,
+                        bpm_min=bpm_min,
+                        bpm_max=bpm_max,
+                        genre=genre,
+                        search=search,
+                        progress_cb=progress_cb,
+                        cancel_check=_ingest_cancel.is_set,
+                    ),
+                )
+            except IngestCancelled:
+                logger.info("Ingest cancelled — partial work preserved")
+                await _broadcast_progress("cancelled", "Ingest cancelled")
+                return
+
+            response = {
+                "total_in_rekordbox": result.total_in_rekordbox,
+                "already_in_scue": result.already_in_scue,
+                "queued_for_analysis": len(result.queued_for_analysis),
+                "sidecars_created": result.sidecars_created,
+                "sidecars_skipped": result.sidecars_skipped,
+            }
+
+            # Phase 2: Start batch analysis for new tracks
+            # Skipped entirely when metadata_only — sidecars are the only output.
+            if result.queued_for_analysis and not metadata_only:
+                from .jobs import create_job
+                from .tracks import _run_batch_analysis, _get_cache
+
+                job = create_job(result.queued_for_analysis)
+                cache = _get_cache()
+                cache.create_job(
+                    job_id=job.job_id,
+                    paths=result.queued_for_analysis,
+                    scan_root="",
+                    destination_folder="rekordbox",
+                    skip_waveform=skip_waveform,
+                )
+                # Run analysis inline (we're already in a background task)
+                await _run_batch_analysis(
+                    job=job,
+                    skip_waveform=skip_waveform,
+                    scan_root="",
+                    destination_folder="rekordbox",
+                )
+                response["job_id"] = job.job_id
+
+            await _broadcast_progress("ingest_complete", "Ingest complete", response)
+            logger.info(
+                "Ingest complete: %d queued, %d sidecars",
+                len(result.queued_for_analysis), result.sidecars_created,
+            )
+
+        except Exception as e:
+            logger.exception("Background ingest failed: %s", e)
+            await _broadcast_progress("error", f"Ingest failed: {e}")
+        finally:
+            _ingest_in_progress = False
+
+
+@router.post("/master-db/cancel")
+async def cancel_master_db_ingest() -> dict:
+    """Cancel an in-progress master.db ingest.
+
+    The running ingest will stop at the next checkpoint and preserve
+    any sidecars already created. Returns immediately.
+    """
+    if not _ingest_lock.locked():
+        return {"status": "idle", "message": "No ingest in progress"}
+    _ingest_cancel.set()
+    logger.info("Ingest cancel requested")
+    return {"status": "cancelling", "message": "Cancel signal sent"}

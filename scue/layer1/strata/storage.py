@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 
 from .models import ArrangementFormula, formula_from_dict, formula_to_dict
@@ -59,7 +61,17 @@ class StrataStore:
             raise ValueError(f"Invalid source: {source!r} (expected one of {VALID_SOURCES})")
         path = self._path(formula.fingerprint, tier, source)
         data = formula_to_dict(formula)
-        path.write_text(json.dumps(data, indent=2) + "\n")
+        fd, tmp_path = tempfile.mkstemp(dir=self._dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(json.dumps(data, indent=2) + "\n")
+            os.replace(tmp_path, path)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         logger.info(
             "Saved strata %s/%s for %s (%.1fs compute)",
             tier, source, formula.fingerprint[:16], formula.compute_time_seconds,

@@ -10,3 +10,6 @@ server:
     - ".ogg"
   tracks_dir: "tracks"
   cache_path: "cache/scue.db"
+
+strata:
+  batch_max_parallel: 8  # max concurrent quick-tier analyses

@@ -173,6 +173,7 @@ export interface MasterDbIngestParams {
   genre?: string;
   search?: string;
   skip_waveform?: boolean;
+  metadata_only?: boolean;
 }
 
 export interface MasterDbIngestResponse {

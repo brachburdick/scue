@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..batch import run_batch
 from .anlz_parser import AnlzParseError, parse_anlz_beatgrid, parse_anlz_cues, parse_anlz_phrases
 from .storage import TrackCache, TrackStore
 
@@ -280,22 +281,35 @@ def scan_master_db(
     # we can create sidecars for). Parsing all 6000+ ANLZ files via pyrekordbox
     # is extremely slow; limiting to ~500 with audio keeps scan under 30s.
     anlz_tracks = [t for t in tracks if t.anlz_exists and t.audio_exists]
-    for i, track in enumerate(anlz_tracks):
-        if progress_cb and i % 50 == 0:
-            progress_cb(i, len(anlz_tracks), "Parsing ANLZ data")
-        _parse_anlz_for_track(track)
+    run_batch(
+        anlz_tracks,
+        lambda track, _i: _parse_anlz_for_track(track),
+        progress=progress_cb,
+        progress_every=50,
+        progress_message="Parsing ANLZ data",
+    )
 
     # Match to SCUE tracks by fingerprint
     matched = 0
     if match_scue and store is not None:
         audio_tracks = [t for t in tracks if t.audio_exists]
-        for i, track in enumerate(audio_tracks):
-            if progress_cb and i % 20 == 0:
-                progress_cb(i, len(audio_tracks), "Computing fingerprints")
+
+        def _match_fingerprint(track: MasterDbTrack, _i: int) -> str | None:
+            nonlocal matched
             fp = _compute_fingerprint(Path(track.audio_path))
             if fp and store.exists(fp):
                 track.fingerprint = fp
                 matched += 1
+            return None
+
+        run_batch(
+            audio_tracks,
+            _match_fingerprint,
+            progress=progress_cb,
+            progress_every=20,
+            progress_message="Computing fingerprints",
+            gil_yield_every=20,
+        )
 
     elapsed = round(time.time() - start_time, 2)
     logger.info(
@@ -321,16 +335,16 @@ def create_sidecars_from_master_db(
 
     Returns the number of sidecars created.
     """
-    created = 0
-    for track in result.tracks:
+
+    def _create_sidecar(track: MasterDbTrack, _i: int) -> str | None:
         if not track.fingerprint:
-            continue
+            return "no fingerprint"
         if not track.phrases and not track.beatgrid:
-            continue
+            return "no ANLZ data"
 
         analysis = store.load_latest(track.fingerprint)
         if analysis is None:
-            continue
+            return "no analysis found"
 
         sidecar = {
             "fingerprint": track.fingerprint,
@@ -347,13 +361,24 @@ def create_sidecars_from_master_db(
         }
 
         store.save_live_data(track.fingerprint, sidecar)
-        created += 1
         logger.debug(
             "Created sidecar for %s (%s) — %d phrases, %d beats",
             track.fingerprint[:12], track.title[:30],
             len(track.phrases), len(track.beatgrid),
         )
+        return None
 
+    batch = run_batch(
+        result.tracks,
+        _create_sidecar,
+        progress_message="Creating sidecars",
+    )
+    created = batch.succeeded
+    if batch.failed:
+        logger.warning(
+            "Sidecar creation: %d succeeded, %d failed (corrupt JSON or I/O errors)",
+            batch.succeeded, batch.failed,
+        )
     logger.info("Created %d sidecars from master.db scan", created)
     return created
 
@@ -455,6 +480,11 @@ class IngestResult:
     sidecars_skipped: int            # no ANLZ data available
 
 
+class IngestCancelled(Exception):
+    """Raised when an ingest operation is cancelled."""
+    pass
+
+
 def ingest_from_master_db(
     store: TrackStore,
     db_path: Path | None = None,
@@ -463,6 +493,7 @@ def ingest_from_master_db(
     genre: str | None = None,
     search: str | None = None,
     progress_cb: callable | None = None,
+    cancel_check: callable | None = None,
 ) -> IngestResult:
     """Prepare rekordbox tracks for SCUE: create sidecars + return analysis queue.
 
@@ -490,6 +521,8 @@ def ingest_from_master_db(
     total = len(contents)
 
     for i, c in enumerate(contents):
+        if cancel_check and cancel_check():
+            raise IngestCancelled("Ingest cancelled during master.db read")
         if progress_cb and i % 500 == 0:
             progress_cb(i, total, "Reading master.db")
 
@@ -544,25 +577,35 @@ def ingest_from_master_db(
     logger.info("Filtered to %d tracks with audio on disk", len(tracks))
 
     # Parse ANLZ data
-    for i, track in enumerate(tracks):
-        if progress_cb and i % 50 == 0:
-            progress_cb(i, len(tracks), "Parsing ANLZ data")
-        if track.anlz_exists:
-            _parse_anlz_for_track(track)
+    def _parse_anlz(track: MasterDbTrack, _i: int) -> str | None:
+        if not track.anlz_exists:
+            return "no ANLZ"
+        _parse_anlz_for_track(track)
+        return None
 
-    # Compute fingerprints and classify tracks
+    anlz_batch = run_batch(
+        tracks,
+        _parse_anlz,
+        progress=progress_cb,
+        progress_every=50,
+        progress_message="Parsing ANLZ data",
+        cancel_check=cancel_check,
+    )
+    if anlz_batch.cancelled:
+        raise IngestCancelled("Ingest cancelled during ANLZ parsing")
+
+    # Compute fingerprints, classify tracks, and create sidecars
     already_in_scue = 0
     queued: list[str] = []
     sidecars_created = 0
     sidecars_skipped = 0
 
-    for i, track in enumerate(tracks):
-        if progress_cb and i % 20 == 0:
-            progress_cb(i, len(tracks), "Computing fingerprints")
+    def _fingerprint_and_sidecar(track: MasterDbTrack, _i: int) -> str | None:
+        nonlocal already_in_scue, sidecars_created, sidecars_skipped
 
         fp = _compute_fingerprint(Path(track.audio_path))
         if fp is None:
-            continue
+            return "fingerprint failed"
         track.fingerprint = fp
 
         exists = store.exists(fp)
@@ -573,7 +616,6 @@ def ingest_from_master_db(
 
         # Create sidecar if ANLZ data available (for both new and existing tracks)
         if track.phrases or track.beatgrid:
-            # Need duration from existing analysis, or estimate from BPM
             duration = 0.0
             if exists:
                 analysis = store.load_latest(fp)
@@ -599,6 +641,20 @@ def ingest_from_master_db(
             sidecars_created += 1
         else:
             sidecars_skipped += 1
+        return None
+
+    fp_batch = run_batch(
+        tracks,
+        _fingerprint_and_sidecar,
+        progress=progress_cb,
+        progress_every=20,
+        progress_message="Computing fingerprints",
+        cancel_check=cancel_check,
+        gc_every=50,  # fingerprinting is I/O-heavy, gc between chunks
+        gil_yield_every=20,
+    )
+    if fp_batch.cancelled:
+        raise IngestCancelled("Ingest cancelled during fingerprinting")
 
     elapsed = round(time.time() - start_time, 2)
     logger.info(

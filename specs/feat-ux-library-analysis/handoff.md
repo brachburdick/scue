@@ -108,11 +108,80 @@ PlantUML server is configurable via `VITE_PLANTUML_SERVER` env var (default: `ht
 
 ---
 
+## Bug Fixes (same session)
+
+### [FIXED] Strata progress bar jumps to 40% then stalls
+Progress was `current_step / total_steps` — equal weight per step. Demucs (step 2/5) takes 60s of ~75s total but only showed as 20% bar width. Fixed with `durationWeightedPercent()` that weights by estimated wall time. Also fixed pre-existing `TIER_LABELS` build error (missing `live`/`live_offline`).
+File: `frontend/src/components/strata/TierAnalysisStatus.tsx`
+
+## Open Bugs (for next session)
+
+### [FIXED 2026-04-01] App goes dormant when laptop screen sleeps
+**Priority:** MEDIUM
+**Fix:** Added OS sleep/wake detection in `_health_check_loop()`. If `asyncio.sleep(N)` slept > 3×N, macOS suspended us. On detection: reset stale timestamps, grant 30s grace period before resuming health checks. See `docs/bugs/layer0-bridge.md` for full details.
+
+### [FIXED 2026-04-01] Bridge crash-restart loop (recurring)
+**Priority:** HIGH
+**Fix:** Four root causes found and fixed (see `docs/bugs/layer0-bridge.md` entry dated 2026-04-01):
+1. **Interface pre-check** (THE critical fix) — `start()` now checks `socket.if_nametoindex()` before launching subprocess. If en16 doesn't exist, skips directly to `waiting_for_hardware` with zero crash loops. Previously the Java bridge launched as a zombie and took ~7 minutes to reach waiting_for_hardware.
+2. **Crash-window mechanism** — `_consecutive_failures` no longer resets when crashes happen within 120s of each other, even if individual runs exceed 30s.
+3. **Listen loop restart on clean WS close** — `_listen_loop()` now triggers restart when the WS closes cleanly (ConnectionClosed), not just on exceptions.
+4. **Sleep/wake grace period** — health check detects OS sleep and grants 30s grace before resuming checks.
+All 69 bridge tests pass. **Needs live hardware QA** — see mandatory test criteria in `docs/bugs/layer0-bridge.md`.
+
 ## Known Gaps / Follow-ups
 
 - **Playlist track filtering:** Tree view selects playlists but cross-referencing track IDs with scan results needs `rekordbox_id` in the response for exact matching. Currently best-effort.
-- **Pre-existing build errors:** `npm run build` has ~15 pre-existing TS errors in other files (ws.ts, AnnotationTimeline, ScanProgressPanel, etc.). `npm run typecheck` passes clean — no new errors from this work.
+- **Pre-existing build errors:** `npm run build` has ~14 pre-existing TS errors in other files (ws.ts, AnnotationTimeline, ScanProgressPanel, etc.). `npm run typecheck` passes clean — no new errors from this work. (One pre-existing error fixed: `TierAnalysisStatus.tsx` TIER_LABELS.)
 - **PlantUML diagrams are starter examples.** The two `.puml` files cover system overview and data flow. More diagrams (bridge lifecycle, strata pipeline, WS message flow) can be added as needed.
+
+## Assessment: Parallel Song Analysis
+
+### Current state
+All analysis is **strictly sequential**. Both single-track and batch paths run in a single `BackgroundTasks` thread:
+- Single: `_run_strata_analysis()` — one track, one thread, blocks until done.
+- Batch: `_run_strata_batch()` — iterates a `for` loop over tracks, calling `_run_strata_analysis()` per track. No concurrency.
+
+### Resource profile per track (standard tier)
+
+| Stage | Time | CPU | RAM | GPU/MPS | I/O |
+|-------|------|-----|-----|---------|-----|
+| 1. Load analysis | ~1s | low | ~50 MB | none | disk read |
+| 2. Stem separation (demucs htdemucs) | ~60s | **high** (all cores) | **~2-4 GB** (model + audio tensors) | MPS if available, else CPU | writes 4 stem WAVs (~200 MB total) |
+| 3. Per-stem analysis | ~10s | medium | ~200 MB per stem | none | reads stem WAVs |
+| 4. Cross-stem transitions | ~3s | low | ~100 MB | none | none |
+| 5. Assembly | ~1s | low | ~50 MB | none | writes formula JSON |
+
+**Demucs is the bottleneck.** It uses PyTorch and will attempt MPS (Apple Silicon GPU) if available, otherwise saturates all CPU cores. Memory footprint is ~2-4 GB for the model + full-track audio tensor.
+
+### Parallelism viability
+
+| Scenario | Tracks | Feasible? | Notes |
+|----------|--------|-----------|-------|
+| Quick tier only | 10-50+ | **Yes** | No demucs, ~3-7s per track, CPU-light. Could run 4-8 in parallel easily. |
+| Standard tier, M-series Mac (16 GB) | **2** | **Yes, carefully** | Each demucs instance needs ~2-4 GB RAM. Two instances = 4-8 GB. Leaves room for the app + bridge. |
+| Standard tier, M-series Mac (16 GB) | **3+** | **Risky** | 3 × 4 GB = 12 GB just for demucs. Likely triggers memory pressure / swap thrashing. |
+| Standard tier, 32+ GB Mac | **3-4** | **Yes** | Comfortable RAM headroom. GPU contention (MPS is single-queue) becomes the bottleneck instead. |
+| Standard tier, any machine | **5+** | **No** | Diminishing returns: MPS is serialized, CPU-fallback demucs pins all cores, disk I/O for stem WAVs becomes a factor. |
+
+### Recommendations
+
+**Quick tier parallelism (low-hanging fruit):**
+- Quick analysis is CPU-light and takes 3-7s. Running 4-8 tracks in parallel via `concurrent.futures.ThreadPoolExecutor` or `ProcessPoolExecutor` would batch-analyze a library of 100 tracks in ~2-3 minutes instead of ~10 minutes.
+- This is the highest-value change: bulk Quick analysis is the primary batch use case (Library page "Run Quick Analysis" button).
+- Implementation: Replace the `for` loop in `_run_strata_batch()` with a pool, gated by tier. Quick → parallel, standard/deep → sequential.
+
+**Standard tier parallelism (more complex):**
+- Limited to 2 concurrent tracks on 16 GB machines. Demucs caches stems on disk, so re-runs skip separation — only the first analysis per track is expensive.
+- Would need a configurable `max_workers` setting (in `config/server.yaml`) so the user can tune based on their hardware.
+- Demucs itself already uses internal parallelism (multi-threaded tensor ops). Running 2 demucs instances won't be 2x faster — more like 1.4-1.6x due to shared CPU/GPU.
+- MPS (Apple GPU) is single-queue, so two PyTorch processes sharing MPS actually serialize at the GPU level. True GPU parallelism isn't possible on current Apple Silicon.
+
+**Suggested implementation order:**
+1. Quick tier parallel batch (ThreadPoolExecutor, `max_workers=min(8, os.cpu_count())`)
+2. Add `VITE_BATCH_MAX_PARALLEL` / `batch.max_parallel` config
+3. Standard tier parallel with `max_workers=2` default, configurable up to 4
+4. Per-track progress needs rework for parallel (currently assumes one active job)
 
 ## Session Verification Summary
 

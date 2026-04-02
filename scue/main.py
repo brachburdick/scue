@@ -85,7 +85,10 @@ async def startup() -> None:
     from .layer1.strata.storage import StrataStore
     strata_dir = Path("strata")
     strata_store = StrataStore(strata_dir)
-    init_strata_api(strata_store, tracks_dir=tracks_dir, cache_path=cache_path)
+    init_strata_api(
+        strata_store, tracks_dir=tracks_dir, cache_path=cache_path,
+        batch_max_parallel=config.strata.batch_max_parallel,
+    )
 
     from .api.strata import set_strata_tracker
 

@@ -1,6 +1,6 @@
 /** API functions and hooks for scan & batch analyze flow (FE-4). */
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import type {
   ScanResponse,
@@ -55,9 +55,18 @@ export function useJobStatus(jobId: string | null) {
     enabled: !!jobId,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      if (status === "complete" || status === "complete_with_errors") return false;
+      if (status === "complete" || status === "complete_with_errors" || status === "cancelled") return false;
       return 1000;
     },
+  });
+}
+
+export function useCancelJob() {
+  return useMutation<{ ok: boolean; status: string; message: string }, Error, string>({
+    mutationFn: (jobId) =>
+      apiFetch<{ ok: boolean; status: string; message: string }>(`/tracks/jobs/${jobId}/cancel`, {
+        method: "POST",
+      }),
   });
 }
 

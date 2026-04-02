@@ -27,7 +27,7 @@ export interface JobFileResult {
 
 export interface JobStatus {
   job_id: string;
-  status: "pending" | "running" | "complete" | "complete_with_errors" | "failed";
+  status: "pending" | "running" | "complete" | "complete_with_errors" | "failed" | "cancelled";
   total: number;
   completed: number;
   failed: number;

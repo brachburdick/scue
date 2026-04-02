@@ -72,3 +72,68 @@ Milestone: Bridge Command Channel
 **Fix:** Changed `len_path` read from `struct.unpack_from(">I", section_data, header_len)` to `struct.unpack_from(">I", section_data, 12)`. Path bytes start at offset 16 (12 + 4). PPTH layout: tag(4) + header_len(4) + total_len(4) + len_path(4) + path_bytes.
 **Note:** Unit tests passed with the old code because the synthetic test data used `header_len=16`, which happened to coincide with offset 12+4. Real rekordbox files exposed the bug.
 **Files:** `scue/layer1/anlz_parser.py`
+
+### detectors.yaml path resolution off by one parent
+Date: 2026-04-01
+Milestone: N/A
+**Symptom:** Every analysis logs "Detector config not found at .../scue/config/detectors.yaml, using defaults". Detectors work but always use hardcoded defaults instead of YAML config.
+**Root Cause:** `load_detector_config()` in `events.py` used `Path(__file__).parent.parent.parent / "config"` which resolves to `scue/scue/config/` (inside the package). The actual config lives at `scue/config/` (project root). Needed one more `.parent`.
+**Fix:** Changed to `Path(__file__).parent.parent.parent.parent / "config" / "detectors.yaml"` (4 levels up from `scue/layer1/detectors/events.py` to project root).
+**Files:** `scue/layer1/detectors/events.py`
+
+### "Metadata Only" import mode still queued full audio analysis
+Date: 2026-04-01
+Milestone: N/A
+**Symptom:** Clicking Import with "Metadata Only" selected queued 2253 tracks for full audio analysis (fingerprinting, beat detection, sections, events). Import button hung for hours.
+**Root Cause:** Frontend passed `skip_waveform: true` which only skipped the waveform rendering step — all other analysis still ran. No `metadata_only` flag existed.
+**Fix:** Added `metadata_only: bool` to `MasterDbIngestRequest`. When true, Phase 2 (batch audio analysis) is skipped entirely. Frontend now sends `metadata_only: true` when import mode is "metadata".
+**Files:** `scue/api/local_library.py`, `frontend/src/components/ingestion/RekordboxTab.tsx`, `frontend/src/types/ingestion.ts`
+
+### Concurrent ingest processes from duplicate Import clicks
+Date: 2026-04-01
+Milestone: N/A
+**Symptom:** Clicking Import multiple times spawned duplicate executor tasks that ran in parallel, causing overlapping fingerprint computations, CPU saturation, memory pressure, and eventual server unresponsiveness (WebSocket drops, frontend black screen).
+**Root Cause:** No concurrency guard on the ingest endpoint. Each POST spawned a new `run_in_executor` task independently.
+**Fix:** Added `_ingest_lock` (asyncio.Lock) as singleton guard — only one ingest runs at a time. New requests cancel in-progress ingests via `_ingest_cancel` (threading.Event) checked at loop heads in `ingest_from_master_db()`. Frontend disables Import button while active.
+**Files:** `scue/api/local_library.py`, `scue/layer1/masterdb_scanner.py`, `frontend/src/components/ingestion/RekordboxTab.tsx`
+
+### create_sidecars_from_master_db crashes on corrupt JSON analysis file
+Date: 2026-04-01
+Milestone: N/A
+**Symptom:** "Scan Collection" returns 500 Internal Server Error after scanning 4510 tracks successfully. UI shows red "Scan failed: API 500" error.
+**Root Cause:** `create_sidecars_from_master_db()` calls `store.load_latest(fingerprint)` for each matched track with no try/except. 10 of 891 matched tracks have corrupt JSON files (Extra data, Invalid control character, Expecting delimiter errors). One corrupt file kills the entire sidecar pass.
+**Fix:** Wrapped `store.load_latest()` in try/except, logging a warning and skipping the corrupt track. Sidecar creation continues for remaining tracks.
+**Files:** `scue/layer1/masterdb_scanner.py` (`create_sidecars_from_master_db()`)
+
+### No memory cleanup between batch analysis files
+Date: 2026-04-01
+Milestone: N/A
+**Symptom:** Server becomes unresponsive during large batch analysis (2000+ tracks). Memory grows unbounded.
+**Root Cause:** librosa loads full audio into RAM per track. Python's GC is lazy and doesn't promptly free the ~35MB per track between iterations.
+**Fix:** Added `gc.collect()` after each successful file in `_run_batch_analysis()`.
+**Files:** `scue/api/tracks.py`
+
+### [NOT REPRODUCED] Strata GET endpoint returns empty for existing analysis files
+Date: 2026-04-02
+Milestone: N/A
+**Reported Symptom:** GET /api/tracks/{fp}/strata/quick returns pipeline_tier=None, sections=0 even though strata/{fp}.quick.analysis.json exists on disk with 22 sections.
+**Reported Root Cause:** File lookup pattern mismatch between GET endpoint and analysis writer.
+**Investigation:** Could not reproduce. Both the writer (`StrataEngine.analyze_quick` → `StrataStore.save`) and reader (`get_strata_tier` / `get_all_strata` → `StrataStore.load`) use the same `_path()` method generating `{fp}.{tier}.{source}.json`. Tested all 6 quick analysis files via `StrataStore.load()` and via FastAPI TestClient — all returned correct pipeline_tier and section counts. Legacy fallback (`{fp}.{tier}.json`) also works for the 2 legacy-only files.
+**Side finding:** `_VALID_TIERS` in `scue/api/tracks.py:61` was missing `"hybrid"`, so `_scan_strata()` skipped hybrid strata files in the track list. Fixed. Not related to the reported symptom.
+**Files:** `scue/api/strata.py`, `scue/layer1/strata/storage.py`, `scue/api/tracks.py`
+
+### Non-atomic JSON writes corrupt analysis files on crash
+Date: 2026-04-02
+Milestone: N/A
+**Symptom:** After a uvicorn worker crash (during large batch analysis), multiple track JSON files are left corrupt (`JSONDecodeError: Extra data`). On restart, `resume_incomplete_jobs` hits these files and logs batch failures. Corrupt files persist across restarts.
+**Root Cause:** `TrackStore.save()`, `save_live_data()`, and `StrataStore.save()` all used direct `open("w")` + `json.dump()` writes. If the process is killed mid-write, the file is left in a partial/corrupt state (old content + partial new content = "Extra data").
+**Fix:** All three writers now use atomic write pattern: write to a temp file (`tempfile.mkstemp` in the same directory), then `os.replace()` to atomically swap it into place. On any failure the temp file is cleaned up. Also made `TrackStore.load()` resilient to corrupt files — catches `JSONDecodeError`/`KeyError` and returns `None` with a warning log instead of propagating the exception.
+**Files:** `scue/layer1/storage.py`, `scue/layer1/strata/storage.py`
+
+### _VALID_TIERS missing "hybrid" — track listing skips hybrid strata files
+Date: 2026-04-02
+Milestone: N/A
+**Symptom:** Tracks with hybrid strata data don't show "hybrid" in their available tiers on the track list endpoint.
+**Root Cause:** `_VALID_TIERS` in `scue/api/tracks.py` was `{"quick", "standard", "deep", "live", "live_offline"}` — missing `"hybrid"`. The `_scan_strata()` function uses this set to filter filenames, so `{fp}.hybrid.pioneer_live.json` files were silently skipped.
+**Fix:** Added `"hybrid"` to `_VALID_TIERS`.
+**Files:** `scue/api/tracks.py`

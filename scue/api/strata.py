@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -43,19 +45,22 @@ _store: StrataStore | None = None
 _tracks_dir: Path | None = None
 _cache_path: Path | None = None
 _tracker: object | None = None  # PlaybackTracker, set by main.py
+_batch_max_parallel: int = 8
 
 
 def init_strata_api(
     store: StrataStore,
     tracks_dir: Path | None = None,
     cache_path: Path | None = None,
+    batch_max_parallel: int = 8,
 ) -> None:
     """Initialize the strata API with a storage instance."""
-    global _store, _tracks_dir, _cache_path
+    global _store, _tracks_dir, _cache_path, _batch_max_parallel
     _store = store
     _tracks_dir = tracks_dir
     _cache_path = cache_path
-    logger.info("Strata API initialized: %s", store.base_dir)
+    _batch_max_parallel = batch_max_parallel
+    logger.info("Strata API initialized: %s (batch_max_parallel=%d)", store.base_dir, batch_max_parallel)
 
 
 def set_strata_tracker(tracker: object) -> None:
@@ -356,11 +361,42 @@ async def get_strata_batch_status(batch_id: str) -> dict:
 
 
 def _run_strata_batch(batch: StrataBatchJob) -> None:
-    """Run batch strata analysis sequentially in background."""
+    """Run batch strata analysis with tier-aware parallelism.
+
+    Quick-tier jobs run in parallel (ThreadPoolExecutor).
+    Standard/deep jobs run sequentially after all quick jobs complete.
+    """
     batch.status = "running"
-    for job in batch.jobs:
+
+    quick_jobs = [j for j in batch.jobs if j.tier == "quick"]
+    heavy_jobs = [j for j in batch.jobs if j.tier != "quick"]
+
+    # Run quick-tier jobs in parallel
+    if quick_jobs:
+        max_workers = min(_batch_max_parallel, os.cpu_count() or 4)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(_run_strata_analysis, j.fingerprint, [j.tier], job=j): j
+                for j in quick_jobs
+            }
+            for future in as_completed(futures):
+                # Exceptions are already caught inside _run_strata_analysis,
+                # but guard against unexpected errors so one job can't kill the batch.
+                try:
+                    future.result()
+                except Exception as exc:
+                    job = futures[future]
+                    logger.exception("Unexpected error in quick batch job %s", job.fingerprint[:16])
+                    if job.status not in ("complete", "failed"):
+                        job.status = "failed"
+                        job.error = str(exc)
+
+    # Run heavy-tier jobs sequentially
+    for job in heavy_jobs:
         _run_strata_analysis(job.fingerprint, [job.tier], job=job)
+
     invalidate_strata_cache()
+
     # Determine overall status
     if all(j.status == "complete" for j in batch.jobs):
         batch.status = "complete"

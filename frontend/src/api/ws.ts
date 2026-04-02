@@ -100,9 +100,9 @@ function dispatch(msg: WSMessage): void {
       queryClient.invalidateQueries({ queryKey: ["scanner"] });
       break;
     case "rekordbox_progress":
-      // Rekordbox scan/ingest progress — dispatched to console only
-      // (no store update needed; the HTTP response handles UI state)
-      if (msg.payload.phase === "complete") {
+      // Dispatch to ingestion store for real-time progress bar
+      useIngestionStore.getState().setRekordboxProgress(msg.payload);
+      if (msg.payload.phase === "complete" || msg.payload.phase === "scan_complete" || msg.payload.phase === "ingest_complete" || msg.payload.phase === "cancelled") {
         queryClient.invalidateQueries({ queryKey: ["master-db"] });
         queryClient.invalidateQueries({ queryKey: ["tracks"] });
       }

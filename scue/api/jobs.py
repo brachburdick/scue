@@ -35,6 +35,7 @@ class AnalysisJob:
     total_steps: int = 10           # total steps per file
     results: list[FileResult] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
+    cancelled: bool = False
 
 
 _jobs: dict[str, AnalysisJob] = {}

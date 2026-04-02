@@ -34,6 +34,19 @@ DEFAULT_PORT = 17400
 # resetting and blocking fallback from ever triggering.
 _MIN_STABLE_UPTIME_S = 30.0
 
+# Crash window (seconds).  If the bridge crashes again within this window after
+# the *previous* crash, the failure counter keeps accumulating — even if the
+# individual run exceeded _MIN_STABLE_UPTIME_S.  This prevents the counter from
+# resetting in slow crash-restart loops (e.g. after macOS sleep/wake where each
+# run survives 1-2 min but keeps dying).  The counter only resets when the bridge
+# has been crash-free for longer than this window.
+_CRASH_WINDOW_S = 120.0
+
+# Grace period (seconds) after detecting an OS sleep/wake event.  During this
+# window the health check suppresses silence-based restarts, giving the bridge
+# and network stack time to restabilize.
+_WAKE_GRACE_PERIOD_S = 30.0
+
 # Polling interval (seconds) when waiting for hardware to reappear after the
 # bridge has reached its crash threshold. Chosen to be infrequent enough to
 # avoid OS focus-steal nuisance while still recovering reasonably quickly.
@@ -102,6 +115,7 @@ class BridgeManager:
         self._last_message_time: float = 0.0
         self._last_pioneer_message_time: float = 0.0
         self._last_stable_start_time: float = 0.0  # time.time() when last "running" began
+        self._last_crash_time: float = 0.0  # time.time() of most recent crash
         self._route_correct: bool | None = None
         self._route_warning: str | None = None
         self._route_competing_interfaces: list[str] = []
@@ -182,7 +196,23 @@ class BridgeManager:
                 logger.debug("State change callback error: %s", e)
 
     async def start(self) -> None:
-        """Start the bridge. Degrades gracefully if JAR/JRE unavailable."""
+        """Start the bridge. Degrades gracefully if JAR/JRE unavailable.
+
+        Pre-flight checks (in order):
+          1. Already running → no-op
+          2. JRE missing → fallback (UDP parser)
+          3. JAR missing → fallback (UDP parser)
+          4. Configured network interface doesn't exist → waiting_for_hardware
+             (skips subprocess launch entirely — no crash loop)
+
+        The interface check is critical: launching the Java bridge with a
+        non-existent --interface causes beat-link to enter a broken state
+        where it keeps its WS server alive but can't discover hardware.
+        The Python side sees "running" but the bridge is a zombie that will
+        crash ~90 seconds later when beat-link's internal timeout fires.
+        Without this check, each zombie-crash cycle takes ~2 minutes and
+        the bridge needs 3 cycles (~7 minutes) to reach waiting_for_hardware.
+        """
         if self._status == "running":
             return
 
@@ -207,19 +237,48 @@ class BridgeManager:
             await self._start_fallback()
             return
 
+        # Pre-flight: verify the configured network interface exists before
+        # launching the Java subprocess.  If the interface is absent (USB-
+        # Ethernet adapter unplugged, hardware off), skip directly to
+        # waiting_for_hardware instead of launching a doomed subprocess.
+        # When no interface is configured (auto-detect mode), skip this check.
+        if self._network_interface is not None:
+            try:
+                socket.if_nametoindex(self._network_interface)
+            except OSError:
+                logger.warning(
+                    "Network interface %s does not exist — skipping bridge launch, "
+                    "entering waiting_for_hardware",
+                    self._network_interface,
+                )
+                self._last_crash_reason = (
+                    f"Network interface '{self._network_interface}' not available. "
+                    f"Connect your USB-Ethernet adapter and the bridge will start automatically."
+                )
+                await self._enter_waiting_for_hardware()
+                return
+
         try:
             await self._launch_subprocess()
             await self._connect_websocket()
             self._status = "running"
-            # Only reset the consecutive failure counter if the bridge was stable
-            # for at least _MIN_STABLE_UPTIME_S on its previous run.  A quick
-            # start-then-crash cycle (hardware absent / no route) would otherwise
-            # reset the counter before it accumulates enough failures to reach the
-            # waiting_for_hardware threshold.
-            uptime = time.time() - self._last_stable_start_time
-            if self._last_stable_start_time == 0.0 or uptime >= _MIN_STABLE_UPTIME_S:
+            # Reset the consecutive failure counter only when the bridge has been
+            # crash-free for longer than _CRASH_WINDOW_S.  This prevents the
+            # counter from resetting in slow crash-restart loops (e.g. after
+            # macOS sleep/wake where each run survives 1-2 min but keeps dying).
+            #
+            # Two conditions are checked:
+            # 1. Fast crash loop: if the previous run was shorter than
+            #    _MIN_STABLE_UPTIME_S, don't reset (original fix).
+            # 2. Slow crash loop: if the last crash was within _CRASH_WINDOW_S,
+            #    don't reset — crashes are still accumulating.
+            now = time.time()
+            prev_uptime = now - self._last_stable_start_time if self._last_stable_start_time > 0 else float("inf")
+            time_since_crash = now - self._last_crash_time if self._last_crash_time > 0 else float("inf")
+
+            if prev_uptime >= _MIN_STABLE_UPTIME_S and time_since_crash >= _CRASH_WINDOW_S:
                 self._consecutive_failures = 0
-            self._last_stable_start_time = time.time()
+            self._last_stable_start_time = now
             self._next_retry_at = None
             self._start_listen_loop()
             self._start_health_check()
@@ -250,6 +309,7 @@ class BridgeManager:
         await self.stop()
         self._consecutive_failures = 0
         self._last_stable_start_time = 0.0
+        self._last_crash_time = 0.0
         self._next_retry_at = None
         await self.start()
 
@@ -490,7 +550,12 @@ class BridgeManager:
         self._health_task = asyncio.create_task(self._health_check_loop())
 
     async def _listen_loop(self) -> None:
-        """Read messages from WebSocket and feed to adapter."""
+        """Read messages from WebSocket and feed to adapter.
+
+        Triggers a restart if the loop ends for any reason while the bridge
+        is still in "running" state — whether from an exception or a clean
+        WebSocket close (ConnectionClosed caught internally by client.py).
+        """
         if self._ws_client is None:
             return
 
@@ -508,10 +573,16 @@ class BridgeManager:
                 self._notify_state_change()
         except Exception as e:
             logger.error("Listen loop error: %s", e)
-            if self._status == "running":
-                self._status = "crashed"
-                self._notify_state_change()
-                await self._schedule_restart()
+
+        # listen() ended — either the WS closed cleanly (ConnectionClosed
+        # caught inside client.py) or an exception occurred.  Either way,
+        # if we were "running" the bridge is now dead and needs a restart.
+        if self._status == "running":
+            logger.warning("Listen loop ended while bridge was running — triggering restart")
+            self._status = "crashed"
+            self._last_crash_reason = "WebSocket connection lost"
+            self._notify_state_change()
+            await self._schedule_restart()
 
     async def _health_check_loop(self) -> None:
         """Periodically check bridge health and restart if needed.
@@ -527,14 +598,49 @@ class BridgeManager:
             healthy and should stay "running" waiting for hardware to return.
             Restarting on Pioneer silence caused the crash-restart cycle when
             hardware was absent.
+
+        Sleep/wake detection:
+          If asyncio.sleep(N) actually slept for ≫ N seconds, macOS suspended
+          the process.  On wake, timestamps are stale and the network stack may
+          need time to recover.  The health check grants a grace period
+          (_WAKE_GRACE_PERIOD_S) before resuming normal checks, and resets
+          _last_message_time so the silence detector doesn't fire immediately.
         """
         while self._status in ("running", "starting"):
+            t_before = time.time()
             await asyncio.sleep(self._health_check_interval)
+            t_after = time.time()
 
             if self._status != "running":
                 break
 
-            # Check subprocess
+            # ── Sleep/wake detection ─────────────────────────────────────
+            actual_sleep = t_after - t_before
+            if actual_sleep > self._health_check_interval * 3:
+                logger.info(
+                    "Detected OS sleep/wake (slept %.1fs instead of %.1fs) — "
+                    "granting %.0fs grace period before health checks resume",
+                    actual_sleep,
+                    self._health_check_interval,
+                    _WAKE_GRACE_PERIOD_S,
+                )
+                # Reset message timestamp so the silence detector doesn't
+                # fire on the stale pre-sleep value.
+                self._last_message_time = 0.0
+                self._last_pioneer_message_time = 0.0
+                try:
+                    await asyncio.sleep(_WAKE_GRACE_PERIOD_S)
+                except asyncio.CancelledError:
+                    return
+                # After the grace period, if the listen loop already detected
+                # a dead WS and triggered a restart, bail out.
+                if self._status != "running":
+                    break
+                # Continue to the next health check iteration — don't apply
+                # the silence check against the stale timestamps.
+                continue
+
+            # ── Subprocess liveness ──────────────────────────────────────
             if self._process is not None and self._process.poll() is not None:
                 logger.warning("Bridge subprocess died (exit code %d)", self._process.returncode)
                 self._status = "crashed"
@@ -542,6 +648,7 @@ class BridgeManager:
                 await self._schedule_restart()
                 break
 
+            # ── WebSocket heartbeat silence ──────────────────────────────
             # Check bridge WebSocket heartbeat freshness (all messages, including
             # bridge_status heartbeats). If the bridge process is alive but the
             # WebSocket has gone silent for 2× the health check interval, the
@@ -571,6 +678,7 @@ class BridgeManager:
         UDP fallback parser. The fallback parser is only entered when JRE or
         JAR is absent — not when hardware is temporarily disconnected.
         """
+        self._last_crash_time = time.time()
         self._consecutive_failures += 1
         await self._cleanup()
 
@@ -620,6 +728,7 @@ class BridgeManager:
         self._status = "waiting_for_hardware"
         self._consecutive_failures = 0  # reset so next real crash starts fresh
         self._last_stable_start_time = 0.0
+        self._last_crash_time = 0.0
         self._next_retry_at = None
         self._notify_state_change()
         logger.info(

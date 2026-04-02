@@ -7,11 +7,14 @@ const TIER_LABELS: Record<StrataTier, string> = {
   quick: "Quick",
   standard: "Standard",
   deep: "Deep",
+  live: "Live",
+  live_offline: "Live Offline",
 };
 
-/** Estimated seconds remaining per stage for standard tier.
+/** Estimated seconds per stage for standard tier.
  *  Stage 1 (load): ~1s, Stage 2 (demucs): ~60s, Stage 3 (per-stem): ~10s,
  *  Stage 4 (transitions): ~3s, Stage 5 (assembly): ~1s.
+ *  Total: ~75s. Demucs dominates at ~80% of wall time.
  */
 const STAGE_DURATIONS: Record<number, number> = {
   1: 1,
@@ -21,14 +24,32 @@ const STAGE_DURATIONS: Record<number, number> = {
   5: 1,
 };
 
+const DEFAULT_STAGE_DURATION = 5;
+
+/** Cumulative duration up to (but not including) a given step.
+ *  Used to weight progress bar by estimated wall time, not step count.
+ *  Step 1 start = 0%, Step 2 start = 1/75 ≈ 1%, Step 3 start = 61/75 ≈ 81%.
+ */
+function durationWeightedPercent(currentStep: number, totalSteps: number): number {
+  let totalDuration = 0;
+  let completedDuration = 0;
+  for (let s = 1; s <= totalSteps; s++) {
+    const d = STAGE_DURATIONS[s] ?? DEFAULT_STAGE_DURATION;
+    totalDuration += d;
+    if (s < currentStep) completedDuration += d;
+  }
+  if (totalDuration === 0) return 0;
+  return Math.round((completedDuration / totalDuration) * 100);
+}
+
 function estimateRemaining(currentStep: number, totalSteps: number): string | null {
   if (currentStep <= 0 || currentStep > totalSteps) return null;
   let remaining = 0;
-  // Sum durations of remaining stages (current stage partially done, estimate half)
-  const currentDuration = STAGE_DURATIONS[currentStep] ?? 5;
-  remaining += currentDuration * 0.5; // assume halfway through current
+  // Current stage partially done — estimate halfway through
+  const currentDuration = STAGE_DURATIONS[currentStep] ?? DEFAULT_STAGE_DURATION;
+  remaining += currentDuration * 0.5;
   for (let s = currentStep + 1; s <= totalSteps; s++) {
-    remaining += STAGE_DURATIONS[s] ?? 5;
+    remaining += STAGE_DURATIONS[s] ?? DEFAULT_STAGE_DURATION;
   }
   if (remaining < 5) return "< 5s";
   if (remaining < 60) return `~${Math.round(remaining)}s`;
@@ -60,7 +81,7 @@ export function StrataJobProgress({
   }
 
   const isDone = job.status === "complete" || job.status === "failed";
-  const pct = job.total_steps > 0 ? Math.round((job.current_step / job.total_steps) * 100) : 0;
+  const pct = job.total_steps > 0 ? durationWeightedPercent(job.current_step, job.total_steps) : 0;
 
   // Notify parent on completion
   if (isDone && onComplete) {

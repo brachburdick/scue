@@ -16,6 +16,31 @@ File(s): path/to/file.tsx
 
 ---
 
+### Vite proxy drops long-running API requests (~120s+)
+Date: 2026-04-02
+Milestone: N/A
+**Symptom:** Scan/ingest POST requests complete on backend but frontend never receives response.
+**Root Cause:** Vite http-proxy default timeout kills connection before 130s scan completes.
+**Fix:** Made scan + ingest non-blocking (BackgroundTasks + WS result delivery).
+**Files:** `scue/api/local_library.py`, `frontend/src/stores/ingestionStore.ts`, `frontend/src/components/ingestion/RekordboxTab.tsx`, `frontend/src/api/ws.ts`, `frontend/src/types/ws.ts`
+
+### WS progress events starved during CPU-heavy executor work (GIL)
+Date: 2026-04-02
+Milestone: N/A
+**Symptom:** No rekordbox_progress WS events during fingerprint computation (~130s of 200% CPU).
+**Root Cause:** GIL contention. ThreadPoolExecutor holds GIL during SHA256, blocking asyncio event loop.
+**Fix:** Two issues in `batch.py`: (1) GIL yield was nested inside progress `if` block, so it only fired when both `progress_every` and `gil_yield_every` aligned — moved to its own block. (2) Changed `time.sleep(0)` to `time.sleep(0.001)` to give the OS scheduler a real context-switch window. `masterdb_scanner.py` already passes `gil_yield_every=20`.
+**Files:** `scue/batch.py`, `scue/layer1/masterdb_scanner.py`
+
+### [NOT REPRODUCED] Strata GET endpoint returns empty for existing analysis files
+Date: 2026-04-02
+Milestone: N/A
+**Symptom:** GET /api/tracks/{fp}/strata/quick returns empty despite .json file on disk.
+**Reported Root Cause:** GET endpoint file lookup pattern doesn't match analyzer output naming.
+**Investigation:** Could not reproduce. Writer and reader both use the same `_path()` method (`{fp}.{tier}.{source}.json`). All 6 quick analysis files return correct data via `StrataStore.load()` and FastAPI TestClient. Legacy fallback also works. See `docs/bugs/layer1-analysis.md` for full investigation.
+**Side fix:** `_VALID_TIERS` in `scue/api/tracks.py` was missing `"hybrid"`, causing `_scan_strata()` to skip hybrid strata files in track listings. Fixed.
+**Files:** `scue/api/tracks.py`
+
 ### TopBar StatusDot cycles green/yellow without Pioneer hardware
 Date: 2026-03-17
 Milestone: FE-BLT
@@ -327,6 +352,15 @@ Expected behavior: TRACK shows a flat alphabetical list of all tracks. ARTIST sh
 Fix: Java bridge needs additional DLP browse commands for non-playlist menu types. Short-term: for TRACK specifically, use the existing `browse_all_tracks` command (which uses `requestAllTracksFrom`) instead of `browse_folder`. Medium-term: add menu-type-aware browse routing.
 File(s): bridge-java/src/main/java/com/scue/bridge/CommandHandler.java, scue/api/scanner.py (browse_folder — needs menu_type param), frontend/src/components/ingestion/UsbBrowser.tsx (pass menu_type when navigating from root)
 
+### [FIXED] Strata progress bar jumps to 40% then stalls during standard analysis
+Date: 2026-04-01
+Milestone: Analysis Page
+Severity: LOW (cosmetic, misleading UX)
+Symptom: When running standard tier analysis, the progress bar almost immediately jumps to ~40%, then sits there for ~60 seconds during stem separation (demucs). The bar gives no sense of how long the wait will be — it looks stuck.
+Root cause: Progress percentage was calculated as `current_step / total_steps * 100`. Standard tier has 5 steps, and step 2 (demucs) starts almost immediately after step 1 (load, ~1s). So the bar shows 2/5 = 40% as soon as demucs starts, even though demucs takes ~60s (80% of total wall time). Equal step weighting makes short steps look like big progress and long steps look stalled.
+Fix: Replaced step-count-based percentage with duration-weighted percentage using `durationWeightedPercent()`. Each step contributes to the bar proportional to its estimated wall time: step 1 = 1s, step 2 = 60s, step 3 = 10s, step 4 = 3s, step 5 = 1s. Now step 2 starting shows ~1% (not 40%), and the bar fills to ~81% over the 60s demucs duration. Also fixed pre-existing build error: `TIER_LABELS` Record was missing `live` and `live_offline` keys.
+File(s): frontend/src/components/strata/TierAnalysisStatus.tsx
+
 ### [FIXED] XDJ-AZ appears as three devices in player dropdown (Player 1, Player 2, XDJ-AZ)
 Date: 2026-03-25
 Fixed: 2026-03-25
@@ -516,3 +550,19 @@ Symptom: The "Analyzed" column header displayed the raw string `&#X25BC;` instea
 Root cause: The `SortIndicator` component used HTML entity strings (`"&#x25B2;"`) as JSX text content. React renders string literals as-is — it does not interpret HTML entities inside `{}` expressions. Only entities written directly in JSX markup (outside `{}`) are parsed by the JSX compiler.
 Fix: Replaced HTML entity strings with actual Unicode characters: `"⇅"`, `"▲"`, `"▼"`.
 File(s): frontend/src/components/tracks/TrackTable.tsx
+
+### No Phase 1 progress indicator for rekordbox import
+Date: 2026-04-01
+Milestone: N/A
+Symptom: Clicking Import showed "Starting..." with no feedback for ~20s while master.db was scanned and fingerprinted. Backend was broadcasting WS progress events but frontend ignored them.
+Root cause: `rekordbox_progress` WS events were dispatched to console log only, not to any store the RekordboxTab could read.
+Fix: Added `rekordboxIngest` state to `ingestionStore`. WS handler now dispatches `rekordbox_progress` to the store. New `IngestPhase1Progress` component renders progress bar with message, current/total count, and Stop button.
+File(s): frontend/src/stores/ingestionStore.ts, frontend/src/api/ws.ts, frontend/src/components/ingestion/RekordboxTab.tsx
+
+### IngestPhase1Progress disappears when import starts
+Date: 2026-04-02
+Milestone: N/A
+Symptom: Phase 1 progress bar (WS-driven rekordbox_progress) vanishes the moment Import is clicked, despite the ingest still running.
+Root cause: The `IngestPhase1Progress` component was inside a `phase === "review"` conditional block. Clicking Import changes phase to `"ingesting"`, hiding the entire block including the progress bar.
+Fix: Changed condition to `phase === "review" || phase === "ingesting"` so the action bar and progress bar remain visible during ingest.
+File(s): frontend/src/components/ingestion/RekordboxTab.tsx

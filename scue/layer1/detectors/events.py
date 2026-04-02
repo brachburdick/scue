@@ -172,8 +172,9 @@ def load_detector_config(config_path: str | Path | None = None) -> DetectorConfi
     import yaml
 
     if config_path is None:
-        # Default: scue/config/detectors.yaml
-        config_path = Path(__file__).parent.parent.parent / "config" / "detectors.yaml"
+        # Default: config/detectors.yaml at project root
+        # __file__ = scue/layer1/detectors/events.py → .parent×4 = project root
+        config_path = Path(__file__).parent.parent.parent.parent / "config" / "detectors.yaml"
     else:
         config_path = Path(config_path)
 

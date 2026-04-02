@@ -297,3 +297,144 @@ Fix: Full-stack fix across 6 files:
 - **Frontend component** (`UsbBrowser.tsx`): Tracks `isFolder` state. Sets from `item.is_folder` during navigation. Resets to `true` on navigate-up, breadcrumb click, and root navigation.
 Verified: API tested against live XDJ-AZ SD slot — `folder/0?is_folder=true` returns 19 playlists, `folder/2?is_folder=false` returns tracks inside "New THE GOOD STUFF". Hardware QA of the full UI flow pending (blocked by route fix bug).
 File(s): bridge-java/src/main/java/com/scue/bridge/CommandHandler.java, scue/bridge/commands.py, scue/layer1/scanner.py, scue/api/scanner.py, frontend/src/api/ingestion.ts, frontend/src/components/ingestion/UsbBrowser.tsx
+
+### RECURRING — Bridge crash-restart loop (third investigation)
+Date: 2026-04-01
+Fixed: 2026-04-01
+Milestone: M-0
+Priority: HIGH
+Status: FIXED — four root causes found and fixed. Needs live hardware QA.
+
+> **Pattern recognition:** This is the THIRD time this bug has been investigated
+> (2026-03-18 = 6 root causes, 2026-04-01 attempt 1 = 3 root causes, 2026-04-01
+> attempt 2 = 1 more root cause).  The underlying problem is architectural: the
+> bridge is bridge-first (launches eagerly, crashes when reality doesn't match)
+> instead of hardware-first (only launches when hardware is confirmed present).
+> The approved REDESIGN.md addresses this structurally.  These fixes are band-aids
+> that make the current architecture tolerable until the redesign is implemented.
+
+---
+
+**MANDATORY TEST CRITERIA — any future change to bridge lifecycle MUST verify:**
+
+1. **Cold start without hardware:** Start the server with no USB-Ethernet adapter
+   connected. The bridge MUST enter `waiting_for_hardware` IMMEDIATELY (< 1 second).
+   There MUST be zero Java subprocess launches. There MUST be zero crash-restart
+   cycles. The log MUST NOT show "Bridge crashed" at any point.
+
+2. **Cold start with hardware:** Start the server with USB-Ethernet adapter connected
+   and XDJ-AZ powered on. The bridge MUST reach `running` state and discover
+   devices within 30 seconds.
+
+3. **Hardware disconnect while running:** Yank the USB-Ethernet adapter while the
+   bridge is running. The bridge MUST reach `waiting_for_hardware` within 7 minutes
+   (3 crash cycles max). The crash counter MUST increment to 3/3, NOT stay at 1/3.
+
+4. **Hardware reconnect after disconnect:** Replug the adapter while bridge is in
+   `waiting_for_hardware`. The bridge MUST detect the interface and restart within
+   one poll cycle (30 seconds).
+
+5. **Sleep/wake with hardware:** Close laptop lid for 30+ seconds, open. The bridge
+   MUST NOT enter a crash-restart loop. Log MUST show "Detected OS sleep/wake" and
+   the grace period message. Bridge should either recover or enter waiting_for_hardware.
+
+6. **Repeated crashes within crash window:** Bridge must NOT reset
+   `_consecutive_failures` when crashes occur within `_CRASH_WINDOW_S` (120s) of each
+   other, even if individual runs last > 30 seconds.
+
+---
+
+**Summary:**
+The 2026-03-18 fix (6 root causes) did not fully resolve the crash-restart loop.
+Two distinct failure patterns remained:
+
+**Pattern A — No-hardware startup (the operator's actual scenario on 2026-04-01):**
+Server starts without hardware connected. Bridge launches Java subprocess with
+`--interface en16` despite en16 not existing. Java starts WS server (so Python sees
+"running"), but beat-link is internally broken. After ~90 seconds, beat-link's
+internal timeout fires → brief WS activity ("connection restored") → then WS dies
+("connection lost") → crash. Each cycle takes ~2 minutes. Three cycles (~7 minutes)
+before reaching waiting_for_hardware.
+
+Operator log showing the pattern:
+```
+09:27:28 BRG Bridge status: running              ← zombie! en16 doesn't exist
+09:27:28 BRG Route warning: route: bad address: en16
+09:28:58 PIO Bridge connection restored           ← beat-link internal timeout fires
+09:29:04 PIO Bridge connection lost               ← 6s later, WS dies
+09:29:22 BRG Bridge crashed (restart 1/3)         ← health check catches it
+09:29:33 BRG Bridge connected on en16             ← new zombie
+09:31:19 PIO Bridge connection restored           ← same pattern, ~2 min later
+09:31:25 PIO Bridge connection lost
+09:31:43 BRG Bridge crashed (restart 2/3)         ← counter does increment now
+[... repeats until 3/3, then waiting_for_hardware]
+```
+
+**Pattern B — Sleep/wake crash loop (reported but not yet live-tested):**
+macOS suspends network on sleep. On wake, `_last_message_time` is stale, health
+check fires, triggers crash-restart. The `_consecutive_failures` counter was resetting
+because each run lasted > 30s (passing the `_MIN_STABLE_UPTIME_S` check).
+
+---
+
+**Root cause 1 (CRITICAL): No interface existence check before subprocess launch.**
+`start()` checked for JRE and JAR but NOT whether the configured network interface
+exists. When en16 doesn't exist (adapter unplugged), the Java bridge launches anyway
+with `--interface en16`. The JVM starts, opens its WS port, Python connects and thinks
+the bridge is "running". But beat-link's VirtualCdj.start() fails internally because the
+interface doesn't exist. The Java process stays alive as a zombie for ~90 seconds until
+an internal timeout fires and kills the WS connection.
+
+The `_wait_for_hardware_loop()` already HAD the interface pre-check
+(`socket.if_nametoindex()`), but it was ONLY in the polling loop — not in `start()`
+itself. So the first call (on app boot) always launched the doomed subprocess.
+
+**Fix:** Added `socket.if_nametoindex()` check to `start()` before
+`_launch_subprocess()`. If the interface doesn't exist, skip directly to
+`_enter_waiting_for_hardware()` with a user-friendly `_last_crash_reason`. No subprocess
+is launched, no crash loop occurs. When `network_interface` is None (auto-detect mode),
+the check is skipped.
+
+**Root cause 2: `_consecutive_failures` resets on slow crash loops.**
+The `_MIN_STABLE_UPTIME_S` (30s) check only prevented counter resets on *fast* crash
+loops (bridge crashes in < 30s). After sleep/wake, each bridge run lasted 1-2 minutes
+before crashing — long enough to pass the 30s threshold. The counter went
+0→1→restart→0→1→restart, never reaching 3.
+
+**Fix:** Added a crash-window mechanism (`_CRASH_WINDOW_S = 120s`). The failure counter
+now only resets when BOTH conditions are met: (1) previous run exceeded
+`_MIN_STABLE_UPTIME_S`, AND (2) the last crash was more than `_CRASH_WINDOW_S` ago.
+Added `_last_crash_time` field, set in `_schedule_restart()`, checked in `start()`.
+
+**Root cause 3: Listen loop exits silently on clean WebSocket close.**
+In `client.py`, `ConnectionClosed` is caught and NOT re-raised. The `_listen_loop()` in
+`manager.py` only triggered restart on exceptions. When the WS closed cleanly (e.g.,
+during sleep), the listen loop exited normally but left the bridge in "running" state
+with a dead WS. Only the health check caught it 20s later — a 20-second zombie window.
+
+**Fix:** Moved the crash-and-restart logic outside the `except` block in
+`_listen_loop()`. Now the bridge triggers a restart whenever the listen loop ends while
+status is "running", regardless of whether it was an exception or a normal exit.
+
+**Root cause 4: No macOS sleep/wake detection or grace period.**
+When macOS sleeps, `asyncio.sleep(N)` actually sleeps for minutes. On wake, the health
+check fires immediately with stale timestamps.
+
+**Fix:** Added sleep/wake detection in `_health_check_loop()`. If `asyncio.sleep(N)`
+actually slept for > 3×N seconds, macOS suspended the process. On detection: (1) log the
+event, (2) reset `_last_message_time` and `_last_pioneer_message_time` to 0 so the silence
+detector doesn't fire on stale pre-sleep values, (3) grant a 30-second grace period
+(`_WAKE_GRACE_PERIOD_S`) before resuming health checks.
+
+**Tests added (9 new tests, 69 total):**
+- `TestInterfacePreCheck::test_missing_interface_skips_subprocess_and_enters_waiting`
+- `TestInterfacePreCheck::test_missing_interface_sets_crash_reason`
+- `TestInterfacePreCheck::test_existing_interface_proceeds_to_launch`
+- `TestInterfacePreCheck::test_no_interface_configured_skips_check`
+- `TestInterfacePreCheck::test_no_crash_loop_when_interface_absent` — **THE critical regression test**
+- `test_crash_window_prevents_reset_on_slow_crash_loop`
+- `test_crash_window_resets_after_long_stability`
+- `test_schedule_restart_records_crash_time`
+- `test_listen_loop_triggers_restart_on_normal_exit`
+
+File(s): scue/bridge/manager.py, tests/test_bridge/test_manager.py

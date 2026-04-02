@@ -109,6 +109,15 @@ export function useMasterDbIngest() {
   });
 }
 
+export function useCancelMasterDbIngest() {
+  return useMutation<{ status: string; message: string }, Error>({
+    mutationFn: () =>
+      apiFetch<{ status: string; message: string }>("/local-library/master-db/cancel", {
+        method: "POST",
+      }),
+  });
+}
+
 // ─── Hardware Scanner (Bridge USB) ────────────────────────────────────
 
 export function useUsbBrowse(player: number, slot: string, enabled: boolean) {

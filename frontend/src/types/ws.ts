@@ -48,7 +48,7 @@ export interface WSMediaChange {
 export interface WSRekordboxProgress {
   type: "rekordbox_progress";
   payload: {
-    phase: "scanning" | "ingesting" | "complete" | "error";
+    phase: "scanning" | "ingesting" | "complete" | "scan_complete" | "ingest_complete" | "cancelled" | "error";
     message: string;
     detail?: {
       current?: number;

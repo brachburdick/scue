@@ -12,7 +12,9 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import sqlite3
+import tempfile
 from pathlib import Path
 
 from .models import (
@@ -62,8 +64,20 @@ class TrackStore:
         path = self._path_for(analysis.fingerprint, analysis.version)
         data = analysis_to_dict(analysis)
 
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
+        # Atomic write: write to temp file then rename, so a crash mid-write
+        # never leaves a corrupt JSON file at the final path.
+        fd, tmp_path = tempfile.mkstemp(dir=self.tracks_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, path)
+        except BaseException:
+            # Clean up temp file on any failure (including KeyboardInterrupt)
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
         logger.info("Saved analysis: %s (v%d) → %s",
                      analysis.fingerprint[:12], analysis.version, path.name)
@@ -83,10 +97,13 @@ class TrackStore:
         if not path.exists():
             return None
 
-        with open(path) as f:
-            data = json.load(f)
-
-        return analysis_from_dict(data)
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            return analysis_from_dict(data)
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning("Corrupt analysis file %s: %s", path.name, e)
+            return None
 
     def load_latest(self, fingerprint: str) -> TrackAnalysis | None:
         """Load the latest version of a track analysis.
@@ -143,8 +160,17 @@ class TrackStore:
         """
         path = self._live_data_path(fingerprint)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
+        fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, path)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         logger.info("Saved live Pioneer data for %s", fingerprint[:12])
         return path
 

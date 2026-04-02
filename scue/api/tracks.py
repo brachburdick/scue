@@ -58,7 +58,7 @@ def init_tracks_api(
     logger.info("Tracks API initialized: tracks=%s, cache=%s", tracks_dir, cache_path)
 
 
-_VALID_TIERS = {"quick", "standard", "deep", "live", "live_offline"}
+_VALID_TIERS = {"quick", "standard", "deep", "live", "live_offline", "hybrid"}
 
 
 def _scan_strata() -> dict[str, set[str]]:
@@ -165,6 +165,23 @@ async def get_job_status(job_id: str) -> dict:
         "total_steps": persisted.get("total_steps", 10),
         "results": persisted.get("results", []),
     }
+
+
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str) -> dict:
+    """Cancel a running batch analysis job.
+
+    Already-completed files are preserved. The current file's analysis
+    may finish its current step before stopping.
+    """
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(404, f"Job not found: {job_id}")
+    if job.status in ("complete", "complete_with_errors", "cancelled"):
+        return {"ok": True, "status": job.status, "message": "Job already finished"}
+    job.cancelled = True
+    logger.info("Cancel requested for batch job %s", job_id)
+    return {"ok": True, "status": "cancelling", "message": "Cancel signal sent"}
 
 
 @router.get("/resolve/{source_player}/{source_slot}/{rekordbox_id}")
@@ -627,6 +644,8 @@ async def _run_batch_analysis(
     destination_folder: str = "",
 ) -> None:
     """Background task that processes batch analysis sequentially."""
+    import gc
+
     from ..layer1.analysis import run_analysis
     from ..layer1.fingerprint import compute_fingerprint
 
@@ -638,6 +657,8 @@ async def _run_batch_analysis(
     def _make_progress_cb(j: AnalysisJob):
         """Create a progress callback that updates the job's per-step fields."""
         def cb(step: int, step_name: str, total_steps: int) -> None:
+            if j.cancelled:
+                raise InterruptedError("Cancelled by user")
             j.current_step = step
             j.current_step_name = step_name
             j.total_steps = total_steps
@@ -650,6 +671,9 @@ async def _run_batch_analysis(
         return cb
 
     for i, file_result in enumerate(job.results):
+        if job.cancelled:
+            logger.info("Batch job %s cancelled after %d/%d files", job.job_id, job.completed, job.total)
+            break
         if file_result.status != "pending":
             continue  # skip already-processed files (for resume)
 
@@ -687,6 +711,15 @@ async def _run_batch_analysis(
                 job.job_id, completed=job.completed, failed=job.failed,
             )
             logger.info("Batch [%d/%d] done: %s", i + 1, job.total, file_result.filename)
+
+            # Free memory between files — librosa loads full audio into RAM
+            # and Python's GC is lazy. Without this, 2000+ tracks can OOM.
+            gc.collect()
+        except InterruptedError:
+            logger.info("Batch [%d/%d] cancelled: %s", i + 1, job.total, file_result.filename)
+            file_result.status = "error"
+            file_result.error = "Cancelled by user"
+            break
         except Exception as exc:
             logger.exception("Batch [%d/%d] failed: %s", i + 1, job.total, file_result.filename)
             file_result.status = "error"
@@ -700,7 +733,9 @@ async def _run_batch_analysis(
             )
 
     job.current_file = None
-    if job.failed > 0:
+    if job.cancelled:
+        job.status = "cancelled"
+    elif job.failed > 0:
         job.status = "complete_with_errors"
     else:
         job.status = "complete"

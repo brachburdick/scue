@@ -1,0 +1,1682 @@
+{
+  "fingerprint": "13f3a2bff0022104ad10568993038fe26e82b129c70a43a9a44ab2d333f7de44",
+  "version": 1,
+  "stems": [
+    {
+      "stem_type": "bass",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 0.8823582766439909,
+          "end": 117.33043083900226,
+          "bar_start": 0,
+          "bar_end": 43,
+          "energy": 0.7862053604557564,
+          "confidence": 0.6
+        },
+        {
+          "start": 131.05342403628117,
+          "end": 217.0833560090703,
+          "bar_start": 48,
+          "bar_end": 80,
+          "energy": 0.6975259130153983,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    },
+    {
+      "stem_type": "other",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 0.8823582766439909,
+          "end": 217.0833560090703,
+          "bar_start": 0,
+          "bar_end": 80,
+          "energy": 0.5967114954431517,
+          "confidence": 0.6
+        },
+        {
+          "start": 0.8823582766439909,
+          "end": 217.0833560090703,
+          "bar_start": 0,
+          "bar_end": 80,
+          "energy": 0.7447071308839398,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    }
+  ],
+  "patterns": [
+    {
+      "id": "drum-00-b7dd5e01",
+      "name": "silent",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [],
+        "duration_bars": 1,
+        "duration_seconds": 2.73995464852608,
+        "signature": "b7dd5e0194ee"
+      },
+      "instances": [
+        {
+          "bar_start": 11,
+          "bar_end": 16,
+          "start": 30.95219954648526,
+          "end": 44.35011337868481,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 42,
+          "bar_end": 48,
+          "start": 114.61369614512472,
+          "end": 131.05342403628117,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-01-7adcea57",
+      "name": "snare-2.1-clap-1.1",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 1,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 5,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.6702947845804985,
+        "signature": "7adcea570bc4"
+      },
+      "instances": [
+        {
+          "bar_start": 5,
+          "bar_end": 6,
+          "start": 14.582131519274377,
+          "end": 17.252426303854875,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 33,
+          "bar_end": 35,
+          "start": 90.0237641723356,
+          "end": 95.50367346938775,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-02-10c7bbc7",
+      "name": "kick-x2-clap-x2",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 1,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 5,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 8,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 8,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.670294784580499,
+        "signature": "10c7bbc75616"
+      },
+      "instances": [
+        {
+          "bar_start": 1,
+          "bar_end": 2,
+          "start": 3.6687528344671203,
+          "end": 6.339047619047619,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 61,
+          "bar_end": 62,
+          "start": 165.48861678004536,
+          "end": 168.13569160997733,
+          "variation": "minor",
+          "variation_description": "",
+          "confidence": 0.8944271802902222
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-03-da267bc8",
+      "name": "kick-x3-clap-1.3",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 0,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 3,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 3,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 11,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.7863945578231295,
+        "signature": "da267bc8d250"
+      },
+      "instances": [
+        {
+          "bar_start": 2,
+          "bar_end": 3,
+          "start": 6.339047619047619,
+          "end": 9.125442176870749,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 4,
+          "bar_end": 5,
+          "start": 11.795736961451247,
+          "end": 14.582131519274377,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-04-a126df7f",
+      "name": "snare-x2-clap-1.3",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 0,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 3,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 8,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.7631746031746047,
+        "signature": "a126df7f9ce1"
+      },
+      "instances": [
+        {
+          "bar_start": 6,
+          "bar_end": 7,
+          "start": 17.252426303854875,
+          "end": 20.01560090702948,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 31,
+          "bar_end": 32,
+          "start": 84.52063492063492,
+          "end": 87.30702947845805,
+          "variation": "minor",
+          "variation_description": "",
+          "confidence": 0.866025447845459
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-05-5c5e947e",
+      "name": "snare-1-clap-1.3",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 0,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 3,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.7863945578231295,
+        "signature": "5c5e947edc6a"
+      },
+      "instances": [
+        {
+          "bar_start": 8,
+          "bar_end": 9,
+          "start": 22.709115646258503,
+          "end": 25.495510204081633,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 10,
+          "bar_end": 11,
+          "start": 28.16580498866213,
+          "end": 30.95219954648526,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-06-f4470275",
+      "name": "clap-3.1",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 9,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.716734693877548,
+        "signature": "f4470275b0a6"
+      },
+      "instances": [
+        {
+          "bar_start": 20,
+          "bar_end": 21,
+          "start": 55.031292517006804,
+          "end": 57.74802721088435,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 36,
+          "bar_end": 37,
+          "start": 98.24362811791383,
+          "end": 100.93714285714286,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-07-a2d21ce0",
+      "name": "clap-x4",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 0,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 3,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 11,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 14,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.600634920634917,
+        "signature": "a2d21ce05ecb"
+      },
+      "instances": [
+        {
+          "bar_start": 24,
+          "bar_end": 25,
+          "start": 65.6195918367347,
+          "end": 68.22022675736962,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 48,
+          "bar_end": 49,
+          "start": 131.05342403628117,
+          "end": 133.77015873015873,
+          "variation": "minor",
+          "variation_description": "",
+          "confidence": 0.866025447845459
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-08-ddb715f9",
+      "name": "snare-2.1-clap-x3",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 1,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 5,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 8,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 9,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.6702947845804914,
+        "signature": "ddb715f905ba"
+      },
+      "instances": [
+        {
+          "bar_start": 30,
+          "bar_end": 31,
+          "start": 81.85034013605443,
+          "end": 84.52063492063492,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 40,
+          "bar_end": 41,
+          "start": 109.13378684807256,
+          "end": 111.85052154195012,
+          "variation": "minor",
+          "variation_description": "",
+          "confidence": 0.866025447845459
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-09-87a52f8a",
+      "name": "clap-x2",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 1,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 9,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.716734693877555,
+        "signature": "87a52f8a3fca"
+      },
+      "instances": [
+        {
+          "bar_start": 32,
+          "bar_end": 33,
+          "start": 87.30702947845805,
+          "end": 90.0237641723356,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 41,
+          "bar_end": 42,
+          "start": 111.85052154195012,
+          "end": 114.61369614512472,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-10-e2740192",
+      "name": "clap-x2",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 1,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 12,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.73995464852608,
+        "signature": "e2740192f624"
+      },
+      "instances": [
+        {
+          "bar_start": 35,
+          "bar_end": 36,
+          "start": 95.50367346938775,
+          "end": 98.24362811791383,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 64,
+          "bar_end": 65,
+          "start": 173.638820861678,
+          "end": 176.4019954648526,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-11-aa850048",
+      "name": "snare-2.1-clap-x3",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 1,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 5,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 9,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 12,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.716734693877541,
+        "signature": "aa8500485de1"
+      },
+      "instances": [
+        {
+          "bar_start": 38,
+          "bar_end": 39,
+          "start": 103.67709750566894,
+          "end": 106.39383219954648,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 55,
+          "bar_end": 56,
+          "start": 149.582947845805,
+          "end": 152.29968253968255,
+          "variation": "minor",
+          "variation_description": "",
+          "confidence": 0.866025447845459
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-12-efd4f060",
+      "name": "clap-x4",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 2,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 5,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 8,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 13,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.716734693877555,
+        "signature": "efd4f0607ddc"
+      },
+      "instances": [
+        {
+          "bar_start": 52,
+          "bar_end": 54,
+          "start": 141.64172335600907,
+          "end": 147.0055328798186,
+          "variation": "minor",
+          "variation_description": "",
+          "confidence": 0.866025447845459
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-13-fc079882",
+      "name": "kick-2-clap-x2",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 4,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 5,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 13,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.623854875283456,
+        "signature": "fc0798821759"
+      },
+      "instances": [
+        {
+          "bar_start": 59,
+          "bar_end": 60,
+          "start": 160.264126984127,
+          "end": 162.88798185941044,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 68,
+          "bar_end": 69,
+          "start": 184.34321995464853,
+          "end": 186.9902947845805,
+          "variation": "minor",
+          "variation_description": "",
+          "confidence": 0.866025447845459
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-14-66c777ab",
+      "name": "kick-x2-snare-4.1-clap-x2",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 1,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 5,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 8,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 9,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 13,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.693514739229016,
+        "signature": "66c777ab018e"
+      },
+      "instances": [
+        {
+          "bar_start": 63,
+          "bar_end": 64,
+          "start": 170.94530612244898,
+          "end": 173.638820861678,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 65,
+          "bar_end": 66,
+          "start": 176.4019954648526,
+          "end": 179.04907029478457,
+          "variation": "minor",
+          "variation_description": "",
+          "confidence": 0.8944271802902222
+        }
+      ],
+      "tags": []
+    },
+    {
+      "id": "drum-15-98893813",
+      "name": "kick-x2",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 1,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 12,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.7167346938775268,
+        "signature": "988938136bfe"
+      },
+      "instances": [
+        {
+          "bar_start": 70,
+          "bar_end": 71,
+          "start": 189.8231292517007,
+          "end": 192.53986394557822,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 75,
+          "bar_end": 76,
+          "start": 203.4532426303855,
+          "end": 206.16997732426304,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-16-5961e219",
+      "name": "kick-1",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 0,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.739954648526094,
+        "signature": "5961e2197955"
+      },
+      "instances": [
+        {
+          "bar_start": 77,
+          "bar_end": 78,
+          "start": 208.65451247165532,
+          "end": 211.39446712018142,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 79,
+          "bar_end": 80,
+          "start": 214.11120181405894,
+          "end": 217.0833560090703,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "section_label": "intro",
+      "section_start": 0.0,
+      "section_end": 14.5821,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-02-10c7bbc7",
+        "drum-03-da267bc8"
+      ],
+      "transitions": [],
+      "energy_level": 0.591,
+      "energy_trend": "falling",
+      "layer_count": 3
+    },
+    {
+      "section_label": "verse",
+      "section_start": 14.5821,
+      "section_end": 28.1658,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-01-7adcea57",
+        "drum-03-da267bc8",
+        "drum-04-a126df7f",
+        "drum-05-5c5e947e"
+      ],
+      "transitions": [
+        {
+          "type": "energy_shift",
+          "timestamp": 14.5821,
+          "bar_index": 5,
+          "section_label": "verse",
+          "layers_affected": [
+            "bass"
+          ],
+          "patterns_affected": [],
+          "energy_delta": 0.352,
+          "description": "bass enters",
+          "confidence": 0.7046876549174741
+        }
+      ],
+      "energy_level": 0.908,
+      "energy_trend": "stable",
+      "layer_count": 3
+    },
+    {
+      "section_label": "verse",
+      "section_start": 28.1658,
+      "section_end": 41.8656,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01",
+        "drum-05-5c5e947e"
+      ],
+      "transitions": [
+        {
+          "type": "energy_shift",
+          "timestamp": 28.1658,
+          "bar_index": 10,
+          "section_label": "verse",
+          "layers_affected": [
+            "bass"
+          ],
+          "patterns_affected": [],
+          "energy_delta": -0.225,
+          "description": "bass drops",
+          "confidence": 0.4506175421574396
+        }
+      ],
+      "energy_level": 0.571,
+      "energy_trend": "falling",
+      "layer_count": 3
+    },
+    {
+      "section_label": "verse",
+      "section_start": 41.8656,
+      "section_end": 73.7001,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01",
+        "drum-06-f4470275",
+        "drum-07-a2d21ce0"
+      ],
+      "transitions": [
+        {
+          "type": "energy_shift",
+          "timestamp": 41.8656,
+          "bar_index": 15,
+          "section_label": "verse",
+          "layers_affected": [
+            "bass"
+          ],
+          "patterns_affected": [],
+          "energy_delta": 0.191,
+          "description": "bass enters",
+          "confidence": 0.3810904003950082
+        }
+      ],
+      "energy_level": 0.855,
+      "energy_trend": "falling",
+      "layer_count": 3
+    },
+    {
+      "section_label": "verse",
+      "section_start": 73.7001,
+      "section_end": 90.0238,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-01-7adcea57",
+        "drum-04-a126df7f",
+        "drum-08-ddb715f9",
+        "drum-09-87a52f8a"
+      ],
+      "transitions": [
+        {
+          "type": "energy_shift",
+          "timestamp": 73.7001,
+          "bar_index": 27,
+          "section_label": "verse",
+          "layers_affected": [
+            "bass"
+          ],
+          "patterns_affected": [],
+          "energy_delta": 0.167,
+          "description": "bass enters",
+          "confidence": 0.3341750450022671
+        }
+      ],
+      "energy_level": 0.916,
+      "energy_trend": "stable",
+      "layer_count": 3
+    },
+    {
+      "section_label": "verse",
+      "section_start": 90.0238,
+      "section_end": 114.6137,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01",
+        "drum-01-7adcea57",
+        "drum-06-f4470275",
+        "drum-08-ddb715f9",
+        "drum-09-87a52f8a",
+        "drum-10-e2740192",
+        "drum-11-aa850048"
+      ],
+      "transitions": [],
+      "energy_level": 0.928,
+      "energy_trend": "stable",
+      "layer_count": 3
+    },
+    {
+      "section_label": "breakdown",
+      "section_start": 114.6137,
+      "section_end": 122.7871,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01"
+      ],
+      "transitions": [
+        {
+          "type": "breakdown",
+          "timestamp": 114.6137,
+          "bar_index": 42,
+          "section_label": "breakdown",
+          "layers_affected": [
+            "bass"
+          ],
+          "patterns_affected": [],
+          "energy_delta": -0.576,
+          "description": "bass drops",
+          "confidence": 1.0
+        }
+      ],
+      "energy_level": 0.249,
+      "energy_trend": "falling",
+      "layer_count": 3
+    },
+    {
+      "section_label": "breakdown",
+      "section_start": 122.7871,
+      "section_end": 131.0534,
+      "active_layers": [
+        "drums",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01"
+      ],
+      "transitions": [],
+      "energy_level": 0.135,
+      "energy_trend": "stable",
+      "layer_count": 2
+    },
+    {
+      "section_label": "verse",
+      "section_start": 131.0534,
+      "section_end": 160.2641,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01",
+        "drum-07-a2d21ce0",
+        "drum-11-aa850048",
+        "drum-12-efd4f060"
+      ],
+      "transitions": [
+        {
+          "type": "energy_shift",
+          "timestamp": 131.0534,
+          "bar_index": 48,
+          "section_label": "verse",
+          "layers_affected": [
+            "bass"
+          ],
+          "patterns_affected": [],
+          "energy_delta": 0.796,
+          "description": "bass enters",
+          "confidence": 1.0
+        }
+      ],
+      "energy_level": 0.88,
+      "energy_trend": "falling",
+      "layer_count": 3
+    },
+    {
+      "section_label": "verse",
+      "section_start": 160.2641,
+      "section_end": 189.8231,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-02-10c7bbc7",
+        "drum-10-e2740192",
+        "drum-13-fc079882",
+        "drum-14-66c777ab"
+      ],
+      "transitions": [
+        {
+          "type": "energy_shift",
+          "timestamp": 160.2641,
+          "bar_index": 59,
+          "section_label": "verse",
+          "layers_affected": [
+            "bass"
+          ],
+          "patterns_affected": [],
+          "energy_delta": -0.207,
+          "description": "bass drops",
+          "confidence": 0.41449378707978585
+        }
+      ],
+      "energy_level": 0.629,
+      "energy_trend": "falling",
+      "layer_count": 3
+    },
+    {
+      "section_label": "outro",
+      "section_start": 189.8231,
+      "section_end": 218.33333333333334,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-15-98893813",
+        "drum-16-5961e219"
+      ],
+      "transitions": [],
+      "energy_level": 0.595,
+      "energy_trend": "rising",
+      "layer_count": 3
+    }
+  ],
+  "transitions": [
+    {
+      "type": "energy_shift",
+      "timestamp": 14.5821,
+      "bar_index": 5,
+      "section_label": "verse",
+      "layers_affected": [
+        "bass"
+      ],
+      "patterns_affected": [],
+      "energy_delta": 0.352,
+      "description": "bass enters",
+      "confidence": 0.7046876549174741
+    },
+    {
+      "type": "energy_shift",
+      "timestamp": 28.1658,
+      "bar_index": 10,
+      "section_label": "verse",
+      "layers_affected": [
+        "bass"
+      ],
+      "patterns_affected": [],
+      "energy_delta": -0.225,
+      "description": "bass drops",
+      "confidence": 0.4506175421574396
+    },
+    {
+      "type": "energy_shift",
+      "timestamp": 41.8656,
+      "bar_index": 15,
+      "section_label": "verse",
+      "layers_affected": [
+        "bass"
+      ],
+      "patterns_affected": [],
+      "energy_delta": 0.191,
+      "description": "bass enters",
+      "confidence": 0.3810904003950082
+    },
+    {
+      "type": "energy_shift",
+      "timestamp": 73.7001,
+      "bar_index": 27,
+      "section_label": "verse",
+      "layers_affected": [
+        "bass"
+      ],
+      "patterns_affected": [],
+      "energy_delta": 0.167,
+      "description": "bass enters",
+      "confidence": 0.3341750450022671
+    },
+    {
+      "type": "breakdown",
+      "timestamp": 114.6137,
+      "bar_index": 42,
+      "section_label": "breakdown",
+      "layers_affected": [
+        "bass"
+      ],
+      "patterns_affected": [],
+      "energy_delta": -0.576,
+      "description": "bass drops",
+      "confidence": 1.0
+    },
+    {
+      "type": "energy_shift",
+      "timestamp": 131.0534,
+      "bar_index": 48,
+      "section_label": "verse",
+      "layers_affected": [
+        "bass"
+      ],
+      "patterns_affected": [],
+      "energy_delta": 0.796,
+      "description": "bass enters",
+      "confidence": 1.0
+    },
+    {
+      "type": "energy_shift",
+      "timestamp": 160.2641,
+      "bar_index": 59,
+      "section_label": "verse",
+      "layers_affected": [
+        "bass"
+      ],
+      "patterns_affected": [],
+      "energy_delta": -0.207,
+      "description": "bass drops",
+      "confidence": 0.41449378707978585
+    }
+  ],
+  "total_layers": 2,
+  "total_patterns": 17,
+  "arrangement_complexity": 0.427,
+  "energy_narrative": "Intro: kick-x2-clap-x2 + kick-x3-clap-1.3. Verse: bass enters. Verse: bass drops. Verse: bass enters. Verse: bass enters. Verse: silent + snare-2.1-clap-1.1. Breakdown: bass drops. Breakdown: silent. Verse: bass enters. Verse: bass drops. Outro: kick-x2 + kick-1.",
+  "pipeline_tier": "quick",
+  "analysis_source": "analysis",
+  "stem_separation_model": "",
+  "compute_time_seconds": 3.06,
+  "created_at": 1775045906.416493
+}

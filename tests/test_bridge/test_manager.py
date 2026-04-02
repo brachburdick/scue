@@ -679,6 +679,219 @@ class TestNoHardwareStableState:
         assert mgr._consecutive_failures == 0
         assert mgr.status == "running"
 
+    @pytest.mark.asyncio
+    async def test_crash_window_prevents_reset_on_slow_crash_loop(self):
+        """If the bridge ran > _MIN_STABLE_UPTIME_S but crashed recently
+        (within _CRASH_WINDOW_S), failures must NOT reset — this is a slow
+        crash-restart loop (e.g. post-sleep)."""
+        from scue.bridge.manager import _CRASH_WINDOW_S, _MIN_STABLE_UPTIME_S
+
+        mgr = BridgeManager()
+        mgr._consecutive_failures = 2
+        # Previous run was long enough to be "stable"...
+        mgr._last_stable_start_time = time.time() - _MIN_STABLE_UPTIME_S - 1.0
+        # ...but the last crash was recent (within the crash window)
+        mgr._last_crash_time = time.time() - 10.0  # 10 seconds ago
+
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_check_jar", return_value=True), \
+             patch.object(mgr, "_launch_subprocess", new_callable=AsyncMock), \
+             patch.object(mgr, "_connect_websocket", new_callable=AsyncMock), \
+             patch.object(mgr, "_start_listen_loop"), \
+             patch.object(mgr, "_start_health_check"):
+            await mgr.start()
+
+        assert mgr._consecutive_failures == 2, (
+            "Expected _consecutive_failures to stay at 2 because last crash was "
+            f"within _CRASH_WINDOW_S ({_CRASH_WINDOW_S}s)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_crash_window_resets_after_long_stability(self):
+        """If the bridge ran long and the last crash was outside the crash
+        window, failures should reset."""
+        from scue.bridge.manager import _CRASH_WINDOW_S, _MIN_STABLE_UPTIME_S
+
+        mgr = BridgeManager()
+        mgr._consecutive_failures = 2
+        mgr._last_stable_start_time = time.time() - _MIN_STABLE_UPTIME_S - 1.0
+        # Last crash was long ago (outside the crash window)
+        mgr._last_crash_time = time.time() - _CRASH_WINDOW_S - 1.0
+
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_check_jar", return_value=True), \
+             patch.object(mgr, "_launch_subprocess", new_callable=AsyncMock), \
+             patch.object(mgr, "_connect_websocket", new_callable=AsyncMock), \
+             patch.object(mgr, "_start_listen_loop"), \
+             patch.object(mgr, "_start_health_check"):
+            await mgr.start()
+
+        assert mgr._consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_schedule_restart_records_crash_time(self):
+        """_schedule_restart() must set _last_crash_time."""
+        mgr = BridgeManager()
+        mgr._status = "running"
+        mgr._consecutive_failures = 0
+
+        before = time.time()
+        with patch.object(mgr, "_cleanup", new_callable=AsyncMock), \
+             patch.object(mgr, "start", new_callable=AsyncMock):
+            await mgr._schedule_restart()
+        after = time.time()
+
+        assert mgr._last_crash_time >= before
+        assert mgr._last_crash_time <= after
+
+    @pytest.mark.asyncio
+    async def test_listen_loop_triggers_restart_on_normal_exit(self):
+        """When the WS listen() ends normally (ConnectionClosed caught internally),
+        the listen loop should still trigger a restart if the bridge was running."""
+        mgr = BridgeManager()
+        mgr._status = "running"
+
+        # Create a mock WS client whose listen() yields nothing (simulates
+        # ConnectionClosed caught inside client.py — listen ends normally)
+        mock_ws = AsyncMock()
+        mock_ws.listen = MagicMock(return_value=_empty_async_iter())
+        mgr._ws_client = mock_ws
+
+        with patch.object(mgr, "_schedule_restart", new_callable=AsyncMock) as mock_restart:
+            await mgr._listen_loop()
+
+        assert mgr._status == "crashed"
+        mock_restart.assert_awaited_once()
+
+
+async def _empty_async_iter():
+    """Async iterator that yields nothing — simulates a WS that closes immediately."""
+    return
+    yield  # noqa: unreachable — makes this an async generator
+
+
+class TestInterfacePreCheck:
+    """start() must check interface existence before launching the subprocess.
+
+    CRITICAL REGRESSION TEST — see docs/bugs/layer0-bridge.md entry 2026-04-01.
+
+    When the configured network interface doesn't exist (USB-Ethernet adapter
+    unplugged), the bridge must NOT launch the Java subprocess. Launching it
+    creates a zombie bridge that runs for ~90 seconds, crashes, restarts, and
+    loops 3 times (~7 minutes) before finally reaching waiting_for_hardware.
+
+    Expected behavior: start() detects missing interface → enters
+    waiting_for_hardware immediately → no subprocess launched → no crash loop.
+    """
+
+    @pytest.mark.asyncio
+    async def test_missing_interface_skips_subprocess_and_enters_waiting(self):
+        """start() with a non-existent interface must skip subprocess launch
+        and go directly to waiting_for_hardware."""
+        mgr = BridgeManager(network_interface="en_nonexistent_99")
+
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_check_jar", return_value=True), \
+             patch.object(mgr, "_launch_subprocess", new_callable=AsyncMock) as mock_launch, \
+             patch.object(mgr, "_connect_websocket", new_callable=AsyncMock) as mock_ws, \
+             patch.object(mgr, "_enter_waiting_for_hardware", new_callable=AsyncMock) as mock_wait:
+            await mgr.start()
+
+        mock_launch.assert_not_awaited()
+        mock_ws.assert_not_awaited()
+        mock_wait.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_missing_interface_sets_crash_reason(self):
+        """When interface is missing, _last_crash_reason should explain."""
+        mgr = BridgeManager(network_interface="en_nonexistent_99")
+
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_check_jar", return_value=True), \
+             patch.object(mgr, "_enter_waiting_for_hardware", new_callable=AsyncMock):
+            await mgr.start()
+
+        assert mgr._last_crash_reason is not None
+        assert "en_nonexistent_99" in mgr._last_crash_reason
+
+    @pytest.mark.asyncio
+    async def test_existing_interface_proceeds_to_launch(self):
+        """start() with an existing interface must proceed to launch subprocess."""
+        import socket
+        # Use loopback — guaranteed to exist on all platforms
+        lo_name = "lo0" if hasattr(socket, "AF_UNIX") else "lo"
+        try:
+            socket.if_nametoindex(lo_name)
+        except OSError:
+            lo_name = "lo"
+            try:
+                socket.if_nametoindex(lo_name)
+            except OSError:
+                pytest.skip("No loopback interface name found for this platform")
+
+        mgr = BridgeManager(network_interface=lo_name)
+
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_check_jar", return_value=True), \
+             patch.object(mgr, "_launch_subprocess", new_callable=AsyncMock) as mock_launch, \
+             patch.object(mgr, "_connect_websocket", new_callable=AsyncMock), \
+             patch.object(mgr, "_start_listen_loop"), \
+             patch.object(mgr, "_start_health_check"):
+            await mgr.start()
+
+        mock_launch.assert_awaited_once()
+        assert mgr.status == "running"
+
+    @pytest.mark.asyncio
+    async def test_no_interface_configured_skips_check(self):
+        """start() with network_interface=None must skip the check and proceed."""
+        mgr = BridgeManager(network_interface=None)
+
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_check_jar", return_value=True), \
+             patch.object(mgr, "_launch_subprocess", new_callable=AsyncMock) as mock_launch, \
+             patch.object(mgr, "_connect_websocket", new_callable=AsyncMock), \
+             patch.object(mgr, "_start_listen_loop"), \
+             patch.object(mgr, "_start_health_check"):
+            await mgr.start()
+
+        mock_launch.assert_awaited_once()
+        assert mgr.status == "running"
+
+    @pytest.mark.asyncio
+    async def test_no_crash_loop_when_interface_absent(self):
+        """CRITICAL: starting with absent interface must NOT trigger any crash-
+        restart cycle. The bridge must reach waiting_for_hardware on the FIRST
+        call to start(), not after 3 crashes."""
+        mgr = BridgeManager(network_interface="en_nonexistent_99")
+        call_log = []
+
+        original_enter_waiting = mgr._enter_waiting_for_hardware
+
+        async def tracking_enter_waiting():
+            call_log.append("enter_waiting_for_hardware")
+            mgr._status = "waiting_for_hardware"
+            # Don't start the polling loop in tests
+
+        async def tracking_schedule_restart():
+            call_log.append("schedule_restart")
+
+        with patch.object(mgr, "_check_jre", return_value=True), \
+             patch.object(mgr, "_check_jar", return_value=True), \
+             patch.object(mgr, "_launch_subprocess", new_callable=AsyncMock) as mock_launch, \
+             patch.object(mgr, "_enter_waiting_for_hardware", side_effect=tracking_enter_waiting), \
+             patch.object(mgr, "_schedule_restart", side_effect=tracking_schedule_restart):
+            await mgr.start()
+
+        # Must enter waiting_for_hardware, never schedule_restart
+        assert call_log == ["enter_waiting_for_hardware"], (
+            f"Expected only enter_waiting_for_hardware, got: {call_log}. "
+            f"This means the bridge attempted a crash-restart cycle instead of "
+            f"skipping directly to waiting_for_hardware."
+        )
+        mock_launch.assert_not_awaited()
+        assert mgr._consecutive_failures == 0
+
 
 class TestHealthCheckSilenceBehaviour:
     """Health check must NOT restart on Pioneer hardware silence.
