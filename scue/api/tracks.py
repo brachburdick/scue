@@ -366,6 +366,31 @@ async def set_last_scan_path(req: SetScanPathRequest) -> dict:
     return {"ok": True}
 
 
+@router.get("/settings/min-track-duration")
+async def get_min_track_duration() -> dict:
+    """Get the minimum track duration filter (seconds).
+
+    Tracks shorter than this threshold are excluded from all list views.
+    """
+    cache = _get_cache()
+    return {"min_duration": cache.get_min_track_duration()}
+
+
+class SetMinDurationRequest(BaseModel):
+    min_duration: float
+
+
+@router.put("/settings/min-track-duration")
+async def set_min_track_duration(req: SetMinDurationRequest) -> dict:
+    """Set the minimum track duration filter (seconds).
+
+    Set to 0 to disable filtering (show all tracks).
+    """
+    cache = _get_cache()
+    cache.set_min_track_duration(req.min_duration)
+    return {"ok": True, "min_duration": req.min_duration}
+
+
 # ---------------------------------------------------------------------------
 # Folder management endpoints (must be before /{fingerprint} catch-all)
 # ---------------------------------------------------------------------------

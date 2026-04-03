@@ -46,6 +46,7 @@ _tracks_dir: Path | None = None
 _cache_path: Path | None = None
 _tracker: object | None = None  # PlaybackTracker, set by main.py
 _batch_max_parallel: int = 8
+_ws_manager: object | None = None  # WSManager for broadcasting progress
 
 
 def init_strata_api(
@@ -53,13 +54,15 @@ def init_strata_api(
     tracks_dir: Path | None = None,
     cache_path: Path | None = None,
     batch_max_parallel: int = 8,
+    ws_manager: object | None = None,
 ) -> None:
     """Initialize the strata API with a storage instance."""
-    global _store, _tracks_dir, _cache_path, _batch_max_parallel
+    global _store, _tracks_dir, _cache_path, _batch_max_parallel, _ws_manager
     _store = store
     _tracks_dir = tracks_dir
     _cache_path = cache_path
     _batch_max_parallel = batch_max_parallel
+    _ws_manager = ws_manager
     logger.info("Strata API initialized: %s (batch_max_parallel=%d)", store.base_dir, batch_max_parallel)
 
 
@@ -67,6 +70,12 @@ def set_strata_tracker(tracker: object) -> None:
     """Set the PlaybackTracker reference for live strata access."""
     global _tracker
     _tracker = tracker
+
+
+def set_strata_ws_manager(ws_manager: object) -> None:
+    """Set the WSManager reference for broadcasting analysis progress."""
+    global _ws_manager
+    _ws_manager = ws_manager
 
 
 def _get_store() -> StrataStore:
@@ -418,6 +427,47 @@ async def cancel_strata_batch(batch_id: str) -> dict:
     return {"ok": True, "status": "cancelled", "cancelled_count": cancelled_count}
 
 
+def _broadcast_analysis_progress(batch: StrataBatchJob) -> None:
+    """Broadcast batch analysis progress to all WebSocket clients.
+
+    Runs from a background thread — schedules the async broadcast on the
+    event loop without blocking.
+    """
+    import asyncio
+
+    if _ws_manager is None:
+        return
+
+    # Find the currently running job for detail
+    current = next((j for j in batch.jobs if j.status == "running"), None)
+    payload: dict = {
+        "kind": "batch",
+        "batch_id": batch.batch_id,
+        "status": batch.status,
+        "tier": batch.jobs[0].tier if batch.jobs else "quick",
+        "completed": batch.completed,
+        "failed": batch.failed,
+        "total": batch.total,
+    }
+    if current:
+        payload["current_track"] = {
+            "fingerprint": current.fingerprint,
+            "title": current.title,
+            "step": current.current_step,
+            "step_name": current.current_step_name,
+            "total_steps": current.total_steps,
+        }
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_ws_manager.broadcast({
+            "type": "analysis_progress",
+            "payload": payload,
+        }))
+    except RuntimeError:
+        pass  # No event loop — skip broadcast (e.g. in tests)
+
+
 def _run_strata_batch(batch: StrataBatchJob) -> None:
     """Run batch strata analysis with tier-aware parallelism.
 
@@ -430,6 +480,7 @@ def _run_strata_batch(batch: StrataBatchJob) -> None:
     from ..layer1.storage import TrackStore
 
     batch.status = "running"
+    _broadcast_analysis_progress(batch)
 
     # Populate job titles from SQLite cache for display
     if _cache_path:
@@ -477,6 +528,7 @@ def _run_strata_batch(batch: StrataBatchJob) -> None:
                     if job.status not in ("complete", "failed"):
                         job.status = "failed"
                         job.error = str(exc)
+                _broadcast_analysis_progress(batch)
 
     # Run quick jobs needing base analysis with limited parallelism.
     # Each needs full audio feature extraction + ML structure analysis,
@@ -504,11 +556,13 @@ def _run_strata_batch(batch: StrataBatchJob) -> None:
                     if job.status not in ("complete", "failed"):
                         job.status = "failed"
                         job.error = str(exc)
+                _broadcast_analysis_progress(batch)
 
     # Run heavy-tier jobs sequentially
     for job in heavy_jobs:
         _run_strata_analysis(job.fingerprint, [job.tier], job=job)
         gc.collect()
+        _broadcast_analysis_progress(batch)
 
     invalidate_strata_cache()
 
@@ -519,6 +573,8 @@ def _run_strata_batch(batch: StrataBatchJob) -> None:
         batch.status = "complete"  # partial success is still "complete"
     else:
         batch.status = "failed"
+
+    _broadcast_analysis_progress(batch)  # Final status
 
 
 @router.delete("/api/tracks/{fingerprint}/strata/{tier}")

@@ -125,6 +125,10 @@ async def startup() -> None:
     init_local_library_api(store, cache, ws_manager=_ws_manager)
     init_ws(_ws_manager, _bridge_manager, watchdog_config=config.bridge.watchdog)
 
+    # Wire WSManager into strata API for analysis progress broadcasts
+    from .api.strata import set_strata_ws_manager
+    set_strata_ws_manager(_ws_manager)
+
     # Initialize scanner API (bridge command channel for track scanning)
     init_scanner_api(_bridge_manager, cache, _ws_manager)
 

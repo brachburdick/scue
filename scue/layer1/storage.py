@@ -535,6 +535,7 @@ class TrackCache:
 
         direction = "DESC" if sort_desc else "ASC"
 
+        min_dur = self.get_min_track_duration()
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(f"""
@@ -546,9 +547,10 @@ class TrackCache:
                     SELECT MAX(version) FROM tracks t2
                     WHERE t2.fingerprint = tracks.fingerprint
                 )
+                AND duration >= ?
                 ORDER BY {sort_by} {direction}
                 LIMIT ? OFFSET ?
-            """, (limit, offset)).fetchall()
+            """, (min_dur, limit, offset)).fetchall()
 
         return [dict(row) for row in rows]
 
@@ -566,10 +568,13 @@ class TrackCache:
         return dict(row) if row else None
 
     def count_tracks(self) -> int:
-        """Count distinct tracks in the cache."""
+        """Count distinct tracks in the cache (respects min duration filter)."""
+        min_dur = self.get_min_track_duration()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT COUNT(DISTINCT fingerprint) FROM tracks"
+                """SELECT COUNT(DISTINCT fingerprint) FROM tracks
+                   WHERE duration >= ?""",
+                (min_dur,),
             ).fetchone()
         return row[0] if row else 0
 
@@ -853,6 +858,7 @@ class TrackCache:
         if sort_by not in valid_sorts:
             sort_by = "created_at"
         direction = "DESC" if sort_desc else "ASC"
+        min_dur = self.get_min_track_duration()
 
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
@@ -866,9 +872,10 @@ class TrackCache:
                       SELECT MAX(version) FROM tracks t2
                       WHERE t2.fingerprint = tracks.fingerprint
                   )
+                  AND duration >= ?
                 ORDER BY {sort_by} {direction}
                 LIMIT ? OFFSET ?
-            """, (folder, limit, offset)).fetchall()
+            """, (folder, min_dur, limit, offset)).fetchall()
 
         return [dict(row) for row in rows]
 
@@ -877,6 +884,7 @@ class TrackCache:
 
         Returns list of dicts with 'name', 'path', and 'track_count' keys.
         """
+        min_dur = self.get_min_track_duration()
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             # Get all distinct folders for latest versions
@@ -888,8 +896,9 @@ class TrackCache:
                     WHERE t2.fingerprint = tracks.fingerprint
                 )
                 AND folder != ''
+                AND duration >= ?
                 GROUP BY folder
-            """).fetchall()
+            """, (min_dur,)).fetchall()
 
         # Extract immediate children of parent_folder
         prefix = (parent_folder + "/") if parent_folder else ""
@@ -921,11 +930,13 @@ class TrackCache:
         ]
 
     def count_tracks_in_folder(self, folder: str = "") -> int:
-        """Count tracks at an exact folder level."""
+        """Count tracks at an exact folder level (respects min duration filter)."""
+        min_dur = self.get_min_track_duration()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT COUNT(DISTINCT fingerprint) FROM tracks WHERE folder = ?",
-                (folder,),
+                """SELECT COUNT(DISTINCT fingerprint) FROM tracks
+                   WHERE folder = ? AND duration >= ?""",
+                (folder, min_dur),
             ).fetchone()
         return row[0] if row else 0
 
@@ -942,6 +953,7 @@ class TrackCache:
         if sort_by not in valid_sorts:
             sort_by = "created_at"
         direction = "DESC" if sort_desc else "ASC"
+        min_dur = self.get_min_track_duration()
 
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
@@ -955,9 +967,10 @@ class TrackCache:
                           SELECT MAX(version) FROM tracks t2
                           WHERE t2.fingerprint = tracks.fingerprint
                       )
+                      AND duration >= ?
                     ORDER BY {sort_by} {direction}
                     LIMIT ? OFFSET ?
-                """, (folder, folder, limit, offset)).fetchall()
+                """, (folder, folder, min_dur, limit, offset)).fetchall()
             else:
                 # Root: return all tracks
                 rows = conn.execute(f"""
@@ -968,9 +981,10 @@ class TrackCache:
                         SELECT MAX(version) FROM tracks t2
                         WHERE t2.fingerprint = tracks.fingerprint
                     )
+                    AND duration >= ?
                     ORDER BY {sort_by} {direction}
                     LIMIT ? OFFSET ?
-                """, (limit, offset)).fetchall()
+                """, (min_dur, limit, offset)).fetchall()
 
         return [dict(row) for row in rows]
 
@@ -985,6 +999,27 @@ class TrackCache:
     # ------------------------------------------------------------------
     # Settings (key-value store)
     # ------------------------------------------------------------------
+
+    # Default minimum track duration (seconds) — excludes jingles/samples/FX
+    DEFAULT_MIN_TRACK_DURATION = 60.0
+
+    def get_min_track_duration(self) -> float:
+        """Get the minimum track duration filter (seconds).
+
+        Tracks shorter than this are excluded from all list/count queries.
+        Stored in the settings table as 'min_track_duration'.
+        """
+        raw = self.get_setting("min_track_duration")
+        if raw is not None:
+            try:
+                return float(raw)
+            except ValueError:
+                pass
+        return self.DEFAULT_MIN_TRACK_DURATION
+
+    def set_min_track_duration(self, seconds: float) -> None:
+        """Set the minimum track duration filter (seconds)."""
+        self.set_setting("min_track_duration", str(seconds))
 
     def get_setting(self, key: str) -> str | None:
         """Get a setting value by key."""
