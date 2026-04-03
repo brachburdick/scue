@@ -340,6 +340,68 @@ Pioneer CDJ → Bridge WS → BridgeAdapter (PlayerState)
 
 ---
 
+---
+
+## Backlog: Min-Duration Track Filter
+Status: READY
+
+### Summary
+Exclude tracks shorter than a configurable threshold (default: 60s) from all track views app-wide. Short tracks (jingles, samples, sound effects) clutter the library and shouldn't participate in strata analysis batches.
+
+### Design
+- **Setting:** `min_track_duration` in SQLite `settings` table (default `60.0` seconds)
+- **Filter point:** `TrackCache.list_tracks()` SQL query — single chokepoint for all listing endpoints
+- **SQL:** Add `AND duration >= :min_duration` to the WHERE clause
+- **API:** `GET/PUT /api/settings/min-track-duration` for configuration
+- **No frontend changes needed** — backend returns fewer tracks; counts, pagination, batch analysis all automatically exclude short tracks
+- Individual track endpoints (`GET /api/tracks/{fingerprint}`) remain unaffected — direct lookups still work
+
+### Key Files
+- `scue/layer1/storage.py` — `TrackCache.list_tracks()` query
+- `scue/api/tracks.py` — track listing endpoints, new settings endpoint
+
+### Acceptance Criteria
+- [ ] Tracks < 60s excluded from `GET /api/tracks` response
+- [ ] Tracks < 60s excluded from folder browsing
+- [ ] Setting persists across restarts (SQLite `settings` table)
+- [ ] `GET /api/settings/min-track-duration` returns current threshold
+- [ ] `PUT /api/settings/min-track-duration` updates threshold
+- [ ] Direct track lookup by fingerprint still works regardless of duration
+
+---
+
+## Backlog: Analysis Status Header Indicator
+Status: READY
+Spec: `specs/feat-analysis-status-header/spec.md`
+
+### Summary
+Persistent TopBar element showing active analysis/batch work. WebSocket-pushed progress replaces polling. Foundation for analysis governance (queueing, priority, conflict prevention).
+
+### Deliverables
+- [ ] WS broadcast from `_run_strata_batch()` via WSManager
+- [ ] `analysis_progress` WS message type + dispatch routing
+- [ ] `analysisProgressStore` Zustand store
+- [ ] `AnalysisStatusBadge` component in TopBar (progress pill + expandable dropdown)
+- [ ] Auto-dismiss on completion, persist on failure
+
+---
+
+## Completed: allin1-mlx Installation & Integration Hardening
+Status: COMPLETE
+Spec: `specs/feat-allin1-mlx-setup/spec.md`
+
+### Summary
+allin1-mlx was missing from the venv — every analysis silently fell back to librosa-only. Package installed, dependency tracked, error handling hardened.
+
+### Deliverables
+- [x] Install `all-in-one-mlx` in venv
+- [x] Add to pyproject.toml optional deps (macOS-only platform marker)
+- [x] Startup availability log in main.py
+- [x] Broaden exception handling in `analyze_structure()` (catch all exceptions, not just ImportError)
+- [x] Event loop blocking — already mitigated (sync function runs in thread pool), bug log updated
+
+---
+
 ### Milestone 8 — Full Cue Vocabulary
 ### Milestone 9 — OSC Visual Output (Layer 4B)
 ### Milestone 10 — Real-Time User Override UI (Layer 4C)

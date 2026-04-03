@@ -25,13 +25,14 @@ Hybrid tier stages:
 
 from __future__ import annotations
 
+import gc
 import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
 
 from ..models import Section, TrackAnalysis
-from ..storage import TrackStore
+from ..storage import TrackCache, TrackStore
 from .energy import EnergyAnalysis, compute_energy_analysis
 from .models import (
     ArrangementFormula,
@@ -56,34 +57,43 @@ class StrataEngine:
         tracks_dir: Path,
         strata_store: StrataStore,
         priors: EDMPriors | None = None,
+        cache_path: Path | None = None,
     ) -> None:
         self._track_store = TrackStore(tracks_dir)
         self._strata_store = strata_store
         self._priors = priors
+        self._cache_path = cache_path
 
     def analyze_quick(
-        self, fingerprint: str, analysis_version: int | None = None,
+        self,
+        fingerprint: str,
+        analysis_version: int | None = None,
+        progress_callback: Callable[[int, str], None] | None = None,
     ) -> ArrangementFormula:
         """Run the quick tier analysis.
 
         Produces an arrangement formula from existing M7 analysis data
-        without stem separation. Total time: ~2-3s.
+        without stem separation. Self-contained: runs base analysis if needed.
 
         Args:
             fingerprint: Track fingerprint.
             analysis_version: Specific TrackAnalysis version to use. If None,
                 uses load_latest() (highest available version).
+            progress_callback: Optional callback for step progress.
         """
         start_time = time.time()
         logger.info("Strata quick tier: starting for %s", fingerprint[:16])
 
-        # Load track analysis (specific version or latest)
+        # Load track analysis (specific version or latest), running base if needed
+        signal = None  # Reuse audio signal from base analysis if available
         if analysis_version is not None:
             analysis = self._track_store.load(fingerprint, version=analysis_version)
+            if analysis is None:
+                raise ValueError(f"No track analysis v{analysis_version} for {fingerprint[:16]}")
         else:
-            analysis = self._track_store.load_latest(fingerprint)
-        if analysis is None:
-            raise ValueError(f"No track analysis found for {fingerprint[:16]}. Run analysis first.")
+            analysis, ran_base, signal = self._ensure_base_analysis(fingerprint, progress_callback)
+            if ran_base:
+                logger.info("Base analysis completed for %s, continuing with quick tier", fingerprint[:16])
 
         # Stage A: Read existing M7 output
         logger.info("  Stage A: Reading M7 detector output")
@@ -91,7 +101,7 @@ class StrataEngine:
 
         # Stage B: Energy/activity analysis
         logger.info("  Stage B: Computing per-bar energy")
-        energy = self._compute_energy(analysis)
+        energy = self._compute_energy(analysis, signal=signal)
 
         # Stage C: Pattern discovery
         logger.info("  Stage C: Discovering patterns")
@@ -158,14 +168,17 @@ class StrataEngine:
             if progress_callback is not None:
                 progress_callback(step, name)
 
-        # Stage A: Load track analysis (specific version or latest)
+        # Stage A: Load track analysis (specific version or latest), running base if needed
         _progress(1, "Loading track analysis")
+        signal = None  # Reuse audio signal from base analysis if available
         if analysis_version is not None:
             analysis = self._track_store.load(fingerprint, version=analysis_version)
+            if analysis is None:
+                raise ValueError(f"No track analysis v{analysis_version} for {fingerprint[:16]}")
         else:
-            analysis = self._track_store.load_latest(fingerprint)
-        if analysis is None:
-            raise ValueError(f"No track analysis found for {fingerprint[:16]}. Run analysis first.")
+            analysis, ran_base, signal = self._ensure_base_analysis(fingerprint, progress_callback)
+            if ran_base:
+                logger.info("Base analysis completed for %s, continuing with standard tier", fingerprint[:16])
 
         audio_path = Path(analysis.audio_path)
         if not audio_path.exists():
@@ -204,7 +217,7 @@ class StrataEngine:
         )
 
         # Also run the existing energy-based transition detection on the full mix
-        energy = self._compute_energy(analysis)
+        energy = self._compute_energy(analysis, signal=signal)
         energy_transitions = detect_transitions(
             analysis.sections, energy, analysis.downbeats,
         )
@@ -256,7 +269,10 @@ class StrataEngine:
         results: dict[str, ArrangementFormula] = {}
 
         if "quick" in tiers:
-            results["quick"] = self.analyze_quick(fingerprint, analysis_version=analysis_version)
+            results["quick"] = self.analyze_quick(
+                fingerprint, analysis_version=analysis_version,
+                progress_callback=progress_callback,
+            )
 
         if "standard" in tiers:
             results["standard"] = self.analyze_standard(
@@ -411,18 +427,19 @@ class StrataEngine:
 
         # --- Stage B: Load TrackAnalysis for audio features + M7 ---
         logger.info("  Stage B: Loading track analysis for audio features")
+        signal = None  # Reuse audio signal from base analysis if available
         if analysis_version is not None:
             analysis = self._track_store.load(fingerprint, version=analysis_version)
+            if analysis is None:
+                raise ValueError(f"No track analysis v{analysis_version} for {fingerprint[:16]}")
         else:
-            analysis = self._track_store.load_latest(fingerprint)
-        if analysis is None:
-            raise ValueError(
-                f"No track analysis found for {fingerprint[:16]}. Run analysis first."
-            )
+            analysis, ran_base, signal = self._ensure_base_analysis(fingerprint)
+            if ran_base:
+                logger.info("Base analysis completed for %s, continuing with hybrid tier", fingerprint[:16])
 
         # --- Stage C: Energy analysis from audio ---
         logger.info("  Stage C: Computing per-bar energy from audio")
-        energy = self._compute_energy(analysis)
+        energy = self._compute_energy(analysis, signal=signal)
 
         # --- Stage D: Pattern discovery from M7 drum patterns ---
         logger.info("  Stage D: Discovering patterns from M7 output")
@@ -466,24 +483,135 @@ class StrataEngine:
         )
         return formula
 
-    def _compute_energy(self, analysis: TrackAnalysis) -> EnergyAnalysis:
-        """Compute energy analysis, loading audio features if needed."""
+    def _ensure_base_analysis(
+        self,
+        fingerprint: str,
+        progress_callback: Callable[[int, str], None] | None = None,
+    ) -> tuple[TrackAnalysis, bool, "np.ndarray | None"]:
+        """Load TrackAnalysis, running base analysis first if version===0.
+
+        Returns (analysis, ran_base, signal):
+          - ran_base=True means base was just computed.
+          - signal is the decoded audio waveform when base analysis ran
+            (avoids redundant librosa.load in downstream energy computation).
+            None when existing analysis was found.
+        """
+        import numpy as np  # noqa: F811 — type hint in signature
+
+        analysis = self._track_store.load_latest(fingerprint)
+        if analysis is not None and analysis.version > 0:
+            return analysis, False, None
+
+        # Need base analysis — resolve audio path
+        audio_path = self._resolve_audio_path(fingerprint, analysis)
+        logger.info("Running base analysis for %s (no existing analysis)", fingerprint[:16])
+
+        from ..analysis import run_analysis
+
+        def _base_progress(step: int, name: str, total: int) -> None:
+            if progress_callback is not None:
+                progress_callback(step, name)
+
+        result, features = run_analysis(
+            audio_path=audio_path,
+            tracks_dir=self._track_store.tracks_dir,
+            cache_path=self._cache_path,
+            skip_waveform=True,  # Strata doesn't use waveform data
+            progress_callback=_base_progress,
+            return_features=True,
+        )
+        # Extract signal before gc — energy analysis needs it
+        signal = features.signal if features is not None else None
+        gc.collect()  # OOM prevention after heavy analysis
+        return result, True, signal
+
+    def _resolve_audio_path(self, fingerprint: str, analysis: TrackAnalysis | None) -> Path:
+        """Get audio_path from TrackAnalysis or SQLite cache."""
+        if analysis and analysis.audio_path:
+            p = Path(analysis.audio_path)
+            if p.exists():
+                return p
+        # Fall back to SQLite cache lookup
+        if self._cache_path:
+            cache = TrackCache(self._cache_path)
+            meta = cache.get_track(fingerprint)
+            if meta and meta.get("audio_path"):
+                p = Path(meta["audio_path"])
+                if p.exists():
+                    return p
+        raise ValueError(f"No audio file found for {fingerprint[:16]}")
+
+    def _compute_energy(
+        self,
+        analysis: TrackAnalysis,
+        signal: "np.ndarray | None" = None,
+    ) -> EnergyAnalysis:
+        """Compute energy analysis, loading audio features if needed.
+
+        Args:
+            analysis: TrackAnalysis with downbeats and audio_path.
+            signal: Pre-loaded audio waveform (mono, sr=22050). When provided,
+                skips the redundant librosa.load() from disk.
+
+        Tries the feature cache first for onset_strength, falling back to
+        loading audio from disk.
+        """
+        import numpy as np  # noqa: F811
+
         if not analysis.downbeats:
             logger.warning("No downbeats available — skipping energy analysis")
             return EnergyAnalysis()
 
-        # We need the raw signal for band energy computation.
-        # Load it from the audio file.
-        audio_path = Path(analysis.audio_path)
-        if not audio_path.exists():
-            logger.warning("Audio file not found: %s — skipping energy analysis", audio_path)
-            return EnergyAnalysis()
+        sr = 22050  # Standard sample rate used throughout the pipeline
+
+        # Try feature cache for onset_strength
+        from ..feature_cache import load_features
+        cached = load_features(analysis.fingerprint, self._track_store.tracks_dir)
+        if cached is not None and cached.onset_strength is not None:
+            logger.info("Using cached onset_strength for energy analysis")
+            # Need raw signal for band energy — reuse if provided
+            if signal is None:
+                audio_path = Path(analysis.audio_path)
+                if not audio_path.exists():
+                    logger.warning("Audio file not found: %s — skipping energy analysis", audio_path)
+                    return EnergyAnalysis()
+                try:
+                    import librosa
+                    signal, sr = librosa.load(str(audio_path), sr=sr, mono=True)
+                except Exception as e:
+                    logger.warning("Failed to load audio for energy: %s", e)
+                    return EnergyAnalysis()
+            else:
+                logger.info("Reusing pre-loaded signal for energy analysis")
+            try:
+                return compute_energy_analysis(
+                    signal=signal,
+                    sr=sr,
+                    downbeats=analysis.downbeats,
+                    onset_strength=cached.onset_strength,
+                    duration=analysis.duration,
+                )
+            except Exception as e:
+                logger.warning("Energy analysis failed: %s", e)
+                return EnergyAnalysis()
+
+        # No cache — need signal + onset_strength
+        if signal is None:
+            audio_path = Path(analysis.audio_path)
+            if not audio_path.exists():
+                logger.warning("Audio file not found: %s — skipping energy analysis", audio_path)
+                return EnergyAnalysis()
+            try:
+                import librosa
+                signal, sr = librosa.load(str(audio_path), sr=sr, mono=True)
+            except Exception as e:
+                logger.warning("Failed to load audio for energy: %s", e)
+                return EnergyAnalysis()
+        else:
+            logger.info("Reusing pre-loaded signal for energy analysis")
 
         try:
             import librosa
-            signal, sr = librosa.load(str(audio_path), sr=22050, mono=True)
-
-            # Also compute onset strength for density analysis
             onset_strength = librosa.onset.onset_strength(y=signal, sr=sr)
 
             return compute_energy_analysis(

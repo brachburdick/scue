@@ -29,6 +29,7 @@ from .detectors.sections import (
     merge_boundaries,
 )
 from .detectors.snap import snap_to_8bar_grid
+from .feature_cache import load_features, save_features
 from .fingerprint import compute_fingerprint
 from .models import Section, TrackAnalysis, TrackFeatures
 from .storage import TrackCache, TrackStore
@@ -51,7 +52,8 @@ def run_analysis(
     skip_waveform: bool = False,
     force: bool = False,
     progress_callback: ProgressCallback = None,
-) -> TrackAnalysis:
+    return_features: bool = False,
+) -> TrackAnalysis | tuple[TrackAnalysis, AudioFeatures]:
     """Run the full analysis pipeline on an audio file.
 
     Args:
@@ -62,9 +64,11 @@ def run_analysis(
         skip_waveform: If True, skip RGB waveform computation.
         force: If True, re-analyze even if analysis exists.
         progress_callback: Optional callback(step, step_name, total_steps) for progress reporting.
+        return_features: If True, return (TrackAnalysis, AudioFeatures) tuple
+            so callers can reuse the loaded signal without a redundant disk read.
 
     Returns:
-        Complete TrackAnalysis object.
+        TrackAnalysis, or (TrackAnalysis, AudioFeatures) when return_features=True.
     """
     audio_path = Path(audio_path)
     if not audio_path.exists():
@@ -95,12 +99,36 @@ def run_analysis(
         if existing:
             logger.info("Analysis already exists (v%d), skipping. Use force=True to re-analyze.",
                         existing.version)
+            if return_features:
+                return existing, None
             return existing
 
-    # Step 2: Extract audio features
+    # Step 2: Extract audio features (check cache first)
     _progress(2, "Extracting audio features")
     logger.info("Step 2/10: Extracting audio features...")
-    features = extract_all(str(audio_path))
+    cached_features = None
+    if tracks_dir and not force:
+        cached_features = load_features(fingerprint, Path(tracks_dir))
+    if cached_features is not None:
+        # Cache hit — reload signal (not cached, needed for waveform + HPSS)
+        import librosa
+        signal, sr = librosa.load(str(audio_path), sr=cached_features.sr, mono=True)
+        cached_features.signal = signal
+        # Recompute HPSS (not cached — time-domain, cheap relative to full extraction)
+        logger.info("Recomputing HPSS from cached features...")
+        y_harmonic, y_percussive = librosa.effects.hpss(signal)
+        cached_features.y_harmonic = y_harmonic
+        cached_features.y_percussive = y_percussive
+        features = cached_features
+        logger.info("Using cached features for %s", fingerprint[:16])
+    else:
+        features = extract_all(str(audio_path))
+        # Save to cache for reuse
+        if tracks_dir:
+            try:
+                save_features(fingerprint, features, Path(tracks_dir))
+            except Exception:
+                logger.warning("Failed to save feature cache", exc_info=True)
 
     # Step 3: Analyze structure (allin1-mlx or fallback)
     _progress(3, "Analyzing structure")
@@ -247,6 +275,8 @@ def run_analysis(
                 elapsed, len(scored_sections), structure.bpm, features.duration)
     logger.info("=" * 60)
 
+    if return_features:
+        return analysis, features
     return analysis
 
 

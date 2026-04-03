@@ -57,6 +57,9 @@ def analyze_structure(audio_path: str) -> StructureResult:
     except ImportError:
         logger.warning("allin1-mlx not available, falling back to librosa-only analysis")
         return _analyze_fallback(audio_path)
+    except Exception:
+        logger.exception("allin1-mlx failed, falling back to librosa-only analysis")
+        return _analyze_fallback(audio_path)
 
 
 def _find_weights_dir() -> str | None:

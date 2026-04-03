@@ -19,6 +19,7 @@ dependencies = [
 analysis = [
     "librosa>=0.10.0",
     "ruptures>=1.1.0",
+    "all-in-one-mlx>=1.0.5; sys_platform == 'darwin'",  # Apple Silicon ML structure analysis
 ]
 usb = [
     "rbox>=0.1.7",          # exportLibrary.db reading (OneLibrary/DLP)

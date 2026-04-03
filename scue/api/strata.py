@@ -170,8 +170,14 @@ def _run_strata_analysis(
 
     Defined as a plain function (not async) so FastAPI runs it in
     the thread pool, avoiding event loop blocking.
+
+    Self-contained: if the track has no base analysis (version===0),
+    the engine will run base analysis automatically.
     """
+    import gc
+
     from ..layer1.strata.engine import StrataEngine
+    from ..layer1.storage import TrackStore
 
     store = _get_store()
     if _tracks_dir is None:
@@ -183,15 +189,35 @@ def _run_strata_analysis(
 
     if job:
         job.status = "running"
+        # Check if base analysis is needed (version===0)
+        track_store = TrackStore(_tracks_dir)
+        existing = track_store.load_latest(fingerprint)
+        if existing is None or existing.version == 0:
+            job.needs_base = True
+            job.total_steps = 15  # 10 base + 5 tier
+            job.phase = "base"
 
     def _progress(step: int, name: str) -> None:
         if job:
             if job.cancelled:
                 raise InterruptedError("Cancelled by user")
-            job.current_step = step
-            job.current_step_name = name
+            if job.needs_base and job.phase == "base":
+                # Base analysis steps 1-10
+                job.current_step = step
+                job.current_step_name = name
+                if step >= 10:
+                    job.phase = "tier"
+            elif job.needs_base and job.phase == "tier":
+                # Tier steps offset to 11-15
+                job.current_step = 10 + step
+                job.current_step_name = name
+            else:
+                job.current_step = step
+                job.current_step_name = name
 
-    engine = StrataEngine(tracks_dir=_tracks_dir, strata_store=store)
+    engine = StrataEngine(
+        tracks_dir=_tracks_dir, strata_store=store, cache_path=_cache_path,
+    )
     try:
         results = engine.analyze(
             fingerprint, tiers,
@@ -199,6 +225,7 @@ def _run_strata_analysis(
             progress_callback=_progress,
         )
         invalidate_strata_cache()
+        gc.collect()  # OOM prevention after base + tier analysis
         logger.info("Strata analysis complete for %s: %s",
                      fingerprint[:16], list(results.keys()))
         if job:
@@ -250,26 +277,37 @@ async def analyze_strata(
             raise HTTPException(400, f"Invalid analysis_source: {req.analysis_source!r}")
         analysis_version = _SOURCE_TO_VERSION.get(req.analysis_source)
 
-    # For quick or live_offline tier, run synchronously (fast enough)
+    # For quick or live_offline tier, run synchronously if base analysis exists.
+    # If base is needed, quick falls through to the background job path.
     if req.tiers == ["quick"] or req.tiers == ["live_offline"]:
         from ..layer1.strata.engine import StrataEngine
-        store = _get_store()
-        engine = StrataEngine(tracks_dir=_tracks_dir, strata_store=store)
-        try:
-            results = engine.analyze(fingerprint, req.tiers, analysis_version=analysis_version)
-            invalidate_strata_cache()
-            return {
-                "fingerprint": fingerprint,
-                "completed_tiers": list(results.keys()),
-                "requested_tiers": req.tiers,
-                "analysis_source": req.analysis_source or "latest",
-                "status": "complete",
-            }
-        except ValueError as e:
-            raise HTTPException(404, str(e))
-        except Exception as e:
-            logger.exception("Quick strata analysis failed")
-            raise HTTPException(500, f"Analysis failed: {e}")
+        from ..layer1.storage import TrackStore as _TS
+
+        _ts = _TS(_tracks_dir)
+        existing = _ts.load_latest(fingerprint)
+        needs_base = existing is None or existing.version == 0
+
+        if not (needs_base and req.tiers == ["quick"]):
+            store = _get_store()
+            engine = StrataEngine(
+                tracks_dir=_tracks_dir, strata_store=store, cache_path=_cache_path,
+            )
+            try:
+                results = engine.analyze(fingerprint, req.tiers, analysis_version=analysis_version)
+                invalidate_strata_cache()
+                return {
+                    "fingerprint": fingerprint,
+                    "completed_tiers": list(results.keys()),
+                    "requested_tiers": req.tiers,
+                    "analysis_source": req.analysis_source or "latest",
+                    "status": "complete",
+                }
+            except ValueError as e:
+                raise HTTPException(404, str(e))
+            except Exception as e:
+                logger.exception("Quick strata analysis failed")
+                raise HTTPException(500, f"Analysis failed: {e}")
+        # else: needs_base + quick → fall through to background job below
 
     # Deep tier is not yet implemented
     if req.tiers == ["deep"]:
@@ -383,15 +421,46 @@ async def cancel_strata_batch(batch_id: str) -> dict:
 def _run_strata_batch(batch: StrataBatchJob) -> None:
     """Run batch strata analysis with tier-aware parallelism.
 
-    Quick-tier jobs run in parallel (ThreadPoolExecutor).
+    Quick-tier jobs that already have base analysis run in parallel.
+    Jobs needing base analysis run sequentially (heavy memory use).
     Standard/deep jobs run sequentially after all quick jobs complete.
     """
+    import gc
+
+    from ..layer1.storage import TrackStore
+
     batch.status = "running"
 
-    quick_jobs = [j for j in batch.jobs if j.tier == "quick"]
-    heavy_jobs = [j for j in batch.jobs if j.tier != "quick"]
+    # Populate job titles from SQLite cache for display
+    if _cache_path:
+        from ..layer1.storage import TrackCache
+        cache = TrackCache(_cache_path)
+        for job in batch.jobs:
+            meta = cache.get_track(job.fingerprint)
+            if meta:
+                job.title = meta.get("title", "")
 
-    # Run quick-tier jobs in parallel
+    # Separate quick jobs by whether they need base analysis
+    quick_jobs: list[StrataJob] = []
+    quick_needs_base: list[StrataJob] = []
+    heavy_jobs: list[StrataJob] = []
+
+    if _tracks_dir:
+        track_store = TrackStore(_tracks_dir)
+        for j in batch.jobs:
+            if j.tier == "quick":
+                existing = track_store.load_latest(j.fingerprint)
+                if existing is None or existing.version == 0:
+                    quick_needs_base.append(j)
+                else:
+                    quick_jobs.append(j)
+            else:
+                heavy_jobs.append(j)
+    else:
+        quick_jobs = [j for j in batch.jobs if j.tier == "quick"]
+        heavy_jobs = [j for j in batch.jobs if j.tier != "quick"]
+
+    # Run quick-tier jobs (with base analysis) in parallel
     if quick_jobs:
         max_workers = min(_batch_max_parallel, os.cpu_count() or 4)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -400,8 +469,6 @@ def _run_strata_batch(batch: StrataBatchJob) -> None:
                 for j in quick_jobs
             }
             for future in as_completed(futures):
-                # Exceptions are already caught inside _run_strata_analysis,
-                # but guard against unexpected errors so one job can't kill the batch.
                 try:
                     future.result()
                 except Exception as exc:
@@ -411,9 +478,37 @@ def _run_strata_batch(batch: StrataBatchJob) -> None:
                         job.status = "failed"
                         job.error = str(exc)
 
+    # Run quick jobs needing base analysis with limited parallelism.
+    # Each needs full audio feature extraction + ML structure analysis,
+    # so cap workers to avoid memory pressure (each track peaks ~100-200MB).
+    if quick_needs_base:
+        base_workers = min(3, os.cpu_count() or 2)
+        logger.info(
+            "Running %d quick-needs-base jobs with %d workers",
+            len(quick_needs_base), base_workers,
+        )
+        with ThreadPoolExecutor(max_workers=base_workers) as pool:
+            futures = {
+                pool.submit(_run_strata_analysis, j.fingerprint, [j.tier], job=j): j
+                for j in quick_needs_base
+            }
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    job = futures[future]
+                    logger.exception(
+                        "Unexpected error in quick-needs-base batch job %s",
+                        job.fingerprint[:16],
+                    )
+                    if job.status not in ("complete", "failed"):
+                        job.status = "failed"
+                        job.error = str(exc)
+
     # Run heavy-tier jobs sequentially
     for job in heavy_jobs:
         _run_strata_analysis(job.fingerprint, [job.tier], job=job)
+        gc.collect()
 
     invalidate_strata_cache()
 

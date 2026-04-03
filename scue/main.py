@@ -63,6 +63,15 @@ async def startup() -> None:
     """Initialize storage, bridge, and playback tracker on app startup."""
     global _bridge_manager, _tracker, _ws_manager
 
+    # Log analysis backend availability
+    try:
+        import allin1_mlx
+        logger.info("allin1-mlx available (v%s) — ML structure analysis enabled",
+                     getattr(allin1_mlx, "__version__", "unknown"))
+    except ImportError:
+        logger.warning("allin1-mlx not installed — falling back to librosa-only structure analysis. "
+                        "Install with: pip install 'all-in-one-mlx>=1.0.5'")
+
     tracks_dir = Path(config.server.tracks_dir)
     cache_path = Path(config.server.cache_path)
 

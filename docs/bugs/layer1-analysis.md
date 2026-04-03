@@ -49,11 +49,12 @@ Source: External code review 2026-03-20
 ### Background analysis blocks the event loop
 Date: 2026-03-20
 Milestone: M-1
-Severity: HIGH
+Severity: HIGH (mitigated)
 Symptom: During track analysis, WebSocket broadcasts, health checks, and all other async handlers stall. UI freezes or shows stale data.
-Root cause: `_run_analysis_task()` at `scue/api/tracks.py:153` calls `run_analysis()` synchronously. FastAPI's `BackgroundTasks` runs the task on the same event loop. `run_analysis()` does CPU-heavy librosa/allin1 work, blocking all other async operations.
-Fix: Wrap in `asyncio.to_thread(run_analysis, ...)` or use a `ProcessPoolExecutor`. One-line fix with big impact.
-File(s): scue/api/tracks.py (~line 153)
+Root cause: `_run_analysis_task()` was originally async, running CPU-heavy librosa/allin1 work directly on the event loop.
+Fix applied: `_run_analysis_task()` is now a sync function (not async def). FastAPI's `BackgroundTasks` runs sync functions in a thread pool via Starlette's `run_in_threadpool()`, keeping the event loop free. Librosa/numpy C extensions release the GIL during heavy computation, so event loop responsiveness is adequate.
+Residual: True CPU-bound Python code between C calls still holds the GIL. A `ProcessPoolExecutor` would fully isolate analysis but adds pickling/IPC complexity — not warranted unless symptoms recur.
+File(s): scue/api/tracks.py — `_run_analysis_task()`
 Source: External code review 2026-03-20
 
 ### demucs.api.Separator not available in demucs 4.0.1
@@ -153,3 +154,11 @@ Milestone: N/A
 **Root Cause:** `_run_ingest_background()` called `ingest_from_master_db()` which re-reads master.db from scratch, re-opens pyrekordbox, re-parses all ANLZ files, and re-fingerprints every audio file — completely ignoring the `MasterDbScanResult` already in memory from the scan.
 **Fix:** The scan now stores the full `MasterDbScanResult` object in `_last_scan_result`. The ingest background task checks for this: if present, it reuses the already-computed fingerprints and ANLZ data to classify tracks and create sidecars directly (seconds instead of minutes). Falls back to full `ingest_from_master_db()` only when no prior scan exists.
 **Files:** `scue/api/local_library.py`
+
+### Quick-tier batch analysis extremely slow (~1 track/min for 1067 tracks)
+Date: 2026-04-02
+Milestone: N/A
+**Symptom:** Batch quick analysis of 1067 tracks processed only ~60 tracks in ~30 minutes. Quick tier is supposed to be fast heuristic analysis (~3-7s per track), so 1067 tracks should take ~1-2 hours at most, not potentially 17+ hours at observed rate.
+**Root Cause:** Not yet diagnosed. Possible causes: sequential processing of `quick_needs_base` tracks (tracks without base analysis run one at a time with GC between each), GIL contention from ThreadPoolExecutor, or I/O bottleneck reading audio files.
+**Fix:** TBD — needs profiling of `_run_strata_batch` to identify bottleneck.
+**Files:** `scue/api/strata.py` (`_run_strata_batch`)
