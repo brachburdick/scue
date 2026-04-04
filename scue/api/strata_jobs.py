@@ -26,6 +26,9 @@ class StrataJob:
     error: str | None = None
     cancelled: bool = False
     created_at: float = field(default_factory=time.time)
+    needs_base: bool = False    # whether base analysis was needed
+    phase: str = "tier"         # "base" | "tier"
+    title: str = ""             # track title for display in batch progress
 
 
 @dataclass
@@ -94,6 +97,9 @@ def strata_job_to_dict(job: StrataJob) -> dict:
         "current_step_name": job.current_step_name,
         "total_steps": job.total_steps,
         "error": job.error,
+        "needs_base": job.needs_base,
+        "phase": job.phase,
+        "title": job.title,
     }
 
 

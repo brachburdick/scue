@@ -1,0 +1,132 @@
+{
+  "fingerprint": "c3288a6d9d93bc0390305d8f1ccf8c46b61617f8bb62d9b7bf50438bfa860a6f",
+  "version": 1,
+  "stems": [
+    {
+      "stem_type": "bass",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 12.120816326530612,
+          "end": 29.6518820861678,
+          "bar_start": 0,
+          "bar_end": 12,
+          "energy": 0.9643977536186907,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    },
+    {
+      "stem_type": "other",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 12.120816326530612,
+          "end": 29.6518820861678,
+          "bar_start": 0,
+          "bar_end": 12,
+          "energy": 0.7318238135620266,
+          "confidence": 0.6
+        },
+        {
+          "start": 17.972244897959182,
+          "end": 29.6518820861678,
+          "bar_start": 4,
+          "bar_end": 12,
+          "energy": 0.6009349599642392,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    }
+  ],
+  "patterns": [
+    {
+      "id": "drum-00-07424101",
+      "name": "snare-2.3",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 7,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 1.4628571428571444,
+        "signature": "0742410101a7"
+      },
+      "instances": [
+        {
+          "bar_start": 2,
+          "bar_end": 4,
+          "start": 15.069750566893424,
+          "end": 17.972244897959182,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "section_label": "intro",
+      "section_start": 0.0,
+      "section_end": 12.1208,
+      "active_layers": [],
+      "active_patterns": [],
+      "transitions": [],
+      "energy_level": 0.5,
+      "energy_trend": "stable",
+      "layer_count": 0
+    },
+    {
+      "section_label": "outro",
+      "section_start": 12.1208,
+      "section_end": 29.753469387755104,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-07424101"
+      ],
+      "transitions": [],
+      "energy_level": 0.942,
+      "energy_trend": "stable",
+      "layer_count": 3
+    }
+  ],
+  "transitions": [],
+  "total_layers": 2,
+  "total_patterns": 1,
+  "arrangement_complexity": 0.3,
+  "energy_narrative": "Intro: stable energy. Outro: snare-2.3.",
+  "pipeline_tier": "quick",
+  "analysis_source": "analysis",
+  "stem_separation_model": "",
+  "compute_time_seconds": 0.15,
+  "created_at": 1775186725.394112
+}

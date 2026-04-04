@@ -219,6 +219,10 @@ class ArrangementFormula:
     compute_time_seconds: float = 0.0
     created_at: float = field(default_factory=time.time)
 
+    # Variant metadata (which strategies produced this result)
+    variant: str = "default"
+    substep_strategies: dict[str, str] = field(default_factory=dict)
+
     # Beat-grid trust report (optional, populated by LiveStrataAnalyzer)
     grid_trust: dict | None = None
 
@@ -477,6 +481,8 @@ def formula_to_dict(f: ArrangementFormula) -> dict:
         "stem_separation_model": f.stem_separation_model,
         "compute_time_seconds": f.compute_time_seconds,
         "created_at": f.created_at,
+        "variant": f.variant,
+        **({"substep_strategies": f.substep_strategies} if f.substep_strategies else {}),
         **({"grid_trust": f.grid_trust} if f.grid_trust is not None else {}),
     }
 
@@ -499,5 +505,7 @@ def formula_from_dict(d: dict) -> ArrangementFormula:
         stem_separation_model=d.get("stem_separation_model", ""),
         compute_time_seconds=d.get("compute_time_seconds", 0.0),
         created_at=d.get("created_at", 0.0),
+        variant=d.get("variant", "default"),
+        substep_strategies=d.get("substep_strategies", {}),
         grid_trust=d.get("grid_trust"),
     )

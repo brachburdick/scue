@@ -24,7 +24,8 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
 from ..layer1.strata.models import formula_from_dict, formula_to_dict
-from ..layer1.strata.storage import DEFAULT_SOURCE, VALID_SOURCES, VALID_TIERS, StrataStore
+from ..layer1.strata.storage import DEFAULT_SOURCE, DEFAULT_VARIANT, VALID_SOURCES, VALID_TIERS, StrataStore
+from ..layer1.strata.variant_config import load_variant_config
 from .tracks import invalidate_strata_cache
 from .strata_jobs import (
     StrataBatchJob,
@@ -94,9 +95,11 @@ async def list_strata_tracks() -> dict:
 
 @router.get("/api/tracks/{fingerprint}/strata")
 async def get_all_strata(fingerprint: str) -> dict:
-    """Get all available tier + source results for a track.
+    """Get all available tier + source + variant results for a track.
 
-    Returns nested structure: {tier: {source: formula}}.
+    Returns nested structure: {tier: {source: {variant: formula}}}.
+    For backward compatibility, the default variant results are also
+    flattened into the top-level source dict when only default exists.
     """
     store = _get_store()
     results = store.load_all(fingerprint)
@@ -105,17 +108,26 @@ async def get_all_strata(fingerprint: str) -> dict:
 
     tiers_dict: dict[str, dict[str, dict]] = {}
     available_tiers: list[str] = []
+    available_variants: set[str] = set()
     for tier, sources in results.items():
-        tiers_dict[tier] = {
-            source: formula_to_dict(formula)
-            for source, formula in sources.items()
-        }
+        tiers_dict[tier] = {}
         available_tiers.append(tier)
+        for source, variants in sources.items():
+            # Backward compat: if only "default" variant exists, flatten it
+            if len(variants) == 1 and DEFAULT_VARIANT in variants:
+                tiers_dict[tier][source] = formula_to_dict(variants[DEFAULT_VARIANT])
+            else:
+                tiers_dict[tier][source] = {
+                    variant: formula_to_dict(formula)
+                    for variant, formula in variants.items()
+                }
+            available_variants.update(variants.keys())
 
     return {
         "fingerprint": fingerprint,
         "tiers": tiers_dict,
         "available_tiers": available_tiers,
+        "available_variants": sorted(available_variants),
     }
 
 
@@ -124,20 +136,22 @@ async def get_strata_tier(
     fingerprint: str,
     tier: str,
     source: str = Query(DEFAULT_SOURCE, description="Analysis source"),
+    variant: str = Query(DEFAULT_VARIANT, description="Variant preset name"),
 ) -> dict:
-    """Get a specific tier + source arrangement formula."""
+    """Get a specific tier + source + variant arrangement formula."""
     if tier not in VALID_TIERS:
         raise HTTPException(400, f"Invalid tier: {tier!r} (expected one of {list(VALID_TIERS)})")
     if source not in VALID_SOURCES:
         raise HTTPException(400, f"Invalid source: {source!r} (expected one of {list(VALID_SOURCES)})")
     store = _get_store()
-    formula = store.load(fingerprint, tier, source)
+    formula = store.load(fingerprint, tier, source, variant)
     if formula is None:
-        raise HTTPException(404, f"No {tier}/{source} strata for track: {fingerprint[:16]}")
+        raise HTTPException(404, f"No {tier}/{source}/{variant} strata for track: {fingerprint[:16]}")
     return {
         "fingerprint": fingerprint,
         "tier": tier,
         "source": source,
+        "variant": variant,
         "formula": formula_to_dict(formula),
     }
 
@@ -167,6 +181,8 @@ async def save_strata_tier(fingerprint: str, tier: str, req: SaveStrataRequest) 
 class AnalyzeStrataRequest(BaseModel):
     tiers: list[str] = ["quick", "standard"]
     analysis_source: str | None = None
+    variant: str = DEFAULT_VARIANT
+    substep_overrides: dict[str, str] | None = None
 
 
 def _run_strata_analysis(
@@ -174,6 +190,8 @@ def _run_strata_analysis(
     tiers: list[str],
     analysis_version: int | None = None,
     job: StrataJob | None = None,
+    variant: str = DEFAULT_VARIANT,
+    substep_overrides: dict[str, str] | None = None,
 ) -> None:
     """Run strata analysis in a background thread.
 
@@ -232,6 +250,8 @@ def _run_strata_analysis(
             fingerprint, tiers,
             analysis_version=analysis_version,
             progress_callback=_progress,
+            variant=variant,
+            substep_overrides=substep_overrides,
         )
         invalidate_strata_cache()
         gc.collect()  # OOM prevention after base + tier analysis
@@ -302,7 +322,10 @@ async def analyze_strata(
                 tracks_dir=_tracks_dir, strata_store=store, cache_path=_cache_path,
             )
             try:
-                results = engine.analyze(fingerprint, req.tiers, analysis_version=analysis_version)
+                results = engine.analyze(
+                    fingerprint, req.tiers, analysis_version=analysis_version,
+                    variant=req.variant, substep_overrides=req.substep_overrides,
+                )
                 invalidate_strata_cache()
                 return {
                     "fingerprint": fingerprint,
@@ -333,6 +356,7 @@ async def analyze_strata(
     job = create_strata_job(fingerprint, primary_tier)
     background_tasks.add_task(
         _run_strata_analysis, fingerprint, req.tiers, analysis_version, job,
+        req.variant, req.substep_overrides,
     )
     return {
         "fingerprint": fingerprint,
@@ -341,6 +365,22 @@ async def analyze_strata(
         "status": "started",
         "job_id": job.job_id,
         "message": "Analysis started. Poll GET /api/strata/jobs/{job_id} for progress.",
+    }
+
+
+@router.get("/api/strata/variants")
+async def get_strata_variants() -> dict:
+    """Get available variant presets and strategies per substep.
+
+    Returns the full variant config for the Lab mode UI.
+    """
+    cfg = load_variant_config()
+    return {
+        "presets": cfg.variants,
+        "available_strategies": {
+            substep_id: cfg.available_strategies(substep_id)
+            for substep_id in ("transition_detection", "energy_trend", "fill_detection")
+        },
     }
 
 

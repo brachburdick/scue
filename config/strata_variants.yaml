@@ -1,0 +1,35 @@
+# Strata analysis variant configuration.
+#
+# Variants define which strategy to use for each swappable substep
+# in the analysis pipeline. The "default" variant matches the original
+# hardcoded behavior. New variants can swap individual substeps to
+# test alternative algorithms (e.g., TimesFM).
+#
+# Usage:
+#   POST /api/tracks/{fp}/strata/analyze  { "variant": "default" }
+#   POST /api/tracks/{fp}/strata/analyze  { "variant": "default", "substep_overrides": {"transition_detection": "timesfm_anomaly"} }
+
+variants:
+  default:
+    transition_detection: energy_delta
+    energy_trend: slope_heuristic
+    fill_detection: onset_spike
+
+# Available strategies per substep, with their tunable parameters.
+# Each substep maps strategy_name -> params dict.
+strategies:
+  transition_detection:
+    energy_delta:
+      energy_threshold: 0.15
+
+  energy_trend:
+    slope_heuristic:
+      window: 4
+      slope_threshold: 0.05
+      peak_ratio: 1.3
+      valley_ratio: 0.7
+
+  fill_detection:
+    onset_spike:
+      spike_ratio: 1.8
+      boundary_window_s: 5.0

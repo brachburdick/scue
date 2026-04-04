@@ -7,6 +7,7 @@ interface LibraryState {
   selectedTracks: Record<LibraryTab, Set<string>>;
   expandedPreview: string | null;
   searchText: Record<LibraryTab, string>;
+  batchId: string | null;
 
   setActiveTab: (tab: LibraryTab) => void;
   setImportMode: (mode: ImportMode) => void;
@@ -14,6 +15,7 @@ interface LibraryState {
   toggleTrackSelection: (tab: LibraryTab, fingerprint: string) => void;
   setExpandedPreview: (fingerprint: string | null) => void;
   setSearchText: (tab: LibraryTab, text: string) => void;
+  setBatchId: (id: string | null) => void;
 }
 
 const emptySelections: Record<LibraryTab, Set<string>> = {
@@ -36,6 +38,7 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   selectedTracks: { ...emptySelections },
   expandedPreview: null,
   searchText: { ...emptySearch },
+  batchId: null,
 
   setActiveTab: (tab) => set({ activeTab: tab }),
   setImportMode: (mode) => set({ importMode: mode }),
@@ -52,4 +55,5 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   setExpandedPreview: (fingerprint) => set({ expandedPreview: fingerprint }),
   setSearchText: (tab, text) =>
     set((s) => ({ searchText: { ...s.searchText, [tab]: text } })),
+  setBatchId: (id) => set({ batchId: id }),
 }));

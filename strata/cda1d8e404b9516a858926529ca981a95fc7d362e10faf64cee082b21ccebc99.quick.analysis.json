@@ -1,0 +1,116 @@
+{
+  "fingerprint": "cda1d8e404b9516a858926529ca981a95fc7d362e10faf64cee082b21ccebc99",
+  "version": 1,
+  "stems": [
+    {
+      "stem_type": "bass",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 0.4876190476190476,
+          "end": 29.280362811791385,
+          "bar_start": 0,
+          "bar_end": 16,
+          "energy": 0.6799166896914621,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    },
+    {
+      "stem_type": "other",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 0.4876190476190476,
+          "end": 29.280362811791385,
+          "bar_start": 0,
+          "bar_end": 16,
+          "energy": 0.6811010147754976,
+          "confidence": 0.6
+        },
+        {
+          "start": 0.4876190476190476,
+          "end": 29.280362811791385,
+          "bar_start": 0,
+          "bar_end": 16,
+          "energy": 0.7618133286872821,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    }
+  ],
+  "patterns": [
+    {
+      "id": "drum-00-b7dd5e01",
+      "name": "silent",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [],
+        "duration_bars": 1,
+        "duration_seconds": 1.927256235827663,
+        "signature": "b7dd5e0194ee"
+      },
+      "instances": [
+        {
+          "bar_start": 6,
+          "bar_end": 7,
+          "start": 10.95981859410431,
+          "end": 12.887074829931972,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 16,
+          "bar_end": 17,
+          "start": 29.280362811791385,
+          "end": 29.280362811791385,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "section_label": "outro",
+      "section_start": 0.0,
+      "section_end": 29.753469387755104,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01"
+      ],
+      "transitions": [],
+      "energy_level": 0.706,
+      "energy_trend": "rising",
+      "layer_count": 3
+    }
+  ],
+  "transitions": [],
+  "total_layers": 2,
+  "total_patterns": 1,
+  "arrangement_complexity": 0.3,
+  "energy_narrative": "Outro: silent.",
+  "pipeline_tier": "quick",
+  "analysis_source": "analysis",
+  "stem_separation_model": "",
+  "compute_time_seconds": 1.08,
+  "created_at": 1775182128.7185888
+}

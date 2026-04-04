@@ -1,0 +1,238 @@
+{
+  "fingerprint": "9ad1a982c8641795449a6104113bcd2f31ebdcb2439b49190b1e179451670015",
+  "version": 1,
+  "stems": [
+    {
+      "stem_type": "bass",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 0.4876190476190476,
+          "end": 26.33142857142857,
+          "bar_start": 0,
+          "bar_end": 10,
+          "energy": 0.8912452687882861,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    },
+    {
+      "stem_type": "other",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 0.4876190476190476,
+          "end": 26.33142857142857,
+          "bar_start": 0,
+          "bar_end": 10,
+          "energy": 0.7074737866367744,
+          "confidence": 0.6
+        },
+        {
+          "start": 0.4876190476190476,
+          "end": 26.33142857142857,
+          "bar_start": 0,
+          "bar_end": 10,
+          "energy": 0.8456680131232378,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    }
+  ],
+  "patterns": [
+    {
+      "id": "drum-00-65dbbcda",
+      "name": "kick-3-snare-4",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 8,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 12,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.5774149659863945,
+        "signature": "65dbbcdab501"
+      },
+      "instances": [
+        {
+          "bar_start": 1,
+          "bar_end": 3,
+          "start": 3.0650340136054424,
+          "end": 8.243083900226758,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 5,
+          "bar_end": 6,
+          "start": 13.397913832199546,
+          "end": 15.998548752834466,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 9,
+          "bar_end": 10,
+          "start": 23.73079365079365,
+          "end": 26.33142857142857,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    },
+    {
+      "id": "drum-01-7b5ad6ad",
+      "name": "kick-3-snare-2+4",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 4,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "kick",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 8,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 12,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.577414965986395,
+        "signature": "7b5ad6ad6874"
+      },
+      "instances": [
+        {
+          "bar_start": 0,
+          "bar_end": 1,
+          "start": 0.4876190476190476,
+          "end": 3.0650340136054424,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 4,
+          "bar_end": 5,
+          "start": 10.820498866213152,
+          "end": 13.397913832199546,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 8,
+          "bar_end": 9,
+          "start": 21.153378684807254,
+          "end": 23.73079365079365,
+          "variation": "minor",
+          "variation_description": "",
+          "confidence": 0.866025447845459
+        }
+      ],
+      "tags": [
+        "backbeat-snare",
+        "sparse"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "section_label": "outro",
+      "section_start": 0.0,
+      "section_end": 29.753469387755104,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-65dbbcda",
+        "drum-01-7b5ad6ad"
+      ],
+      "transitions": [],
+      "energy_level": 0.852,
+      "energy_trend": "rising",
+      "layer_count": 3
+    }
+  ],
+  "transitions": [],
+  "total_layers": 2,
+  "total_patterns": 2,
+  "arrangement_complexity": 0.3,
+  "energy_narrative": "Outro: kick-3-snare-4 + kick-3-snare-2+4.",
+  "pipeline_tier": "quick",
+  "analysis_source": "analysis",
+  "stem_separation_model": "",
+  "compute_time_seconds": 0.5,
+  "created_at": 1775186965.595509
+}

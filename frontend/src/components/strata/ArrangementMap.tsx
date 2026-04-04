@@ -90,6 +90,8 @@ export interface ArrangementMapProps {
   externalEvents?: Array<{ type: string; timestamp: number; stem: string | null }>;
   /** Real-time playback cursor position in seconds (live tier). */
   playbackCursorTime?: number;
+  /** Compare transitions to overlay in a different color (Lab mode). */
+  compareTransitions?: import("../../types/strata").ArrangementTransition[];
 }
 
 // --- Helpers ---
@@ -160,6 +162,7 @@ export function ArrangementMap({
   showPatternBlocks = true,
   externalEvents,
   playbackCursorTime,
+  compareTransitions,
 }: ArrangementMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -473,6 +476,38 @@ export function ArrangementMap({
         : t.type === "layer_exit" ? "-" + (t.layers_affected[0] ?? "")
         : t.type.replace("_", " ");
       ctx.fillText(label, x + 2, 2);
+    }
+
+    // Compare transition overlay (Lab mode)
+    if (compareTransitions && compareTransitions.length > 0) {
+      for (const t of compareTransitions) {
+        const x = LABEL_WIDTH + timeToX(t.timestamp, viewStart, viewEnd, drawW);
+        if (x < LABEL_WIDTH || x > w) continue;
+
+        // Check if this transition matches a base transition (within 0.5s)
+        const isMatched = formula.transitions.some(
+          (bt) => Math.abs(bt.timestamp - t.timestamp) < 0.5 && bt.type === t.type,
+        );
+
+        ctx.strokeStyle = isMatched ? "rgba(34, 197, 94, 0.6)" : "rgba(168, 85, 247, 0.7)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, totalHeight);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Small triangle marker at top to distinguish from base
+        if (!isMatched) {
+          ctx.fillStyle = "rgba(168, 85, 247, 0.8)";
+          ctx.beginPath();
+          ctx.moveTo(x - 3, 0);
+          ctx.lineTo(x + 3, 0);
+          ctx.lineTo(x, 5);
+          ctx.fill();
+        }
+      }
     }
 
     // --- Playback cursor (live tier) ---

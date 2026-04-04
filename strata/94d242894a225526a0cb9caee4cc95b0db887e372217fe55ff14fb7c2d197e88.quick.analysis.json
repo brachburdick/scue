@@ -1,0 +1,162 @@
+{
+  "fingerprint": "94d242894a225526a0cb9caee4cc95b0db887e372217fe55ff14fb7c2d197e88",
+  "version": 1,
+  "stems": [
+    {
+      "stem_type": "bass",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 0.2786394557823129,
+          "end": 26.447528344671202,
+          "bar_start": 0,
+          "bar_end": 11,
+          "energy": 0.6445978842039974,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    },
+    {
+      "stem_type": "other",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 0.2786394557823129,
+          "end": 26.447528344671202,
+          "bar_start": 0,
+          "bar_end": 11,
+          "energy": 0.8881809508828917,
+          "confidence": 0.6
+        },
+        {
+          "start": 0.2786394557823129,
+          "end": 26.447528344671202,
+          "bar_start": 0,
+          "bar_end": 11,
+          "energy": 0.6346680249906016,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    }
+  ],
+  "patterns": [
+    {
+      "id": "drum-00-745f0ec6",
+      "name": "snare-2.2-clap-2+4",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 4,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "snare",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 6,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          },
+          {
+            "type": "clap",
+            "timestamp": 0.0,
+            "duration": null,
+            "intensity": 0.5,
+            "stem": "drums",
+            "pitch": null,
+            "beat_position": 12,
+            "bar_index": null,
+            "confidence": 0.5,
+            "source": "pattern",
+            "payload": {}
+          }
+        ],
+        "duration_bars": 1,
+        "duration_seconds": 2.3684353741496604,
+        "signature": "745f0ec607cb"
+      },
+      "instances": [
+        {
+          "bar_start": 4,
+          "bar_end": 6,
+          "start": 9.798820861678005,
+          "end": 14.535691609977324,
+          "variation": "minor",
+          "variation_description": "",
+          "confidence": 0.866025447845459
+        }
+      ],
+      "tags": [
+        "backbeat-clap",
+        "sparse"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "section_label": "intro",
+      "section_start": 0.0,
+      "section_end": 16.9273,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-745f0ec6"
+      ],
+      "transitions": [],
+      "energy_level": 0.606,
+      "energy_trend": "falling",
+      "layer_count": 3
+    },
+    {
+      "section_label": "outro",
+      "section_start": 16.9273,
+      "section_end": 29.753469387755104,
+      "active_layers": [
+        "bass",
+        "other"
+      ],
+      "active_patterns": [],
+      "transitions": [],
+      "energy_level": 0.797,
+      "energy_trend": "rising",
+      "layer_count": 2
+    }
+  ],
+  "transitions": [],
+  "total_layers": 2,
+  "total_patterns": 1,
+  "arrangement_complexity": 0.3,
+  "energy_narrative": "Intro: snare-2.2-clap-2+4. Outro: rising energy.",
+  "pipeline_tier": "quick",
+  "analysis_source": "analysis",
+  "stem_separation_model": "",
+  "compute_time_seconds": 0.51,
+  "created_at": 1775182139.888609
+}

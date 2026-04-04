@@ -13,7 +13,9 @@ import type {
   StrataListResponse,
   StrataTier,
   StrataTierResponse,
+  SubstepId,
   TrackVersionsResponse,
+  VariantsResponse,
 } from "../types/strata";
 
 export function useStrataList() {
@@ -175,6 +177,57 @@ export function useTrackVersions(fingerprint: string | null) {
       apiFetch<TrackVersionsResponse>(`/tracks/${fingerprint}/versions`),
     enabled: fingerprint !== null,
     retry: false,
+  });
+}
+
+/** Fetch available variant presets and strategies for Lab mode. */
+export function useStrataVariants() {
+  return useQuery<VariantsResponse>({
+    queryKey: ["strata-variants"],
+    queryFn: () => apiFetch<VariantsResponse>("/strata/variants"),
+    staleTime: 5 * 60 * 1000, // Variants config rarely changes
+  });
+}
+
+/** Fetch a specific tier + source + variant formula. */
+export function useStrataTierWithVariant(
+  fingerprint: string | null,
+  tier: StrataTier,
+  source: AnalysisSource,
+  variant: string,
+) {
+  return useQuery<StrataTierResponse>({
+    queryKey: ["strata", fingerprint, tier, source, variant],
+    queryFn: () =>
+      apiFetch<StrataTierResponse>(
+        `/tracks/${fingerprint}/strata/${tier}?source=${source}&variant=${variant}`,
+      ),
+    enabled: fingerprint !== null,
+    retry: false,
+  });
+}
+
+/** Trigger analysis with a specific variant + optional substep overrides. */
+export function useAnalyzeStrataVariant(fingerprint: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation<
+    AnalyzeStrataResult,
+    Error,
+    {
+      tiers: StrataTier[];
+      analysis_source?: AnalysisSource;
+      variant?: string;
+      substep_overrides?: Partial<Record<SubstepId, string>>;
+    }
+  >({
+    mutationFn: ({ tiers, analysis_source, variant, substep_overrides }) =>
+      apiFetch<AnalyzeStrataResult>(`/tracks/${fingerprint}/strata/analyze`, {
+        method: "POST",
+        body: JSON.stringify({ tiers, analysis_source, variant, substep_overrides }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["strata", fingerprint] });
+    },
   });
 }
 

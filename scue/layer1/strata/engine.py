@@ -44,7 +44,13 @@ from .models import (
 from .patterns import discover_patterns
 from .priors import EDMPriors
 from .storage import StrataStore
-from .transitions import compute_section_energy, detect_transitions
+from .transitions import (
+    EnergyDeltaTransitions,
+    OnsetSpikeFills,
+    compute_section_energy,
+    detect_transitions,
+)
+from .variant_config import VariantConfig, load_variant_config
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +69,58 @@ class StrataEngine:
         self._strata_store = strata_store
         self._priors = priors
         self._cache_path = cache_path
+        self._variant_config: VariantConfig | None = None
+
+    def _get_variant_config(self) -> VariantConfig:
+        if self._variant_config is None:
+            self._variant_config = load_variant_config()
+        return self._variant_config
+
+    def _resolve_strategies(
+        self,
+        variant: str = "default",
+        substep_overrides: dict[str, str] | None = None,
+    ) -> dict[str, str]:
+        """Resolve substep->strategy mapping for a variant, with optional overrides."""
+        cfg = self._get_variant_config()
+        return cfg.resolve(variant, substep_overrides)
+
+    def _make_transition_strategy(self, strategy_name: str) -> EnergyDeltaTransitions:
+        """Instantiate a transition detection strategy by name."""
+        cfg = self._get_variant_config()
+        params = cfg.get_params("transition_detection", strategy_name)
+        if strategy_name == "energy_delta":
+            return EnergyDeltaTransitions(**params)
+        # Future strategies go here (e.g., timesfm_anomaly)
+        logger.warning("Unknown transition strategy %r, falling back to energy_delta", strategy_name)
+        return EnergyDeltaTransitions()
+
+    def _make_fill_strategy(self, strategy_name: str) -> OnsetSpikeFills:
+        """Instantiate a fill detection strategy by name."""
+        cfg = self._get_variant_config()
+        params = cfg.get_params("fill_detection", strategy_name)
+        if strategy_name == "onset_spike":
+            return OnsetSpikeFills(**params)
+        logger.warning("Unknown fill strategy %r, falling back to onset_spike", strategy_name)
+        return OnsetSpikeFills()
+
+    def _make_trend_strategy(self, strategy_name: str):
+        """Instantiate an energy trend strategy by name."""
+        from .energy import SlopeHeuristicTrend
+        cfg = self._get_variant_config()
+        params = cfg.get_params("energy_trend", strategy_name)
+        if strategy_name == "slope_heuristic":
+            return SlopeHeuristicTrend(**params)
+        logger.warning("Unknown trend strategy %r, falling back to slope_heuristic", strategy_name)
+        return SlopeHeuristicTrend()
 
     def analyze_quick(
         self,
         fingerprint: str,
         analysis_version: int | None = None,
         progress_callback: Callable[[int, str], None] | None = None,
+        variant: str = "default",
+        substep_overrides: dict[str, str] | None = None,
     ) -> ArrangementFormula:
         """Run the quick tier analysis.
 
@@ -80,9 +132,13 @@ class StrataEngine:
             analysis_version: Specific TrackAnalysis version to use. If None,
                 uses load_latest() (highest available version).
             progress_callback: Optional callback for step progress.
+            variant: Named variant preset from config/strata_variants.yaml.
+            substep_overrides: Per-substep strategy overrides (e.g., {"transition_detection": "timesfm_anomaly"}).
         """
         start_time = time.time()
-        logger.info("Strata quick tier: starting for %s", fingerprint[:16])
+        strategies = self._resolve_strategies(variant, substep_overrides)
+        logger.info("Strata quick tier: starting for %s (variant=%s, strategies=%s)",
+                     fingerprint[:16], variant, strategies)
 
         # Load track analysis (specific version or latest), running base if needed
         signal = None  # Reuse audio signal from base analysis if available
@@ -111,13 +167,21 @@ class StrataEngine:
             analysis.beats,
         )
 
-        # Stage D: Transition detection
-        logger.info("  Stage D: Detecting transitions")
-        transitions = detect_transitions(
-            analysis.sections,
-            energy,
-            analysis.downbeats,
+        # Stage D: Transition detection (strategy-driven)
+        logger.info("  Stage D: Detecting transitions (strategy=%s)",
+                     strategies.get("transition_detection", "energy_delta"))
+        transition_strategy = self._make_transition_strategy(
+            strategies.get("transition_detection", "energy_delta"),
         )
+        transitions = transition_strategy.detect(analysis.sections, energy, analysis.downbeats)
+
+        # Stage D.5: Fill detection (strategy-driven)
+        fill_strategy = self._make_fill_strategy(
+            strategies.get("fill_detection", "onset_spike"),
+        )
+        fills = fill_strategy.detect(energy, analysis.downbeats, analysis.sections)
+        transitions.extend(fills)
+        transitions.sort(key=lambda t: t.timestamp)
 
         # Stage E: Assembly
         logger.info("  Stage E: Assembling formula")
@@ -129,12 +193,14 @@ class StrataEngine:
             transitions=transitions,
             tier="quick",
             start_time=start_time,
+            variant=variant,
+            substep_strategies=strategies,
         )
 
         # Save (source derived from the TrackAnalysis that was used)
         source = analysis.source if analysis.source in ("analysis", "pioneer_enriched", "pioneer_reanalyzed") else "analysis"
         formula.analysis_source = source
-        self._strata_store.save(formula, "quick", source=source)
+        self._strata_store.save(formula, "quick", source=source, variant=variant)
         elapsed = time.time() - start_time
         logger.info("Strata quick tier complete: %d patterns, %d transitions, %.1fs",
                      len(patterns), len(transitions), elapsed)
@@ -145,6 +211,8 @@ class StrataEngine:
         fingerprint: str,
         analysis_version: int | None = None,
         progress_callback: Callable[[int, str], None] | None = None,
+        variant: str = "default",
+        substep_overrides: dict[str, str] | None = None,
     ) -> ArrangementFormula:
         """Run the standard tier analysis.
 
@@ -162,7 +230,8 @@ class StrataEngine:
             )
 
         start_time = time.time()
-        logger.info("Strata standard tier: starting for %s", fingerprint[:16])
+        strategies = self._resolve_strategies(variant, substep_overrides)
+        logger.info("Strata standard tier: starting for %s (variant=%s)", fingerprint[:16], variant)
 
         def _progress(step: int, name: str) -> None:
             if progress_callback is not None:
@@ -216,11 +285,21 @@ class StrataEngine:
             stems, analysis.downbeats, analysis.sections,
         )
 
-        # Also run the existing energy-based transition detection on the full mix
+        # Also run strategy-driven energy-based transition detection on the full mix
         energy = self._compute_energy(analysis, signal=signal)
-        energy_transitions = detect_transitions(
+        transition_strategy = self._make_transition_strategy(
+            strategies.get("transition_detection", "energy_delta"),
+        )
+        energy_transitions = transition_strategy.detect(
             analysis.sections, energy, analysis.downbeats,
         )
+
+        # Fill detection (strategy-driven)
+        fill_strategy = self._make_fill_strategy(
+            strategies.get("fill_detection", "onset_spike"),
+        )
+        fills = fill_strategy.detect(energy, analysis.downbeats, analysis.sections)
+        energy_transitions.extend(fills)
 
         # Merge transitions, preferring cross-stem where timestamps overlap
         transitions = _merge_transitions(cross_transitions, energy_transitions)
@@ -236,12 +315,14 @@ class StrataEngine:
             transitions=transitions,
             energy=energy,
             start_time=start_time,
+            variant=variant,
+            substep_strategies=strategies,
         )
 
         # Save (source derived from the TrackAnalysis that was used)
         source = analysis.source if analysis.source in ("analysis", "pioneer_enriched", "pioneer_reanalyzed") else "analysis"
         formula.analysis_source = source
-        self._strata_store.save(formula, "standard", source=source)
+        self._strata_store.save(formula, "standard", source=source, variant=variant)
         elapsed = time.time() - start_time
         logger.info(
             "Strata standard tier complete: %d stems, %d patterns, %d transitions, %.1fs",
@@ -255,6 +336,8 @@ class StrataEngine:
         tiers: list[str],
         analysis_version: int | None = None,
         progress_callback: Callable[[int, str], None] | None = None,
+        variant: str = "default",
+        substep_overrides: dict[str, str] | None = None,
     ) -> dict[str, ArrangementFormula]:
         """Run analysis for the requested tiers.
 
@@ -263,6 +346,8 @@ class StrataEngine:
             tiers: List of tier names to run.
             analysis_version: Specific TrackAnalysis version. If None, uses latest.
             progress_callback: Optional callback for step progress (step_number, step_name).
+            variant: Named variant preset from config/strata_variants.yaml.
+            substep_overrides: Per-substep strategy overrides.
 
         Returns a dict mapping tier name to ArrangementFormula.
         """
@@ -272,12 +357,14 @@ class StrataEngine:
             results["quick"] = self.analyze_quick(
                 fingerprint, analysis_version=analysis_version,
                 progress_callback=progress_callback,
+                variant=variant, substep_overrides=substep_overrides,
             )
 
         if "standard" in tiers:
             results["standard"] = self.analyze_standard(
                 fingerprint, analysis_version=analysis_version,
                 progress_callback=progress_callback,
+                variant=variant, substep_overrides=substep_overrides,
             )
 
         if "hybrid" in tiers:
@@ -335,7 +422,11 @@ class StrataEngine:
         return formula
 
     def analyze_hybrid(
-        self, fingerprint: str, analysis_version: int | None = None,
+        self,
+        fingerprint: str,
+        analysis_version: int | None = None,
+        variant: str = "default",
+        substep_overrides: dict[str, str] | None = None,
     ) -> ArrangementFormula:
         """Run the hybrid tier: Pioneer sections + audio energy/patterns.
 
@@ -352,7 +443,8 @@ class StrataEngine:
         from .live_analyzer import PHRASE_KIND_MAP, _beat_to_bar
 
         start_time = time.time()
-        logger.info("Strata hybrid tier: starting for %s", fingerprint[:16])
+        strategies = self._resolve_strategies(variant, substep_overrides)
+        logger.info("Strata hybrid tier: starting for %s (variant=%s)", fingerprint[:16], variant)
 
         # --- Load Pioneer sidecar data ---
         tracks_dir = self._track_store.tracks_dir
@@ -450,12 +542,20 @@ class StrataEngine:
         )
 
         # --- Stage E: Transition detection at Pioneer section boundaries ---
-        logger.info("  Stage E: Detecting transitions at Pioneer boundaries")
-        transitions = detect_transitions(
-            pioneer_sections,
-            energy,
-            analysis.downbeats,
+        logger.info("  Stage E: Detecting transitions at Pioneer boundaries (strategy=%s)",
+                     strategies.get("transition_detection", "energy_delta"))
+        transition_strategy = self._make_transition_strategy(
+            strategies.get("transition_detection", "energy_delta"),
         )
+        transitions = transition_strategy.detect(pioneer_sections, energy, analysis.downbeats)
+
+        # Fill detection (strategy-driven)
+        fill_strategy = self._make_fill_strategy(
+            strategies.get("fill_detection", "onset_spike"),
+        )
+        fills = fill_strategy.detect(energy, analysis.downbeats, pioneer_sections)
+        transitions.extend(fills)
+        transitions.sort(key=lambda t: t.timestamp)
 
         # --- Stage F: Assembly (Pioneer sections + audio detail) ---
         logger.info("  Stage F: Assembling hybrid formula")
@@ -471,11 +571,13 @@ class StrataEngine:
             transitions=transitions,
             tier="hybrid",
             start_time=start_time,
+            variant=variant,
+            substep_strategies=strategies,
         )
         analysis.sections = original_sections  # Restore
 
         formula.analysis_source = "pioneer_sections+audio_detail"
-        self._strata_store.save(formula, "hybrid", source="pioneer_live")
+        self._strata_store.save(formula, "hybrid", source="pioneer_live", variant=variant)
         elapsed = time.time() - start_time
         logger.info(
             "Strata hybrid tier complete: %d sections, %d patterns, %d transitions, %.1fs",
@@ -634,6 +736,8 @@ class StrataEngine:
         transitions: list,
         tier: str,
         start_time: float,
+        variant: str = "default",
+        substep_strategies: dict[str, str] | None = None,
     ) -> ArrangementFormula:
         """Assemble all results into an ArrangementFormula."""
 
@@ -712,6 +816,8 @@ class StrataEngine:
             energy_narrative=narrative,
             pipeline_tier=tier,
             compute_time_seconds=round(elapsed, 2),
+            variant=variant,
+            substep_strategies=substep_strategies or {},
         )
 
 
@@ -724,6 +830,8 @@ class StrataEngine:
         transitions: list,
         energy: EnergyAnalysis,
         start_time: float,
+        variant: str = "default",
+        substep_strategies: dict[str, str] | None = None,
     ) -> ArrangementFormula:
         """Assemble standard tier results into an ArrangementFormula.
 
@@ -798,6 +906,8 @@ class StrataEngine:
             pipeline_tier="standard",
             stem_separation_model="htdemucs",
             compute_time_seconds=round(elapsed, 2),
+            variant=variant,
+            substep_strategies=substep_strategies or {},
         )
 
 

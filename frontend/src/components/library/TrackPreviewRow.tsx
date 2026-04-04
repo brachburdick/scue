@@ -2,26 +2,13 @@ import { useNavigate } from "react-router-dom";
 import { useTrackAnalysis } from "../../api/tracks";
 import { useWaveformPresetStore } from "../../stores/waveformPresetStore";
 import { WaveformCanvas } from "../shared/WaveformCanvas";
+import { AnalysisStatusChips } from "../shared/AnalysisStatusChips";
 import { formatDate, truncateFingerprint } from "../../utils/formatters";
 import type { TrackSummary } from "../../types";
 
 interface TrackPreviewRowProps {
   track: TrackSummary;
   colSpan: number;
-}
-
-function TierStatus({ label, tooltip, active }: { label: string; tooltip: string; active?: boolean }) {
-  return (
-    <span
-      title={tooltip}
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
-        active ? "bg-green-900/40 text-green-400" : "bg-gray-800 text-gray-600"
-      }`}
-    >
-      <span className={active ? "text-green-400" : "text-gray-700"}>●</span>
-      {label}
-    </span>
-  );
 }
 
 export function TrackPreviewRow({ track, colSpan }: TrackPreviewRowProps) {
@@ -78,13 +65,9 @@ export function TrackPreviewRow({ track, colSpan }: TrackPreviewRowProps) {
             </div>
           )}
 
-          {/* Tier status badges */}
+          {/* Analysis status */}
           <div className="flex items-center gap-2">
-            <TierStatus label="Quick" tooltip="Fast heuristic analysis (~3-7s)" active={track.has_quick} />
-            <TierStatus label="Standard" tooltip="Stem separation + per-stem analysis (~1-2 min)" active={track.has_standard} />
-            <TierStatus label="Deep" tooltip="Stem separation + ML models (~2-5 min)" active={track.has_deep} />
-            <TierStatus label="Live" tooltip="Live: Pioneer hardware real-time data" active={track.has_live} />
-            <TierStatus label="Live Offline" tooltip="Live Offline: Saved Pioneer data, no hardware needed" active={track.has_live_offline} />
+            <AnalysisStatusChips track={track} />
             <button
               onClick={(e) => {
                 e.stopPropagation();

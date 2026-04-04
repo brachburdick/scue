@@ -1,0 +1,184 @@
+{
+  "fingerprint": "fdb9fea73dd9b45b0607561db0dee0bae2bae81d2b96dc3f437f8aec34160b96",
+  "version": 1,
+  "stems": [
+    {
+      "stem_type": "bass",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 19.9459410430839,
+          "end": 27.329886621315193,
+          "bar_start": 4,
+          "bar_end": 7,
+          "energy": 0.9049159212171024,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    },
+    {
+      "stem_type": "other",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 10.100680272108843,
+          "end": 27.329886621315193,
+          "bar_start": 0,
+          "bar_end": 7,
+          "energy": 0.7423937561071108,
+          "confidence": 0.6
+        },
+        {
+          "start": 10.100680272108843,
+          "end": 27.329886621315193,
+          "bar_start": 0,
+          "bar_end": 7,
+          "energy": 0.8168886611920582,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    }
+  ],
+  "patterns": [
+    {
+      "id": "drum-00-b7dd5e01",
+      "name": "silent",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [],
+        "duration_bars": 1,
+        "duration_seconds": 2.4148752834467118,
+        "signature": "b7dd5e0194ee"
+      },
+      "instances": [
+        {
+          "bar_start": 1,
+          "bar_end": 2,
+          "start": 12.60843537414966,
+          "end": 15.023310657596372,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 7,
+          "bar_end": 8,
+          "start": 27.329886621315193,
+          "end": 27.329886621315193,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "section_label": "intro",
+      "section_start": 0.0,
+      "section_end": 5.9443,
+      "active_layers": [],
+      "active_patterns": [],
+      "transitions": [],
+      "energy_level": 0.5,
+      "energy_trend": "stable",
+      "layer_count": 0
+    },
+    {
+      "section_label": "breakdown",
+      "section_start": 5.9443,
+      "section_end": 12.6084,
+      "active_layers": [
+        "other"
+      ],
+      "active_patterns": [],
+      "transitions": [],
+      "energy_level": 0.272,
+      "energy_trend": "stable",
+      "layer_count": 1
+    },
+    {
+      "section_label": "build",
+      "section_start": 12.6084,
+      "section_end": 19.9459,
+      "active_layers": [
+        "drums",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01"
+      ],
+      "transitions": [],
+      "energy_level": 0.237,
+      "energy_trend": "stable",
+      "layer_count": 2
+    },
+    {
+      "section_label": "outro",
+      "section_start": 19.9459,
+      "section_end": 29.753469387755104,
+      "active_layers": [
+        "drums",
+        "bass",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01"
+      ],
+      "transitions": [
+        {
+          "type": "energy_shift",
+          "timestamp": 19.9459,
+          "bar_index": 4,
+          "section_label": "outro",
+          "layers_affected": [
+            "bass"
+          ],
+          "patterns_affected": [],
+          "energy_delta": 0.64,
+          "description": "bass enters",
+          "confidence": 1.0
+        }
+      ],
+      "energy_level": 0.915,
+      "energy_trend": "rising",
+      "layer_count": 3
+    }
+  ],
+  "transitions": [
+    {
+      "type": "energy_shift",
+      "timestamp": 19.9459,
+      "bar_index": 4,
+      "section_label": "outro",
+      "layers_affected": [
+        "bass"
+      ],
+      "patterns_affected": [],
+      "energy_delta": 0.64,
+      "description": "bass enters",
+      "confidence": 1.0
+    }
+  ],
+  "total_layers": 2,
+  "total_patterns": 1,
+  "arrangement_complexity": 0.35,
+  "energy_narrative": "Intro: stable energy. Breakdown: stable energy. Build: silent. Outro: bass enters.",
+  "pipeline_tier": "quick",
+  "analysis_source": "analysis",
+  "stem_separation_model": "",
+  "compute_time_seconds": 0.11,
+  "created_at": 1775186703.369384
+}

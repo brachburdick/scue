@@ -247,7 +247,40 @@ def _compute_pseudo_activity(
     return result
 
 
-def compute_energy_trend(bar_energies: list[float], window: int = 4) -> str:
+class SlopeHeuristicTrend:
+    """Default energy trend strategy using slope + threshold heuristics."""
+
+    name = "slope_heuristic"
+
+    def __init__(
+        self,
+        window: int = 4,
+        slope_threshold: float = 0.05,
+        peak_ratio: float = 1.3,
+        valley_ratio: float = 0.7,
+    ) -> None:
+        self._window = window
+        self._slope_threshold = slope_threshold
+        self._peak_ratio = peak_ratio
+        self._valley_ratio = valley_ratio
+
+    def classify(self, bar_energies: list[float], window: int = 4) -> str:
+        return compute_energy_trend(
+            bar_energies,
+            window=window or self._window,
+            slope_threshold=self._slope_threshold,
+            peak_ratio=self._peak_ratio,
+            valley_ratio=self._valley_ratio,
+        )
+
+
+def compute_energy_trend(
+    bar_energies: list[float],
+    window: int = 4,
+    slope_threshold: float = 0.05,
+    peak_ratio: float = 1.3,
+    valley_ratio: float = 0.7,
+) -> str:
     """Classify the energy trend over a window of bars.
 
     Returns: "rising" | "falling" | "stable" | "peak" | "valley"
@@ -260,10 +293,10 @@ def compute_energy_trend(bar_energies: list[float], window: int = 4) -> str:
     avg = float(np.mean(recent))
     overall_avg = float(np.mean(bar_energies))
 
-    if abs(slope) < 0.05:
-        if avg > overall_avg * 1.3:
+    if abs(slope) < slope_threshold:
+        if avg > overall_avg * peak_ratio:
             return "peak"
-        if avg < overall_avg * 0.7:
+        if avg < overall_avg * valley_ratio:
             return "valley"
         return "stable"
     return "rising" if slope > 0 else "falling"

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import numpy as np
 import pytest
@@ -350,7 +350,10 @@ class TestEngineRouting:
         with patch.object(engine, "analyze_quick") as mock_quick:
             mock_quick.return_value = MagicMock()
             engine.analyze("abc123", ["quick"])
-            mock_quick.assert_called_once_with("abc123", analysis_version=None)
+            mock_quick.assert_called_once_with(
+                "abc123", analysis_version=None, progress_callback=ANY,
+                variant="default", substep_overrides=None,
+            )
 
     def test_analyze_routes_to_standard(self, tmp_path: Path) -> None:
         from scue.layer1.strata.engine import StrataEngine
@@ -362,7 +365,10 @@ class TestEngineRouting:
         with patch.object(engine, "analyze_standard") as mock_standard:
             mock_standard.return_value = MagicMock()
             engine.analyze("abc123", ["standard"])
-            mock_standard.assert_called_once_with("abc123", analysis_version=None)
+            mock_standard.assert_called_once_with(
+                "abc123", analysis_version=None, progress_callback=ANY,
+                variant="default", substep_overrides=None,
+            )
 
     def test_analyze_routes_both(self, tmp_path: Path) -> None:
         from scue.layer1.strata.engine import StrataEngine

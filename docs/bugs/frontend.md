@@ -582,3 +582,19 @@ Symptom: Phase 1 progress bar (WS-driven rekordbox_progress) vanishes the moment
 Root cause: The `IngestPhase1Progress` component was inside a `phase === "review"` conditional block. Clicking Import changes phase to `"ingesting"`, hiding the entire block including the progress bar.
 Fix: Changed condition to `phase === "review" || phase === "ingesting"` so the action bar and progress bar remain visible during ingest.
 File(s): frontend/src/components/ingestion/RekordboxTab.tsx
+
+### Strata batch button sends unanalyzed tracks that always fail
+Date: 2026-04-02
+Milestone: N/A
+Symptom: "Run quick (1698)" count included ~1685 tracks without base analysis. Clicking it sent those tracks to `POST /api/strata/analyze-batch`, which returned "No track analysis found" for each one.
+Root cause: `fingerprintsToAnalyze` filtered by strata tier flags (`has_quick`, etc.) but did not exclude tracks that had never been through base audio analysis (`version === 0`). Also used `section_count === 0` as the "unanalyzed" proxy, which is wrong — a track can be analyzed and legitimately have 0 sections.
+Fix: Added `tracksWithBaseAnalysis` memo filtering on `version > 0`. Used it as the source for `alreadyAnalyzedCount`, `fingerprintsToAnalyze`, the stat denominator, and the strata section visibility guard. Changed `needsAudioAnalysis` filter from `section_count === 0` to `version === 0`.
+File(s): frontend/src/components/library/ScueLibraryTab.tsx
+
+### Batch analysis progress lost on library tab switch
+Date: 2026-04-02
+Milestone: N/A
+Symptom: Starting a batch quick analysis (1067 tracks), then switching to another library sub-tab (e.g. Rekordbox) and back causes complete loss of batch tracking — no progress bar, no way to monitor or cancel. Backend keeps processing silently. TanStack Query polling stops after exactly 1 poll request because the component unmounts.
+Root cause: `batchId` stored in local `useState` inside `ScueLibraryTab`. When component unmounts on tab switch (or Vite HMR), state is destroyed. No reconnection mechanism exists.
+Fix: Moved `batchId` to Zustand `libraryStore` so it persists across component unmount/remount cycles.
+File(s): frontend/src/components/library/ScueLibraryTab.tsx, frontend/src/stores/libraryStore.ts

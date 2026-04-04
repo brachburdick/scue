@@ -1,0 +1,133 @@
+{
+  "fingerprint": "35f70fe5eb2eb870052a07c256c65cfa70dcef0b0cf7f4f3579aba787d6071d3",
+  "version": 1,
+  "stems": [
+    {
+      "stem_type": "bass",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 4.551111111111111,
+          "end": 29.071383219954647,
+          "bar_start": 2,
+          "bar_end": 13,
+          "energy": 0.4749532013564048,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    },
+    {
+      "stem_type": "other",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 0.06965986394557823,
+          "end": 29.071383219954647,
+          "bar_start": 0,
+          "bar_end": 13,
+          "energy": 0.7574429381610457,
+          "confidence": 0.6
+        },
+        {
+          "start": 0.06965986394557823,
+          "end": 29.071383219954647,
+          "bar_start": 0,
+          "bar_end": 13,
+          "energy": 0.7985417052184653,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    }
+  ],
+  "patterns": [],
+  "sections": [
+    {
+      "section_label": "intro",
+      "section_start": 0.0,
+      "section_end": 6.7802,
+      "active_layers": [
+        "bass",
+        "other"
+      ],
+      "active_patterns": [],
+      "transitions": [],
+      "energy_level": 0.29,
+      "energy_trend": "rising",
+      "layer_count": 2
+    },
+    {
+      "section_label": "verse",
+      "section_start": 6.7802,
+      "section_end": 22.3376,
+      "active_layers": [
+        "bass",
+        "other"
+      ],
+      "active_patterns": [],
+      "transitions": [],
+      "energy_level": 0.485,
+      "energy_trend": "stable",
+      "layer_count": 2
+    },
+    {
+      "section_label": "outro",
+      "section_start": 22.3376,
+      "section_end": 29.753469387755104,
+      "active_layers": [
+        "bass",
+        "other"
+      ],
+      "active_patterns": [],
+      "transitions": [
+        {
+          "type": "energy_shift",
+          "timestamp": 22.3376,
+          "bar_index": 10,
+          "section_label": "outro",
+          "layers_affected": [
+            "bass"
+          ],
+          "patterns_affected": [],
+          "energy_delta": 0.438,
+          "description": "bass enters",
+          "confidence": 0.8756734886268158
+        }
+      ],
+      "energy_level": 0.936,
+      "energy_trend": "stable",
+      "layer_count": 2
+    }
+  ],
+  "transitions": [
+    {
+      "type": "energy_shift",
+      "timestamp": 22.3376,
+      "bar_index": 10,
+      "section_label": "outro",
+      "layers_affected": [
+        "bass"
+      ],
+      "patterns_affected": [],
+      "energy_delta": 0.438,
+      "description": "bass enters",
+      "confidence": 0.8756734886268158
+    }
+  ],
+  "total_layers": 2,
+  "total_patterns": 0,
+  "arrangement_complexity": 0.067,
+  "energy_narrative": "Intro: rising energy. Verse: stable energy. Outro: bass enters.",
+  "pipeline_tier": "quick",
+  "analysis_source": "analysis",
+  "stem_separation_model": "",
+  "compute_time_seconds": 0.64,
+  "created_at": 1775182131.5469382
+}

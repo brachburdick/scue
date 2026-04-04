@@ -28,9 +28,11 @@ interface FormulaViewProps {
   onExitEdit: () => void;
   /** Real-time playback cursor position in seconds (live tier only). */
   playbackCursorTime?: number | null;
+  /** Compare transitions to overlay on ArrangementMap (Lab mode). */
+  compareTransitions?: import("../../types/strata").ArrangementTransition[];
 }
 
-export function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit, playbackCursorTime }: FormulaViewProps) {
+export function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit, playbackCursorTime, compareTransitions }: FormulaViewProps) {
   const { data: analysis } = useTrackAnalysis(fingerprint);
   const { data: trackEvents } = useTrackEvents(fingerprint);
   const activeRenderParams = useWaveformPresetStore((s) => s.activePreset?.params);
@@ -313,6 +315,7 @@ export function FormulaView({ formula, fingerprint, tier, editMode, onExitEdit, 
         showPatternBlocks={showPatternBlocks}
         externalEvents={allStemEvents}
         playbackCursorTime={playbackCursorTime ?? undefined}
+        compareTransitions={compareTransitions}
       />
 
       {/* Pattern Detail Panel (shown when a pattern is selected) */}

@@ -8,6 +8,8 @@ import { FormulaView } from "../components/analysis/FormulaView";
 import { BatchAnalysisPanel } from "../components/analysis/BatchAnalysisPanel";
 import { ComparisonView } from "../components/strata/ComparisonView";
 import { StrataJobProgress } from "../components/strata/TierAnalysisStatus";
+import { LabConfigBar } from "../components/analysis/LabConfigBar";
+import { LabView } from "../components/analysis/LabView";
 import {
   useStrataAllTiers,
   useAnalyzeStrata,
@@ -15,11 +17,14 @@ import {
   useTrackVersions,
   useAnalyzeStrataBatch,
   useLiveStrata,
+  useStrataVariants,
+  useAnalyzeStrataVariant,
+  useStrataTierWithVariant,
 } from "../api/strata";
 import { apiFetch } from "../api/client";
 import { useBridgeStore } from "../stores/bridgeStore";
 import { useStrataLiveStore } from "../stores/strataLiveStore";
-import type { AnalysisSource, ArrangementFormula, StrataTier } from "../types/strata";
+import type { AnalysisSource, ArrangementFormula, StrataTier, SubstepId } from "../types/strata";
 
 const TIER_LABELS: Record<StrataTier, string> = {
   quick: "Quick",
@@ -37,7 +42,7 @@ const TIER_DESCRIPTIONS: Record<StrataTier, string> = {
   live_offline: "Saved Pioneer data (no hardware or audio needed)",
 };
 
-type PageMode = "view" | "edit" | "compare" | "batch";
+type PageMode = "view" | "edit" | "compare" | "lab" | "batch";
 
 export function AnalysisPage() {
   const queryClient = useQueryClient();
@@ -55,6 +60,29 @@ export function AnalysisPage() {
   const [compareTier, setCompareTier] = useState<StrataTier>("standard");
   const [compareSource, _setCompareSource] = useState<AnalysisSource>("analysis");
   const [waveformCollapsed, setWaveformCollapsed] = useState(false);
+
+  // Lab mode state (sticky across track switches)
+  const [labBaseVariant, setLabBaseVariant] = useState("default");
+  const [labCompareVariant, setLabCompareVariant] = useState<string | null>(null);
+  const [labOverrides, setLabOverrides] = useState<Partial<Record<SubstepId, string>>>({});
+
+  // Lab mode data fetching
+  const { data: variantsConfig } = useStrataVariants();
+  const labAnalyzeMutation = useAnalyzeStrataVariant(fingerprint);
+  const { data: labBaseData } = useStrataTierWithVariant(
+    pageMode === "lab" ? fingerprint : null,
+    selectedTier,
+    selectedSource,
+    labBaseVariant,
+  );
+  const { data: labCompareData } = useStrataTierWithVariant(
+    pageMode === "lab" && labCompareVariant ? fingerprint : null,
+    selectedTier,
+    selectedSource,
+    labCompareVariant ?? "default",
+  );
+  const labBaseFormula = labBaseData?.formula ?? null;
+  const labCompareFormula = labCompareData?.formula ?? null;
 
   // Apply URL params on mount
   useEffect(() => {
@@ -226,7 +254,7 @@ export function AnalysisPage() {
           <h1 className="text-xl font-semibold">Analysis</h1>
         </div>
         <div className="flex items-center gap-2 text-xs">
-          {(["view", "edit", "compare", "batch"] as PageMode[]).map((mode) => {
+          {(["view", "edit", "compare", "lab", "batch"] as PageMode[]).map((mode) => {
             const disabled =
               (mode === "edit" && !formula) ||
               (mode === "compare" && !canCompare);
@@ -234,6 +262,7 @@ export function AnalysisPage() {
               view: "View arrangement",
               edit: formula ? "Edit arrangement" : "Select a tier with data first",
               compare: canCompare ? "Compare two tiers" : "Need 2+ tiers to compare",
+              lab: "Variant experimentation — compare substep strategies",
               batch: "Batch analyze multiple tracks",
             };
             return (
@@ -323,8 +352,53 @@ export function AnalysisPage() {
             analyzeError={analyzeMutation.isError ? analyzeMutation.error : null}
           />
 
+          {/* Lab Config Bar (Lab mode only) */}
+          {pageMode === "lab" && (
+            <LabConfigBar
+              variants={variantsConfig}
+              baseVariant={labBaseVariant}
+              onBaseVariantChange={setLabBaseVariant}
+              compareVariant={labCompareVariant}
+              onCompareVariantChange={setLabCompareVariant}
+              overrides={labOverrides}
+              onOverridesChange={setLabOverrides}
+              onRunVariant={() => {
+                labAnalyzeMutation.mutate({
+                  tiers: [selectedTier],
+                  variant: labBaseVariant,
+                  substep_overrides: Object.keys(labOverrides).length > 0 ? labOverrides : undefined,
+                });
+              }}
+              onReset={() => {
+                setLabOverrides({});
+                setLabBaseVariant("default");
+                setLabCompareVariant(null);
+              }}
+              isAnalyzing={labAnalyzeMutation.isPending}
+              hasTrack={!!fingerprint}
+            />
+          )}
+
           {/* Content Area */}
-          {isLiveTier && !formula ? (
+          {pageMode === "lab" && fingerprint ? (
+            labBaseFormula ? (
+              <LabView
+                fingerprint={fingerprint}
+                tier={selectedTier}
+                baseFormula={labBaseFormula}
+                compareFormula={labCompareFormula}
+              />
+            ) : (
+              <div className="h-48 flex flex-col items-center justify-center bg-gray-950 rounded border border-gray-800 gap-3">
+                <p className="text-gray-500 text-sm">
+                  No variant data yet. Select a variant preset and click "Run Variant".
+                </p>
+                <p className="text-gray-600 text-xs">
+                  Or switch to View mode to see default analysis results.
+                </p>
+              </div>
+            )
+          ) : isLiveTier && !formula ? (
             <div className="h-48 flex flex-col items-center justify-center bg-gray-950 rounded border border-gray-800 gap-3">
               <p className="text-gray-500 text-sm">
                 {hardwareConnected

@@ -1,0 +1,138 @@
+{
+  "fingerprint": "d64553d7ebb120f9a3322133b111dc498da653859485468a578a0e3a1cf693ee",
+  "version": 1,
+  "stems": [
+    {
+      "stem_type": "bass",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    },
+    {
+      "stem_type": "other",
+      "audio_path": null,
+      "layer_role": "unknown",
+      "activity": [
+        {
+          "start": 1.5325170068027212,
+          "end": 28.560544217687074,
+          "bar_start": 1,
+          "bar_end": 19,
+          "energy": 0.7759222807041832,
+          "confidence": 0.6
+        },
+        {
+          "start": 1.5325170068027212,
+          "end": 28.560544217687074,
+          "bar_start": 1,
+          "bar_end": 19,
+          "energy": 0.7535900222244044,
+          "confidence": 0.6
+        }
+      ],
+      "events": [],
+      "patterns": [],
+      "energy_curve": []
+    }
+  ],
+  "patterns": [
+    {
+      "id": "drum-00-b7dd5e01",
+      "name": "silent",
+      "pattern_type": "drum_groove",
+      "stem": "drums",
+      "template": {
+        "events": [],
+        "duration_bars": 1,
+        "duration_seconds": 1.4628571428571429,
+        "signature": "b7dd5e0194ee"
+      },
+      "instances": [
+        {
+          "bar_start": 0,
+          "bar_end": 15,
+          "start": 0.06965986394557823,
+          "end": 22.569795918367348,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        },
+        {
+          "bar_start": 17,
+          "bar_end": 18,
+          "start": 25.541950113378686,
+          "end": 27.051247165532878,
+          "variation": "exact",
+          "variation_description": "",
+          "confidence": 1.0
+        }
+      ],
+      "tags": [
+        "sparse"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "section_label": "intro",
+      "section_start": 0.0,
+      "section_end": 6.0604,
+      "active_layers": [
+        "drums",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01"
+      ],
+      "transitions": [],
+      "energy_level": 0.071,
+      "energy_trend": "rising",
+      "layer_count": 2
+    },
+    {
+      "section_label": "build",
+      "section_start": 6.0604,
+      "section_end": 24.0559,
+      "active_layers": [
+        "drums",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01"
+      ],
+      "transitions": [],
+      "energy_level": 0.112,
+      "energy_trend": "stable",
+      "layer_count": 2
+    },
+    {
+      "section_label": "outro",
+      "section_start": 24.0559,
+      "section_end": 29.753469387755104,
+      "active_layers": [
+        "drums",
+        "other"
+      ],
+      "active_patterns": [
+        "drum-00-b7dd5e01"
+      ],
+      "transitions": [],
+      "energy_level": 0.412,
+      "energy_trend": "rising",
+      "layer_count": 2
+    }
+  ],
+  "transitions": [],
+  "total_layers": 2,
+  "total_patterns": 1,
+  "arrangement_complexity": 0.3,
+  "energy_narrative": "Intro: silent. Build: silent. Outro: silent.",
+  "pipeline_tier": "quick",
+  "analysis_source": "analysis",
+  "stem_separation_model": "",
+  "compute_time_seconds": 0.23,
+  "created_at": 1775182215.428877
+}

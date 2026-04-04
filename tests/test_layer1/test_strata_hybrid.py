@@ -78,7 +78,7 @@ class TestHybridTierValidation:
         store = StrataStore(tmp_path / "strata")
         engine = StrataEngine(tracks_dir=tracks_dir, strata_store=store)
 
-        with pytest.raises(ValueError, match="No track analysis"):
+        with pytest.raises(ValueError, match="No audio file found"):
             engine.analyze_hybrid("abc123")
 
 

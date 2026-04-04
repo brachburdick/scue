@@ -7,6 +7,7 @@
 import type { WSMessage } from "../types";
 import type { BridgeStatus } from "../types/bridge";
 import { toast } from "sonner";
+import { useAnalysisProgressStore } from "../stores/analysisProgressStore";
 import { useBridgeStore } from "../stores/bridgeStore";
 import { useConsoleStore } from "../stores/consoleStore";
 import { useIngestionStore } from "../stores/ingestionStore";
@@ -106,6 +107,9 @@ function dispatch(msg: WSMessage): void {
         queryClient.invalidateQueries({ queryKey: ["master-db"] });
         queryClient.invalidateQueries({ queryKey: ["tracks"] });
       }
+      break;
+    case "analysis_progress":
+      useAnalysisProgressStore.getState().setProgress(msg.payload);
       break;
   }
   dispatchToConsole(msg);

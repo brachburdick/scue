@@ -1,4 +1,5 @@
 import { useBridgeStore } from "../../stores/bridgeStore";
+import { AnalysisStatusBadge } from "./AnalysisStatusBadge";
 
 export function TopBar() {
   const dotStatus = useBridgeStore((s) => s.dotStatus);
@@ -75,6 +76,7 @@ export function TopBar() {
         {isStartingUp && startupLabel && (
           <StartupIndicator label={startupLabel} />
         )}
+        <AnalysisStatusBadge />
         <span className="text-xs text-gray-500">No project loaded</span>
         <div className="flex items-center gap-2">
           <MiniDot

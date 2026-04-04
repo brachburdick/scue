@@ -58,6 +58,27 @@ export interface WSRekordboxProgress {
   };
 }
 
+export interface WSAnalysisProgress {
+  type: "analysis_progress";
+  payload: {
+    kind: "batch" | "single";
+    batch_id?: string;
+    job_id?: string;
+    status: "running" | "complete" | "failed" | "cancelled";
+    tier: string;
+    completed: number;
+    failed: number;
+    total: number;
+    current_track?: {
+      fingerprint: string;
+      title: string;
+      step: number;
+      step_name: string;
+      total_steps: number;
+    };
+  };
+}
+
 export type WSMessage =
   | WSBridgeStatus
   | WSPioneerStatus
@@ -65,4 +86,5 @@ export type WSMessage =
   | WSScanProgress
   | WSScanComplete
   | WSMediaChange
-  | WSRekordboxProgress;
+  | WSRekordboxProgress
+  | WSAnalysisProgress;

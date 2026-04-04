@@ -17,11 +17,54 @@ from .models import ArrangementTransition, StemType, TransitionType
 logger = logging.getLogger(__name__)
 
 
+class EnergyDeltaTransitions:
+    """Default transition detection strategy using energy deltas at section boundaries."""
+
+    name = "energy_delta"
+
+    def __init__(self, energy_threshold: float = 0.15) -> None:
+        self._threshold = energy_threshold
+
+    def detect(
+        self,
+        sections: list[Section],
+        energy: EnergyAnalysis,
+        downbeats: list[float],
+    ) -> list[ArrangementTransition]:
+        return detect_transitions(
+            sections, energy, downbeats, self._threshold,
+            include_fills=False,  # Fills handled by separate FillStrategy
+        )
+
+
+class OnsetSpikeFills:
+    """Default fill detection strategy using onset density spikes near section boundaries."""
+
+    name = "onset_spike"
+
+    def __init__(self, spike_ratio: float = 1.8, boundary_window_s: float = 5.0) -> None:
+        self._spike_ratio = spike_ratio
+        self._boundary_window_s = boundary_window_s
+
+    def detect(
+        self,
+        energy: EnergyAnalysis,
+        downbeats: list[float],
+        sections: list[Section],
+    ) -> list[ArrangementTransition]:
+        return _detect_fills(
+            energy, downbeats, sections,
+            spike_ratio=self._spike_ratio,
+            boundary_window_s=self._boundary_window_s,
+        )
+
+
 def detect_transitions(
     sections: list[Section],
     energy: EnergyAnalysis,
     downbeats: list[float],
     energy_threshold: float = 0.15,
+    include_fills: bool = True,
 ) -> list[ArrangementTransition]:
     """Detect arrangement transitions at section boundaries.
 
@@ -102,12 +145,16 @@ def detect_transitions(
         ))
 
     # Also detect within-section transitions from onset density spikes
-    fill_transitions = _detect_fills(energy, downbeats, sections)
-    transitions.extend(fill_transitions)
+    # (skipped when fills are handled by a separate strategy)
+    fill_count = 0
+    if include_fills:
+        fill_transitions = _detect_fills(energy, downbeats, sections)
+        transitions.extend(fill_transitions)
+        fill_count = len(fill_transitions)
 
     transitions.sort(key=lambda t: t.timestamp)
     logger.info("Detected %d transitions (%d at boundaries, %d fills)",
-                len(transitions), len(transitions) - len(fill_transitions), len(fill_transitions))
+                len(transitions), len(transitions) - fill_count, fill_count)
     return transitions
 
 
@@ -187,6 +234,8 @@ def _detect_fills(
     energy: EnergyAnalysis,
     downbeats: list[float],
     sections: list[Section],
+    spike_ratio: float = 1.8,
+    boundary_window_s: float = 5.0,
 ) -> list[ArrangementTransition]:
     """Detect fill-like transitions from onset density spikes.
 
@@ -213,16 +262,16 @@ def _detect_fills(
         if local_avg == 0:
             continue
 
-        spike_ratio = densities[bar_idx] / local_avg
-        if spike_ratio < 1.8:
+        ratio = densities[bar_idx] / local_avg
+        if ratio < spike_ratio:
             continue
 
-        # Check if this bar is near a section boundary (within 2 bars)
+        # Check if this bar is near a section boundary
         bar_time = downbeats[bar_idx] if bar_idx < len(downbeats) else 0.0
         near_boundary = False
         section_label = ""
         for section in sections:
-            if abs(section.end - bar_time) < 5.0:  # within ~2 bars at 120bpm
+            if abs(section.end - bar_time) < boundary_window_s:
                 near_boundary = True
                 section_label = section.label
                 break
@@ -237,7 +286,7 @@ def _detect_fills(
             section_label=section_label,
             description=f"fill before {section_label} boundary",
             energy_delta=0.0,
-            confidence=min(1.0, (spike_ratio - 1.0) / 2.0),
+            confidence=min(1.0, (ratio - 1.0) / 2.0),
         ))
 
     return fills

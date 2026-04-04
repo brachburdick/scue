@@ -164,10 +164,10 @@ These are not part of this spec but the store and WS infrastructure enable them.
 ## Implementation Tasks
 
 1. Backend: wire `WSManager` into `init_strata_api()` and broadcast from `_run_strata_batch()`
-2. Add `"analysis_progress"` to `WSMessage` union type and `ws.ts` dispatch
-3. Create `analysisProgressStore.ts` Zustand store
-4. Create `AnalysisStatusBadge` component
-5. Mount in `TopBar.tsx`
+2. ~~Add `"analysis_progress"` to `WSMessage` union type and `ws.ts` dispatch~~ ✅ Done (ADR-024)
+3. ~~Create `analysisProgressStore.ts` Zustand store~~ ✅ Done (ADR-024)
+4. ~~Create `AnalysisStatusBadge` component~~ ✅ Done (ADR-024)
+5. ~~Mount in `TopBar.tsx`~~ ✅ Done (ADR-024)
 6. Library page: optionally replace polling with WS store data
 
 ---
@@ -189,11 +189,11 @@ These are not part of this spec but the store and WS infrastructure enable them.
 
 ## Acceptance Criteria
 
-- [ ] Header shows nothing when no analysis is running
-- [ ] Header shows progress badge during batch analysis (count + progress bar)
-- [ ] Header shows track name during single-track analysis
-- [ ] Badge updates in real-time via WebSocket (no polling)
-- [ ] Clicking badge expands dropdown with detail + cancel
-- [ ] Badge shows completion state briefly, then auto-dismisses
-- [ ] Navigating between pages does not lose analysis status
-- [ ] Starting the app while a batch is in progress picks up the status
+- [x] Header shows nothing when no analysis is running
+- [x] Header shows progress badge during batch analysis (count + progress bar)
+- [x] Header shows track name during single-track analysis
+- [x] Badge updates in real-time via WebSocket (no polling)
+- [x] Clicking badge expands dropdown with detail + cancel
+- [x] Badge shows completion state briefly, then auto-dismisses
+- [x] Navigating between pages does not lose analysis status (global Zustand store)
+- [ ] Starting the app while a batch is in progress picks up the status (requires backend broadcast on WS connect)

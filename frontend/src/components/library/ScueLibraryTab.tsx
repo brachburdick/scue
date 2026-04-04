@@ -14,35 +14,14 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTracks } from "../../api/tracks";
 import { useAnalyzeStrataBatch, useCancelStrataBatch } from "../../api/strata";
-import { startBatchAnalysis, useJobStatus, useCancelJob } from "../../api/analyze";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { TrackPreviewRow } from "./TrackPreviewRow";
 import { StrataBatchProgress } from "../strata/TierAnalysisStatus";
+import { AnalysisStatusChips, TierSummaryBar } from "../shared/AnalysisStatusChips";
 import { formatDuration, formatBpm, formatDate } from "../../utils/formatters";
 import type { TrackSummary } from "../../types";
 
 const col = createColumnHelper<TrackSummary>();
-
-function TierDot({ active, color, tooltip }: { active?: boolean; color: string; tooltip: string }) {
-  return (
-    <span title={tooltip} className={active ? color : "text-gray-700"}>
-      ●
-    </span>
-  );
-}
-
-function SourceBadge({ source }: { source: string }) {
-  const config: Record<string, { label: string; color: string }> = {
-    pioneer_enriched: { label: "RB", color: "bg-green-900/50 text-green-400" },
-    analysis: { label: "Audio", color: "bg-yellow-900/50 text-yellow-400" },
-  };
-  const badge = config[source] ?? { label: "Audio", color: "bg-yellow-900/50 text-yellow-400" };
-  return (
-    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${badge.color}`}>
-      {badge.label}
-    </span>
-  );
-}
 
 const ROW_HEIGHT = 37;
 
@@ -67,14 +46,10 @@ export function ScueLibraryTab() {
   const queryClient = useQueryClient();
   const batchMutation = useAnalyzeStrataBatch();
   const cancelBatch = useCancelStrataBatch();
-  const [batchId, setBatchId] = useState<string | null>(null);
+  const batchId = useLibraryStore((s) => s.batchId);
+  const setBatchId = useLibraryStore((s) => s.setBatchId);
   const [selectedTier, setSelectedTier] = useState<"quick" | "standard" | "deep">("quick");
   const [skipAnalyzed, setSkipAnalyzed] = useState(true);
-
-  // Base audio analysis state
-  const [audioJobId, setAudioJobId] = useState<string | null>(null);
-  const { data: audioJob } = useJobStatus(audioJobId);
-  const cancelAudioJob = useCancelJob();
 
   // Columns
   const columns = useMemo<ColumnDef<TrackSummary, unknown>[]>(() => [
@@ -98,7 +73,7 @@ export function ScueLibraryTab() {
     col.accessor("title", {
       header: "Title",
       cell: (info) => info.getValue() || "Untitled",
-      size: 200,
+      size: 250,
     }) as ColumnDef<TrackSummary, unknown>,
     col.accessor("artist", {
       header: "Artist",
@@ -120,42 +95,17 @@ export function ScueLibraryTab() {
       cell: (info) => formatDuration(info.getValue()),
       size: 70,
     }) as ColumnDef<TrackSummary, unknown>,
-    col.display({
-      id: "source",
-      header: "Source",
-      cell: (info) => <SourceBadge source={info.row.original.source} />,
-      size: 70,
-    }),
     col.accessor("created_at", {
       header: "Imported",
       cell: (info) => formatDate(info.getValue()),
       size: 100,
     }) as ColumnDef<TrackSummary, unknown>,
-    col.accessor("has_quick", {
-      header: "Q",
-      cell: (info) => <TierDot active={info.getValue()} color="text-blue-400" tooltip="Quick: fast heuristic analysis (~3-7s)" />,
-      size: 24,
-    }) as ColumnDef<TrackSummary, unknown>,
-    col.accessor("has_standard", {
-      header: "S",
-      cell: (info) => <TierDot active={info.getValue()} color="text-indigo-400" tooltip="Standard: stem separation + per-stem analysis (~1-2 min)" />,
-      size: 24,
-    }) as ColumnDef<TrackSummary, unknown>,
-    col.accessor("has_deep", {
-      header: "D",
-      cell: (info) => <TierDot active={info.getValue()} color="text-purple-400" tooltip="Deep: stem separation + ML models (~2-5 min)" />,
-      size: 24,
-    }) as ColumnDef<TrackSummary, unknown>,
-    col.accessor("has_live", {
-      header: "L",
-      cell: (info) => <TierDot active={info.getValue()} color="text-green-400" tooltip="Live: Pioneer hardware real-time data" />,
-      size: 24,
-    }) as ColumnDef<TrackSummary, unknown>,
-    col.accessor("has_live_offline", {
-      header: "L-O",
-      cell: (info) => <TierDot active={info.getValue()} color="text-emerald-400" tooltip="Live Offline: saved Pioneer data, no hardware needed" />,
-      size: 28,
-    }) as ColumnDef<TrackSummary, unknown>,
+    col.display({
+      id: "analysis",
+      header: "Analysis",
+      cell: (info) => <AnalysisStatusChips track={info.row.original} compact />,
+      size: 160,
+    }),
   ], [selectedTracks, toggleTrackSelection]);
 
   // Filtering
@@ -210,7 +160,7 @@ export function ScueLibraryTab() {
     }
   }, [allVisibleSelected, visibleTracks, setSelectedTracks]);
 
-  // Batch analysis: tier-aware stats
+  // Batch analysis: tier-aware stats — all selected tracks are eligible
   const tierHasField = { quick: "has_quick", standard: "has_standard", deep: "has_deep" } as const;
   const selectedTrackData = useMemo(
     () => tracks.filter((t) => selectedTracks.has(t.fingerprint)),
@@ -224,35 +174,9 @@ export function ScueLibraryTab() {
     () =>
       skipAnalyzed
         ? selectedTrackData.filter((t) => !t[tierHasField[selectedTier]]).map((t) => t.fingerprint)
-        : [...selectedTracks],
-    [selectedTrackData, selectedTier, skipAnalyzed, selectedTracks],
+        : selectedTrackData.map((t) => t.fingerprint),
+    [selectedTrackData, selectedTier, skipAnalyzed],
   );
-
-  // Base audio analysis: tracks that have no analysis yet (section_count === 0)
-  const needsAudioAnalysis = useMemo(
-    () => selectedTrackData.filter((t) => t.section_count === 0),
-    [selectedTrackData],
-  );
-  const audioAnalysisPaths = useMemo(
-    () => needsAudioAnalysis.filter((t) => t.audio_path).map((t) => t.audio_path),
-    [needsAudioAnalysis],
-  );
-  const isAudioJobRunning = audioJobId != null && audioJob?.status !== "complete" && audioJob?.status !== "complete_with_errors" && audioJob?.status !== "cancelled";
-
-  const handleRunAudioAnalysis = useCallback(async () => {
-    if (audioAnalysisPaths.length === 0) return;
-    try {
-      const result = await startBatchAnalysis(audioAnalysisPaths);
-      setAudioJobId(result.job_id);
-    } catch {
-      // mutation error handled by TanStack
-    }
-  }, [audioAnalysisPaths]);
-
-  const handleAudioJobDone = useCallback(() => {
-    setAudioJobId(null);
-    queryClient.invalidateQueries({ queryKey: ["tracks"] });
-  }, [queryClient]);
 
   const handleRunAnalysis = useCallback(() => {
     if (fingerprintsToAnalyze.length === 0) return;
@@ -340,77 +264,49 @@ export function ScueLibraryTab() {
               {selectedTracks.size} selected
             </span>
 
-            {/* Audio analysis button — for tracks that lack base analysis */}
-            {needsAudioAnalysis.length > 0 && (
-              <>
-                <button
-                  onClick={handleRunAudioAnalysis}
-                  disabled={isAudioJobRunning || audioAnalysisPaths.length === 0}
-                  className={`px-3 py-1.5 text-sm rounded transition-colors ${
-                    isAudioJobRunning || audioAnalysisPaths.length === 0
-                      ? "bg-emerald-800 text-emerald-300 cursor-not-allowed"
-                      : "bg-emerald-600 text-white hover:bg-emerald-500"
-                  }`}
-                >
-                  {isAudioJobRunning
-                    ? "Analyzing audio..."
-                    : `Analyze audio (${audioAnalysisPaths.length})`}
-                </button>
-                <span className="text-xs text-gray-500">
-                  {needsAudioAnalysis.length} need audio analysis
-                </span>
-              </>
-            )}
+            <select
+              value={selectedTier}
+              onChange={(e) => setSelectedTier(e.target.value as "quick" | "standard" | "deep")}
+              disabled={!!batchId}
+              className="px-2 py-1 text-sm rounded bg-gray-800 text-gray-200 border border-gray-700 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+            >
+              <option value="quick">Quick</option>
+              <option value="standard">Standard</option>
+              <option value="deep">Deep</option>
+            </select>
 
-            {/* Strata tier section — only when some tracks have base analysis */}
-            {selectedTrackData.length - needsAudioAnalysis.length > 0 && (
-              <>
-                <span className="text-gray-700">|</span>
-                <select
-                  value={selectedTier}
-                  onChange={(e) => setSelectedTier(e.target.value as "quick" | "standard" | "deep")}
-                  disabled={!!batchId || isAudioJobRunning}
-                  className="px-2 py-1 text-sm rounded bg-gray-800 text-gray-200 border border-gray-700 focus:border-blue-500 focus:outline-none disabled:opacity-50"
-                >
-                  <option value="quick">Quick</option>
-                  <option value="standard">Standard</option>
-                  <option value="deep">Deep</option>
-                </select>
+            <span className="text-xs text-gray-500">
+              {alreadyAnalyzedCount}/{selectedTrackData.length} have {selectedTier}
+            </span>
 
-                <span className="text-xs text-gray-500">
-                  {alreadyAnalyzedCount}/{selectedTracks.size} have {selectedTier}
-                </span>
+            <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={skipAnalyzed}
+                onChange={(e) => setSkipAnalyzed(e.target.checked)}
+                disabled={!!batchId}
+                className="accent-blue-500"
+              />
+              Skip done
+            </label>
 
-                <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={skipAnalyzed}
-                    onChange={(e) => setSkipAnalyzed(e.target.checked)}
-                    disabled={!!batchId || isAudioJobRunning}
-                    className="accent-blue-500"
-                  />
-                  Skip done
-                </label>
-
-                <button
-                  onClick={handleRunAnalysis}
-                  disabled={batchMutation.isPending || !!batchId || isAudioJobRunning || fingerprintsToAnalyze.length === 0}
-                  className={`px-3 py-1.5 text-sm rounded transition-colors ${
-                    batchMutation.isPending || batchId || isAudioJobRunning || fingerprintsToAnalyze.length === 0
-                      ? "bg-blue-800 text-blue-300 cursor-not-allowed"
-                      : "bg-blue-600 text-white hover:bg-blue-500"
-                  }`}
-                >
-                  {batchMutation.isPending
-                    ? "Starting..."
-                    : batchId
-                      ? "Running..."
-                      : fingerprintsToAnalyze.length === 0
-                        ? "All done"
-                        : `Run ${selectedTier} (${fingerprintsToAnalyze.length})`}
-                </button>
-              </>
-            )}
+            <button
+              onClick={handleRunAnalysis}
+              disabled={batchMutation.isPending || !!batchId || fingerprintsToAnalyze.length === 0}
+              className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                batchMutation.isPending || batchId || fingerprintsToAnalyze.length === 0
+                  ? "bg-blue-800 text-blue-300 cursor-not-allowed"
+                  : "bg-blue-600 text-white hover:bg-blue-500"
+              }`}
+            >
+              {batchMutation.isPending
+                ? "Starting..."
+                : batchId
+                  ? "Running..."
+                  : fingerprintsToAnalyze.length === 0
+                    ? "All done"
+                    : `Run ${selectedTier} (${fingerprintsToAnalyze.length})`}
+            </button>
 
             {/* Open in Analysis */}
             <button
@@ -429,68 +325,6 @@ export function ScueLibraryTab() {
         </div>
       )}
 
-      {/* Audio analysis progress */}
-      {audioJobId && audioJob && (() => {
-        const pct = audioJob.total > 0 ? Math.round((audioJob.completed / audioJob.total) * 100) : 0;
-        const isDone = audioJob.status === "complete" || audioJob.status === "complete_with_errors";
-        const isCancelled = audioJob.status === "cancelled";
-        const isRunning = audioJob.status === "running" || audioJob.status === "pending";
-
-        return (
-          <div className="px-4 py-3 bg-gray-950 rounded border border-gray-800 space-y-2">
-            <div className="flex justify-between items-center text-xs text-gray-400">
-              <span>
-                {isCancelled
-                  ? <span className="text-yellow-400">Cancelled — {audioJob.completed}/{audioJob.total} completed</span>
-                  : isDone
-                    ? <span className="text-green-400">Audio analysis complete — {audioJob.completed} succeeded{audioJob.failed > 0 ? `, ${audioJob.failed} failed` : ""}</span>
-                    : `Analyzing: ${audioJob.current_file ?? "..."}`}
-              </span>
-              <div className="flex items-center gap-3">
-                <span>{audioJob.completed}/{audioJob.total} ({pct}%)</span>
-                {isRunning && (
-                  <button
-                    onClick={() => cancelAudioJob.mutate(audioJobId)}
-                    disabled={cancelAudioJob.isPending}
-                    className="px-2 py-0.5 text-xs font-medium rounded bg-red-900/50 hover:bg-red-800 text-red-300 border border-red-800 transition-colors"
-                  >
-                    Stop
-                  </button>
-                )}
-                {(isDone || isCancelled) && (
-                  <button
-                    onClick={handleAudioJobDone}
-                    className="px-2 py-0.5 text-xs font-medium rounded bg-gray-700 hover:bg-gray-600 text-gray-300 border border-gray-600 transition-colors"
-                  >
-                    Dismiss
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="w-full bg-gray-800 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full transition-all ${isCancelled ? "bg-yellow-500" : isDone ? "bg-green-500" : "bg-emerald-500"}`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            {isRunning && audioJob.current_step_name && (
-              <div>
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
-                  <span>{audioJob.current_step_name}</span>
-                  <span>{audioJob.current_step}/{audioJob.total_steps}</span>
-                </div>
-                <div className="w-full bg-gray-800 rounded-full h-1">
-                  <div
-                    className="h-1 rounded-full bg-cyan-500 transition-all"
-                    style={{ width: `${audioJob.total_steps > 0 ? (audioJob.current_step / audioJob.total_steps) * 100 : 0}%` }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
       {/* Strata batch progress */}
       {batchId && (
         <StrataBatchProgress
@@ -498,6 +332,11 @@ export function ScueLibraryTab() {
           onComplete={handleBatchComplete}
           onCancel={handleBatchCancel}
         />
+      )}
+
+      {/* Tier summary */}
+      {visibleTracks.length > 0 && (
+        <TierSummaryBar tracks={visibleTracks} />
       )}
 
       {/* Table */}
@@ -562,7 +401,11 @@ export function ScueLibraryTab() {
                         onClick={() => handleRowClick(fp)}
                       >
                         {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id} className="px-2 py-1.5 whitespace-nowrap">
+                          <td
+                            key={cell.id}
+                            className="px-2 py-1.5 whitespace-nowrap overflow-hidden text-ellipsis"
+                            style={{ maxWidth: cell.column.getSize() }}
+                          >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </td>
                         ))}

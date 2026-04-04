@@ -7,6 +7,10 @@ export type TransitionType = "layer_enter" | "layer_exit" | "pattern_change" | "
 export type StrataTier = "quick" | "standard" | "deep" | "live" | "live_offline";
 export type AnalysisSource = "analysis" | "pioneer_enriched" | "pioneer_reanalyzed" | "pioneer_live";
 
+/** Substep IDs for the strategy system. */
+export type SubstepId = "transition_detection" | "energy_trend" | "fill_detection";
+export type StrategyName = string;
+
 export interface ActivitySpan {
   start: number;
   end: number;
@@ -116,13 +120,22 @@ export interface ArrangementFormula {
   stem_separation_model: string;
   compute_time_seconds: number;
   created_at: number;
+  variant: string;
+  substep_strategies: Record<string, string>;
 }
 
-/** API response: all tiers for a track (nested: tier → source → formula). */
+/** API response: all tiers for a track (nested: tier → source → formula or variant map). */
 export interface StrataAllTiersResponse {
   fingerprint: string;
-  tiers: Partial<Record<StrataTier, Partial<Record<AnalysisSource, ArrangementFormula>>>>;
+  tiers: Partial<Record<StrataTier, Partial<Record<AnalysisSource, ArrangementFormula | Record<string, ArrangementFormula>>>>>;
   available_tiers: StrataTier[];
+  available_variants: string[];
+}
+
+/** API response: variant configuration for Lab mode. */
+export interface VariantsResponse {
+  presets: Record<string, Record<SubstepId, StrategyName>>;
+  available_strategies: Record<SubstepId, StrategyName[]>;
 }
 
 /** API response: single tier + source. */
@@ -188,6 +201,9 @@ export interface StrataJobStatus {
   current_step_name: string;
   total_steps: number;
   error: string | null;
+  needs_base: boolean;
+  phase: "base" | "tier";
+  title: string;
 }
 
 /** Strata batch job status (for multi-track analysis). */

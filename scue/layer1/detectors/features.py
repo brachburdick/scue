@@ -49,11 +49,12 @@ class AudioFeatures:
     stacked_matrix: Any = None       # (n_frames, n_features)
 
 
-def extract_all(audio_path: str) -> AudioFeatures:
+def extract_all(audio_path: str, cache_dir: str | None = None) -> AudioFeatures:
     """Extract all audio features from an audio file.
 
     Args:
         audio_path: Path to the audio file.
+        cache_dir: If provided, save features to this directory after extraction.
 
     Returns:
         AudioFeatures with all fields populated.
